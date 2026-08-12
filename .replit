@@ -1,5 +1,60 @@
+modules = ["nodejs-20", "python-3.11"]
 [nix]
 channel = "stable-25_05"
+packages = ["cargo", "glibcLocales", "libiconv", "libxcrypt", "rustc"]
 
 [agent]
 expertMode = true
+
+[userenv]
+
+[userenv.shared]
+# Non-sensitive service configuration — safe to commit.
+# Secrets (MONGODB_URI, JWT_SECRET, JWT_REFRESH_SECRET, ENCRYPTION_KEY) must be
+# stored in Replit Secrets (padlock icon in the sidebar), NOT here.
+AI_ENGINE_PORT = "8000"
+AI_ENGINE_URL = "http://localhost:8000"
+API_PORT = "3001"
+LOCAL_AI_BASE_URL = "http://localhost:8080"
+LOCAL_AI_ENABLED = "false"
+LOCAL_AI_ENGINE = "llamacpp"
+NEXT_PORT = "5000"
+NEXT_PUBLIC_API_URL = ""
+NODE_ENV = "development"
+NEXT_API_URL = "http://localhost:3001"
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Start application"
+
+[[workflows.workflow]]
+name = "Start application"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npx concurrently --names 'WEB,API,AI' --prefix-colors 'green,blue,yellow' --kill-others-on-fail 'cd apps/web && npm run dev' 'cd apps/api && npm run start:dev' 'cd services/ai-engine && python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload'"
+waitForPort = 5000
+
+[workflows.workflow.metadata]
+outputType = "webview"
+
+[[ports]]
+localPort = 3001
+externalPort = 3001
+
+[[ports]]
+localPort = 5000
+externalPort = 80
+
+[[ports]]
+localPort = 8000
+externalPort = 8000

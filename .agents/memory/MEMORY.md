@@ -1,0 +1,2 @@
+- [Thanarah AI project overview](thanarah-overview.md) — monorepo: Next.js/5000, NestJS/3001, FastAPI/8000; Arabic-first RTL
+- [MongoDB Atlas connection](mongodb-atlas.md) — lazyConnection:true required; IP whitelist needed for Replit container

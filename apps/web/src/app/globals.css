@@ -1,0 +1,67 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+Arabic:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --thanarah-green: #2d8a5e;
+  --thanarah-dark: #1a5f3f;
+  --thanarah-light: #f0f9f4;
+  --bg-primary: #fafafa;
+  --bg-secondary: #f4f4f3;
+  --border: #e5e5e3;
+  --text-primary: #1a1a1a;
+  --text-secondary: #6b6b6b;
+  --text-muted: #9b9b9b;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  padding: 0;
+  margin: 0;
+  font-family: 'Inter', system-ui, sans-serif;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+/* Arabic RTL font */
+[lang="ar"], [dir="rtl"], .font-arabic {
+  font-family: 'Noto Sans Arabic', 'Tahoma', sans-serif;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #d0d0d0; border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: #b0b0b0; }
+
+/* Chat message prose */
+.prose-chat {
+  @apply text-sm leading-relaxed;
+}
+.prose-chat p { @apply mb-3 last:mb-0; }
+.prose-chat pre { @apply bg-gray-900 text-gray-100 rounded-lg p-4 overflow-x-auto text-xs my-3; }
+.prose-chat code:not(pre code) { @apply bg-gray-100 text-gray-800 rounded px-1 py-0.5 text-xs font-mono; }
+.prose-chat ul { @apply list-disc list-inside mb-3 space-y-1; }
+.prose-chat ol { @apply list-decimal list-inside mb-3 space-y-1; }
+.prose-chat table { @apply w-full border-collapse text-sm my-3; }
+.prose-chat th { @apply border border-gray-200 bg-gray-50 px-3 py-2 text-left font-semibold; }
+.prose-chat td { @apply border border-gray-200 px-3 py-2; }
+.prose-chat blockquote { @apply border-l-4 border-thanarah-600 pl-4 italic text-gray-600 my-3; }
+.prose-chat h1, .prose-chat h2, .prose-chat h3 { @apply font-semibold mb-2 mt-4; }
+.prose-chat h1 { @apply text-lg; }
+.prose-chat h2 { @apply text-base; }
+.prose-chat h3 { @apply text-sm; }
+.prose-chat strong { @apply font-semibold; }
+
+/* Typing dots */
+.typing-dot {
+  @apply w-1.5 h-1.5 bg-thanarah-600 rounded-full animate-pulse-subtle;
+}
+.typing-dot:nth-child(2) { animation-delay: 0.2s; }
+.typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+/* Sidebar transition */
+.sidebar-transition { transition: width 0.3s ease, transform 0.3s ease; }

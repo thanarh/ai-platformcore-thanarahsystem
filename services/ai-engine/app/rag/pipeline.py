@@ -1,0 +1,212 @@
+"""
+Thanarah RAG Pipeline
+Upload → Parse → Clean → Chunk → Embed → Store → Retrieve → Rank → Context → LLM
+Vector storage is behind an abstraction — backend can be changed later.
+"""
+import logging
+import io
+from typing import List, Optional
+import numpy as np
+from app.database import get_db
+
+logger = logging.getLogger(__name__)
+
+
+def cosine_similarity(a: List[float], b: List[float]) -> float:
+    """Compute cosine similarity between two vectors."""
+    a_arr = np.array(a)
+    b_arr = np.array(b)
+    norm_a = np.linalg.norm(a_arr)
+    norm_b = np.linalg.norm(b_arr)
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    return float(np.dot(a_arr, b_arr) / (norm_a * norm_b))
+
+
+class EmbeddingModel:
+    """
+    Simple TF-IDF based embedding for development.
+    Replace with a real embedding model (e.g., sentence-transformers, OpenAI embeddings) for production.
+    """
+
+    def encode(self, text: str) -> List[float]:
+        """Produce a simple hash-based pseudo-embedding for development."""
+        # Simple bag-of-words style vector for demo purposes
+        # In production, use: sentence-transformers, OpenAI text-embedding-3-small, etc.
+        import hashlib
+        words = text.lower().split()
+        dim = 128
+        vector = [0.0] * dim
+        for word in words:
+            h = int(hashlib.md5(word.encode()).hexdigest(), 16)
+            idx = h % dim
+            vector[idx] += 1.0
+        # Normalize
+        norm = sum(v * v for v in vector) ** 0.5
+        if norm > 0:
+            vector = [v / norm for v in vector]
+        return vector
+
+
+class DocumentParser:
+    """Parse various document formats into text."""
+
+    def parse_pdf(self, content: bytes) -> str:
+        try:
+            import PyPDF2
+            reader = PyPDF2.PdfReader(io.BytesIO(content))
+            text = []
+            for page in reader.pages:
+                text.append(page.extract_text() or "")
+            return "\n\n".join(text)
+        except Exception as e:
+            logger.error(f"PDF parse error: {e}")
+            return ""
+
+    def parse_docx(self, content: bytes) -> str:
+        try:
+            from docx import Document
+            doc = Document(io.BytesIO(content))
+            return "\n".join(para.text for para in doc.paragraphs if para.text.strip())
+        except Exception as e:
+            logger.error(f"DOCX parse error: {e}")
+            return ""
+
+    def parse_text(self, content: bytes) -> str:
+        try:
+            import chardet
+            detected = chardet.detect(content)
+            encoding = detected.get("encoding", "utf-8") or "utf-8"
+            return content.decode(encoding)
+        except Exception:
+            return content.decode("utf-8", errors="ignore")
+
+    def parse(self, content: bytes, mime_type: str) -> str:
+        if "pdf" in mime_type:
+            return self.parse_pdf(content)
+        elif "docx" in mime_type or "openxmlformats" in mime_type:
+            return self.parse_docx(content)
+        else:
+            return self.parse_text(content)
+
+
+class TextChunker:
+    """Split text into overlapping chunks for retrieval."""
+
+    def __init__(self, chunk_size: int = 500, overlap: int = 50):
+        self.chunk_size = chunk_size
+        self.overlap = overlap
+
+    def chunk(self, text: str) -> List[str]:
+        words = text.split()
+        chunks = []
+        start = 0
+        while start < len(words):
+            end = min(start + self.chunk_size, len(words))
+            chunk = " ".join(words[start:end])
+            if chunk.strip():
+                chunks.append(chunk.strip())
+            if end >= len(words):
+                break
+            start = end - self.overlap
+        return chunks
+
+
+class RAGPipeline:
+    """
+    Full RAG pipeline with MongoDB-backed vector storage.
+    The embedding and vector backend are abstracted — swap without changing this class.
+    """
+
+    def __init__(self):
+        self.embedder = EmbeddingModel()
+        self.parser = DocumentParser()
+        self.chunker = TextChunker()
+
+    async def ingest(
+        self,
+        source_id: str,
+        tenant_id: str,
+        content: bytes,
+        mime_type: str = "text/plain",
+    ) -> int:
+        """Parse, chunk, embed, and store a document. Returns chunk count."""
+        db = get_db()
+        if db is None:
+            logger.warning("Database not available for RAG ingest")
+            return 0
+
+        # Parse
+        text = self.parser.parse(content, mime_type)
+        if not text.strip():
+            return 0
+
+        # Chunk
+        chunks = self.chunker.chunk(text)
+
+        # Embed and store
+        stored = 0
+        for i, chunk in enumerate(chunks):
+            embedding = self.embedder.encode(chunk)
+            await db.knowledge_chunks.insert_one({
+                "sourceId": source_id,
+                "tenantId": tenant_id,
+                "content": chunk,
+                "embedding": embedding,
+                "chunkIndex": i,
+                "totalChunks": len(chunks),
+            })
+            stored += 1
+
+        logger.info(f"Ingested {stored} chunks for source {source_id}")
+        return stored
+
+    async def retrieve(
+        self,
+        tenant_id: str,
+        query: str,
+        limit: int = 5,
+        threshold: float = 0.1,
+    ) -> List[dict]:
+        """Retrieve the most relevant chunks for a query."""
+        db = get_db()
+        if db is None:
+            return []
+
+        query_embedding = self.embedder.encode(query)
+
+        # Get all chunks for this tenant (small scale — use a real vector DB for production)
+        chunks = await db.knowledge_chunks.find({"tenantId": tenant_id}).to_list(length=1000)
+
+        if not chunks:
+            return []
+
+        # Rank by cosine similarity
+        scored = []
+        for chunk in chunks:
+            embedding = chunk.get("embedding", [])
+            if embedding:
+                score = cosine_similarity(query_embedding, embedding)
+                if score >= threshold:
+                    scored.append({
+                        "content": chunk["content"],
+                        "sourceId": chunk["sourceId"],
+                        "score": score,
+                        "chunkIndex": chunk.get("chunkIndex", 0),
+                    })
+
+        # Sort by score descending
+        scored.sort(key=lambda x: x["score"], reverse=True)
+        return scored[:limit]
+
+    async def ingest_text(self, source_id: str, tenant_id: str, text: str) -> int:
+        """Ingest plain text directly."""
+        return await self.ingest(
+            source_id, tenant_id, text.encode("utf-8"), "text/plain"
+        )
+
+    async def delete_source(self, source_id: str):
+        """Remove all chunks for a source."""
+        db = get_db()
+        if db:
+            await db.knowledge_chunks.delete_many({"sourceId": source_id})
