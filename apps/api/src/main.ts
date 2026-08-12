@@ -5,6 +5,18 @@ import { AppModule } from './app.module';
 import helmet from 'helmet';
 import * as compression from 'compression';
 
+// MongoDB Atlas connection errors (e.g. IP not yet whitelisted) must not crash
+// the API process.  NestJS uses lazyConnection so the server is fully functional
+// for non-DB routes; DB routes return errors until Atlas is reachable.
+process.on('unhandledRejection', (reason: unknown) => {
+  const msg = reason instanceof Error ? reason.message : String(reason);
+  if (msg.includes('MongoServerSelectionError') || msg.includes('MongoNetworkError') || msg.includes('SSL')) {
+    console.warn('⚠️  MongoDB not reachable (connection will retry):', msg.slice(0, 120));
+  } else {
+    console.error('Unhandled rejection:', reason);
+  }
+});
+
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     logger: ['error', 'warn', 'log'],

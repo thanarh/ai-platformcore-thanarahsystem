@@ -31,8 +31,8 @@ import { HealthModule } from './modules/health/health.module';
       dbName: 'thanarah_ai',
       tls: true,
       bufferCommands: true,
-      serverSelectionTimeoutMS: 30000,
-      connectTimeoutMS: 30000,
+      serverSelectionTimeoutMS: 5000,
+      connectTimeoutMS: 10000,
       lazyConnection: true,
       onConnectionCreate: (connection: any) => {
         connection.on('error', (err: Error) =>
