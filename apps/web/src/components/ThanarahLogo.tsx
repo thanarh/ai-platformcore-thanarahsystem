@@ -1,13 +1,24 @@
 'use client';
-import Image from 'next/image';
 import { cn } from '@/lib/utils';
 
-const sizes = {
-  sm: { w: 80,  h: 32  },
-  md: { w: 110, h: 44  },
-  lg: { w: 160, h: 64  },
-};
+const V = '?v=2'; // bump this whenever logo files are replaced
 
+// Icon-only — the 4-petal cross mark
+export function ThanarahIcon({ className, size = 36 }: { className?: string; size?: number }) {
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={`/thanarah-icon.png${V}`}
+      alt="Thanarah AI"
+      width={size}
+      height={size}
+      style={{ width: size, height: size, objectFit: 'contain', display: 'block' }}
+      className={className}
+    />
+  );
+}
+
+// Full horizontal logo — icon + ثناره + THANARAH AI
 export function ThanarahLogoFull({
   className,
   size = 'md',
@@ -15,31 +26,16 @@ export function ThanarahLogoFull({
   className?: string;
   size?: 'sm' | 'md' | 'lg';
 }) {
-  const { w, h } = sizes[size];
+  const heights: Record<string, number> = { sm: 36, md: 52, lg: 72 };
+  const h = heights[size];
   return (
-    <Image
-      src="/thanarah-logo.png"
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={`/thanarah-logo.png${V}`}
       alt="Thanarah AI"
-      width={w}
       height={h}
-      className={cn('object-contain', className)}
-      style={{ width: 'auto', height: h }}
-      priority
-    />
-  );
-}
-
-// Keep backward-compat exports used elsewhere in the codebase
-export function ThanarahIcon({ className }: { className?: string }) {
-  return (
-    <Image
-      src="/thanarah-logo.png"
-      alt="Thanarah AI"
-      width={32}
-      height={32}
-      style={{ width: 'auto', height: 32 }}
-      className={cn('object-contain', className)}
-      priority
+      style={{ height: h, width: 'auto', objectFit: 'contain', display: 'block' }}
+      className={cn(className)}
     />
   );
 }
