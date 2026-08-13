@@ -1,6 +1,13 @@
 """
 Backend Registry — manages all AI backends.
-Add or remove backends here without changing any other code.
+
+Priority order (higher = preferred):
+  90 — Local llama.cpp (PRIMARY — always-first, no external dependency)
+  70 — OpenAI (BYOK, optional)
+  60 — Anthropic (BYOK, optional)
+   1 — Fallback (always-last, returns clean status message)
+
+Add new backends here without changing any other code.
 """
 import logging
 from typing import Dict, List, Optional
@@ -16,6 +23,9 @@ class BackendRegistry:
     """
     Central registry for all AI backends.
     Provides health monitoring and backend lookup.
+
+    Design principle: the system must work without ANY external API key.
+    External providers are BYOK add-ons, never requirements.
     """
 
     def __init__(self):
@@ -24,21 +34,33 @@ class BackendRegistry:
     async def initialize(self):
         """Register all configured backends."""
 
-        # Always register fallback
+        # ── 1. Always register fallback (last resort, no network needed) ──
         self._register(FallbackBackend())
 
-        # Register local llama.cpp if enabled
+        # ── 2. Local llama.cpp — PRIMARY backend ──────────────────────────
+        # Registered whenever LOCAL_AI_ENABLED=true (default).
+        # If the llama.cpp server is not running, requests fall through to
+        # the fallback which returns a clean "not connected" message.
         if settings.local_ai_enabled:
             llamacpp = LlamaCppBackend()
             self._register(llamacpp)
-            logger.info(f"✓ Local llama.cpp backend registered ({settings.local_ai_base_url})")
+            logger.info(
+                f"✓ Local llama.cpp backend registered "
+                f"(url={settings.local_ai_base_url}, "
+                f"model={settings.local_ai_model or 'auto-detect'})"
+            )
+        else:
+            logger.warning(
+                "⚠ Local AI disabled (LOCAL_AI_ENABLED=false). "
+                "Set LOCAL_AI_ENABLED=true to enable the primary backend."
+            )
 
-        # Register OpenAI if key provided
+        # ── 3. OpenAI — BYOK, optional, disabled by default ───────────────
         if settings.openai_api_key:
             from app.backends.openai_compatible import OpenAICompatibleBackend
             openai_backend = OpenAICompatibleBackend(
                 backend_id="openai",
-                name="OpenAI",
+                name="OpenAI (BYOK)",
                 base_url="https://api.openai.com/v1",
                 api_key=settings.openai_api_key,
                 model="gpt-4o-mini",
@@ -46,9 +68,21 @@ class BackendRegistry:
             )
             openai_backend.priority = 70
             self._register(openai_backend)
-            logger.info("✓ OpenAI backend registered")
+            logger.info("✓ OpenAI BYOK backend registered (optional)")
 
-        logger.info(f"Backend registry initialized: {list(self._backends.keys())}")
+        # ── 4. Anthropic — BYOK, optional, disabled by default ────────────
+        if settings.anthropic_api_key:
+            from app.backends.anthropic import AnthropicBackend
+            anthropic_backend = AnthropicBackend(api_key=settings.anthropic_api_key)
+            self._register(anthropic_backend)
+            logger.info("✓ Anthropic BYOK backend registered (optional)")
+
+        # ── Summary ───────────────────────────────────────────────────────
+        active = [b for b in self._backends.values() if b.backend_id != "fallback"]
+        logger.info(
+            f"Backend registry initialized: {list(self._backends.keys())} "
+            f"| Primary: {'local-llamacpp' if 'local-llamacpp' in self._backends else 'fallback'}"
+        )
 
     def _register(self, backend: AIBackend):
         self._backends[backend.backend_id] = backend
