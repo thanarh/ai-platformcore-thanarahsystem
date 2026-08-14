@@ -15,13 +15,14 @@ expertMode = true
 AI_ENGINE_PORT = "8000"
 AI_ENGINE_URL = "http://localhost:8000"
 API_PORT = "3001"
-LOCAL_AI_BASE_URL = "http://localhost:8080"
+LOCAL_AI_BASE_URL = "http://localhost:11434"
 LOCAL_AI_ENABLED = "true"
 LOCAL_AI_ENGINE = "llamacpp"
 NEXT_PORT = "5000"
 NEXT_PUBLIC_API_URL = ""
 NODE_ENV = "development"
 NEXT_API_URL = "http://localhost:3001"
+LOCAL_AI_MODEL = "qwen2.5:0.5b"
 
 [workflows]
 runButton = "Project"
@@ -39,13 +40,13 @@ args = "Start application"
 name = "Start application"
 author = "agent"
 
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "npx concurrently --names 'WEB,API,AI' --prefix-colors 'green,blue,yellow' --kill-others-on-fail 'cd apps/web && npm run dev' 'cd apps/api && npm run start:dev' 'cd services/ai-engine && python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload'"
-waitForPort = 5000
-
 [workflows.workflow.metadata]
 outputType = "webview"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npx concurrently --names 'WEB,API,AI,OLLAMA' --prefix-colors 'green,blue,yellow,magenta' --kill-others-on-fail 'cd apps/web && npm run dev' 'cd apps/api && npm run start:dev' 'cd services/ai-engine && python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload' 'OLLAMA_HOME=/home/runner/workspace/.ollama OLLAMA_MODELS=/home/runner/workspace/.ollama/models /home/runner/.local/bin/ollama serve'"
+waitForPort = 5000
 
 [[ports]]
 localPort = 3001
