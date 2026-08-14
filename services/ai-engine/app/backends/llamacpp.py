@@ -18,13 +18,16 @@ class LlamaCppBackend(OpenAICompatibleBackend):
     """
 
     def __init__(self):
+        import httpx
         super().__init__(
             backend_id="local-llamacpp",
             name="Local llama.cpp",
             base_url=f"{settings.local_ai_base_url}/v1",
             api_key="not-required",
             model=settings.local_ai_model or None,
-            timeout=120,
+            # Short connect timeout so we fail-fast when server is not running.
+            # Long read timeout to allow actual inference to complete.
+            timeout=httpx.Timeout(connect=3.0, read=180.0, write=10.0, pool=5.0),
         )
         self.priority = 90  # Prefer local AI when available
         self.enabled = settings.local_ai_enabled

@@ -69,6 +69,17 @@ export default function Sidebar() {
         />
       )}
 
+      {/* Always-visible toggle button on mobile when sidebar is closed */}
+      {!sidebarOpen && (
+        <button
+          onClick={toggleSidebar}
+          className="fixed top-3 right-3 z-40 p-2 bg-white shadow-sm border border-gray-200 rounded-lg text-gray-500 hover:bg-gray-100 transition lg:hidden"
+          aria-label="فتح القائمة"
+        >
+          <Menu className="w-4 h-4" />
+        </button>
+      )}
+
       {/* Sidebar */}
       <aside
         className={cn(
@@ -86,6 +97,7 @@ export default function Sidebar() {
               <button
                 onClick={toggleSidebar}
                 className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-500 transition"
+                aria-label="إغلاق القائمة"
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
@@ -94,6 +106,7 @@ export default function Sidebar() {
             <button
               onClick={toggleSidebar}
               className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-500 transition mx-auto"
+              aria-label="فتح القائمة"
             >
               <Menu className="w-4 h-4" />
             </button>

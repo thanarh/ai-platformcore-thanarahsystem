@@ -37,13 +37,13 @@ class OpenAICompatibleBackend(AIBackend):
         base_url: str,
         api_key: Optional[str] = None,
         model: Optional[str] = None,
-        timeout: int = 90,
+        timeout=90,  # int seconds OR httpx.Timeout object
     ):
         super().__init__(backend_id, name)
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key or "not-required"
         self.default_model = model
-        self.timeout = timeout
+        self.timeout = timeout  # passed directly to httpx — supports Timeout objects
         self._client = None
 
     def _get_client(self) -> httpx.AsyncClient:

@@ -182,7 +182,12 @@ class IntelligenceRouter:
         )
 
     async def stream_route(self, chat_request: ChatRequest):
-        """Route and stream a chat request."""
+        """Route and stream a chat request with resilient fallback.
+
+        Returns (async_generator, route, rag_sources).
+        The generator tries each backend in priority order and falls through
+        on connection errors — even mid-stream failures are caught gracefully.
+        """
         route = self._decide_route(chat_request)
         logger.info(f"[TIR Stream] Route: {route.backend_id}")
 
@@ -205,18 +210,30 @@ class IntelligenceRouter:
         ai_request.stream = True
 
         backends_to_try = [route.backend_id] + route.fallback_order
+        registry = self.registry
 
-        for backend_id in backends_to_try:
-            backend = self.registry.get(backend_id)
-            if not backend:
-                continue
-            try:
-                return backend.stream_chat(ai_request), route, rag_sources
-            except Exception as e:
-                logger.warning(f"[TIR Stream] Backend {backend_id} failed: {e}")
-                continue
+        async def _resilient_stream() -> AsyncGenerator[str, None]:
+            """
+            Iterates backends in priority order.
+            Falls through to the next backend on ANY error — including
+            errors that surface during iteration (e.g. connection refused).
+            """
+            for backend_id in backends_to_try:
+                backend = registry.get(backend_id)
+                if not backend:
+                    continue
+                try:
+                    logger.info(f"[TIR Stream] Trying backend: {backend_id}")
+                    async for token in backend.stream_chat(ai_request):
+                        yield token
+                    return  # stream completed successfully
+                except Exception as e:
+                    logger.warning(
+                        f"[TIR Stream] Backend '{backend_id}' failed: {e} — trying next"
+                    )
+                    continue
 
-        async def _fallback_gen():
-            yield "تعذر إكمال الطلب. حاول مرة أخرى."
+            # All backends exhausted — should not reach here since fallback always succeeds
+            yield "تعذر إكمال الطلب. حاول مرة أخرى.\n\nUnable to complete the request."
 
-        return _fallback_gen(), route, []
+        return _resilient_stream(), route, rag_sources
