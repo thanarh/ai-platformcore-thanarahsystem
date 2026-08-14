@@ -6,10 +6,10 @@ description: Ollama setup, model paths, env vars, and backend registry behavior 
 # Local-first AI Architecture
 
 ## Runtime Stack
-- **Ollama** binary: `/home/runner/.local/bin/ollama` (v0.32.9)
-- **Ollama libs** (llama-server + CPU SOs): `/home/runner/.local/lib/ollama/`
+- **Ollama** binary: `/home/runner/workspace/.ollama-lib/bin/ollama` (v0.32.9) — stored in WORKSPACE, survives restarts
+- **Ollama libs** (llama-server + CPU SOs): `/home/runner/workspace/.ollama-lib/lib/ollama/` — WORKSPACE, survives restarts
 - **Models storage**: `/home/runner/workspace/.ollama/models` (256GB workspace, persists)
-- **Ollama port**: `11434` (not 8080 — that was the original llama.cpp assumption)
+- **Ollama port**: `11434`
 
 ## Env Vars
 - `LOCAL_AI_ENABLED=true` — enables local backend in registry
@@ -19,7 +19,7 @@ description: Ollama setup, model paths, env vars, and backend registry behavior 
 ## Workflow Command
 Ollama runs as the 4th service in concurrently:
 ```
-OLLAMA_HOME=/home/runner/workspace/.ollama OLLAMA_MODELS=/home/runner/workspace/.ollama/models /home/runner/.local/bin/ollama serve
+OLLAMA_HOME=/home/runner/workspace/.ollama OLLAMA_MODELS=/home/runner/workspace/.ollama/models OLLAMA_LIBRARY_PATH=/home/runner/workspace/.ollama-lib/lib/ollama /home/runner/workspace/.ollama-lib/bin/ollama serve
 ```
 
 ## Priority Order (registry.py)

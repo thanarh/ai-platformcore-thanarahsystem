@@ -1,0 +1,1642 @@
+# THANARAH AI — FINAL MASTER BUILD PROMPT
+
+You are building a real production-grade AI platform named:
+
+# THANARAH AI | ثناره AI
+
+This system is part of the Thanarah ecosystem.
+
+This is NOT:
+
+* a demo chatbot
+* a simple OpenAI wrapper
+* a Groq wrapper
+* a Gemini wrapper
+* an Anthropic wrapper
+* a single-provider application
+* a temporary Replit-only project
+
+The goal is to build an independent AI infrastructure owned by Thanarah that can serve clinics, companies, employees, developers, and future Thanarah products.
+
+The system must be designed from day one to scale from a development environment to a multi-node AI infrastructure capable of serving a very large number of users.
+
+---
+
+# 1. CORE PRINCIPLE
+
+The most important architectural rule is:
+
+> Thanarah must own the AI platform, routing, data, memory, knowledge, APIs, tools, workflows and local/self-hosted inference capability.
+
+External AI companies must NEVER become a required dependency.
+
+The platform must work without:
+
+* OpenAI API
+* Anthropic API
+* Gemini API
+* Groq API
+* DeepSeek API
+* any other commercial AI provider
+
+External providers may exist only as OPTIONAL adapters.
+
+They must be disabled by default.
+
+---
+
+# 2. PRIMARY AI STRATEGY
+
+Primary AI architecture:
+
+```text
+Thanarah AI
+    ↓
+Thanarah Intelligence Router
+    ↓
+Self-hosted AI infrastructure
+    ↓
+Open-weight models
+    ↓
+llama.cpp / Ollama initially
+    ↓
+vLLM / GPU cluster later
+```
+
+Initial supported model families:
+
+* Qwen
+* Llama
+* Gemma
+* Mistral
+* compatible GGUF/open-weight models
+
+Do NOT hardcode the system to one model.
+
+Model selection must be configurable.
+
+---
+
+# 3. MULTI-NODE FUTURE ARCHITECTURE
+
+The architecture must support horizontal scaling.
+
+Today we may have one AI node.
+
+Later:
+
+```text
+Thanarah AI Gateway
+        ↓
+Load Balancer
+        ↓
+Thanarah Intelligence Router
+        ↓
+┌─────────────┬─────────────┬─────────────┐
+│ AI Node 01  │ AI Node 02  │ AI Node 03  │
+│ small model │ main model  │ main model  │
+└─────────────┴─────────────┴─────────────┘
+```
+
+Adding a new AI node must not require rebuilding the entire application.
+
+Create an AI Node registry.
+
+Each node should support:
+
+* ID
+* URL
+* engine type
+* model
+* health status
+* latency
+* load
+* priority
+* enabled/disabled
+* last health check
+
+---
+
+# 4. INTELLIGENCE ROUTER
+
+Create:
+
+# Thanarah Intelligence Router — TIR
+
+Every AI request must pass through it.
+
+It decides:
+
+* which AI node
+* which model
+* whether RAG is required
+* whether memory is required
+* whether a tool is required
+* whether a workflow is required
+* whether client-side AI may handle the request later
+* fallback route
+* model availability
+* latency
+* server load
+* request complexity
+
+Architecture:
+
+```text
+User Request
+    ↓
+Language Understanding
+    ↓
+Tenant Context
+    ↓
+Memory Retrieval
+    ↓
+RAG Retrieval
+    ↓
+Thanarah Intelligence Router
+    ↓
+AI / Tool / Workflow
+    ↓
+Response
+```
+
+---
+
+# 5. USER LANGUAGE UNDERSTANDING
+
+Thanarah AI must understand natural human language.
+
+Arabic is a first-class language.
+
+Support:
+
+* Modern Standard Arabic
+* Saudi Arabic
+* Gulf Arabic
+* Egyptian Arabic
+* Levantine Arabic
+* mixed Arabic/English
+* spelling mistakes
+* missing punctuation
+* informal writing
+* incomplete descriptions
+* reasonable Arabizi interpretation
+
+Example:
+
+User:
+
+"انا كنت حاجز عندكو الشهر الي فات عند د ريم وكان تنظيف تقريبا وعايز اعرف باقي عليا حاجه"
+
+Internally understand:
+
+```json
+{
+  "intent": "check_previous_visit",
+  "doctor": "Reem",
+  "approximate_date": "last month",
+  "service": "cleaning",
+  "request": "check_outstanding_balance"
+}
+```
+
+Do NOT expose internal JSON to the customer.
+
+Respond naturally in the customer's language and style.
+
+---
+
+# 6. THANARAH AI IS NOT RULE-BASED
+
+Do NOT replace AI understanding with a large set of hardcoded keyword rules.
+
+Rules may assist routing and validation.
+
+The AI model must still understand:
+
+* dialect
+* context
+* ambiguity
+* spelling errors
+* incomplete descriptions
+* natural conversation
+
+---
+
+# 7. CLINIC / COMPANY BRAIN
+
+Each tenant must have an isolated AI brain.
+
+For a clinic:
+
+```text
+Clinic Brain
+
+Identity
+Doctors
+Services
+Prices
+Working Hours
+Policies
+FAQs
+Documents
+Appointments
+Internal Knowledge
+Previous Allowed Context
+Preferences
+Communication Style
+Tools
+Integrations
+```
+
+Do not send the full clinic database with every AI request.
+
+Use retrieval.
+
+Only relevant context should be injected.
+
+---
+
+# 8. MULTI-TENANCY
+
+This is critical.
+
+Thanarah will serve many clinics and organizations.
+
+Every tenant must have isolated:
+
+* users
+* conversations
+* messages
+* memory
+* knowledge
+* documents
+* files
+* AI configuration
+* tools
+* workflows
+* contracts
+* API keys
+* usage records
+* logs
+
+Every tenant-sensitive record must contain a tenant reference where appropriate.
+
+Never trust a tenantId sent from the browser.
+
+Resolve tenant access server-side from the authenticated account.
+
+Data belonging to Tenant A must never enter Tenant B's context.
+
+---
+
+# 9. APPLICATION ARCHITECTURE
+
+Use a monorepo.
+
+Recommended structure:
+
+```text
+thanarah-ai/
+
+apps/
+    web/
+    api/
+
+services/
+    ai-engine/
+
+packages/
+    ui/
+    types/
+    config/
+    ai-client/
+    sdk/
+
+docs/
+infra/
+scripts/
+```
+
+---
+
+# 10. FRONTEND
+
+Use:
+
+* Next.js
+* React
+* TypeScript
+* Tailwind CSS
+* App Router
+
+Requirements:
+
+* Arabic RTL
+* English LTR
+* mobile-first
+* desktop
+* tablet
+* premium responsive experience
+
+The frontend must be branded entirely as:
+
+# Thanarah AI
+
+Use the attached Thanarah AI logo.
+
+---
+
+# 11. DESIGN LANGUAGE
+
+Use the attached logo and Thanarah identity.
+
+Visual direction:
+
+* premium
+* calm
+* modern
+* medical technology
+* enterprise SaaS
+* human
+* clean
+
+Colors:
+
+* off-white
+* white
+* Thanarah green
+* dark green
+* graphite
+* subtle gray borders
+
+Avoid:
+
+* purple AI clichés
+* neon
+* robots
+* excessive gradients
+* overly futuristic UI
+* generic AI templates
+
+The system should feel like a global enterprise product.
+
+---
+
+# 12. CHAT EXPERIENCE
+
+Build a professional conversational interface.
+
+Required:
+
+* streaming AI responses
+* conversation history
+* new chat
+* rename
+* delete
+* search
+* edit previous message
+* regenerate
+* stop generation
+* Markdown
+* code blocks
+* tables
+* copy button
+* files
+* loading states
+* tool execution states
+* workflow states
+
+Mobile chat experience must be excellent.
+
+---
+
+# 13. CORE BACKEND
+
+Use:
+
+# NestJS + TypeScript
+
+The main API is responsible for:
+
+* authentication
+* users
+* organizations
+* clinics
+* tenancy
+* memberships
+* conversations
+* messages
+* API keys
+* workflows
+* tool registry
+* permissions
+* usage
+* logging
+* AI Gateway
+
+---
+
+# 14. AI ENGINE
+
+Create a separate AI service.
+
+Use:
+
+* Python
+* FastAPI
+* Pydantic
+* async architecture
+
+The AI Engine is NOT part of the frontend runtime.
+
+Architecture:
+
+```text
+Next.js
+   ↓
+NestJS
+   ↓
+Thanarah AI Engine
+   ↓
+AI Nodes
+```
+
+---
+
+# 15. SELF-HOSTED AI ENGINE
+
+Initially support:
+
+* llama.cpp
+* Ollama
+
+Later support:
+
+* vLLM
+* GPU servers
+* multiple inference nodes
+
+Use an abstraction similar to:
+
+```typescript
+interface AIBackend {
+  id: string;
+  name: string;
+
+  isAvailable(): Promise<boolean>;
+  healthCheck(): Promise<HealthStatus>;
+
+  chat(
+    request: AIRequest
+  ): Promise<AIResponse>;
+}
+```
+
+Backends:
+
+```text
+LlamaCppBackend
+OllamaBackend
+VLLMBackend
+ClientInferenceBackend
+OpenAICompatibleBackend
+BYOKBackend
+```
+
+External provider adapters are OPTIONAL ONLY.
+
+---
+
+# 16. IMPORTANT PROVIDER RULE
+
+DO NOT ask me for an OpenAI or Anthropic key to make the system work.
+
+Default:
+
+```text
+Thanarah Self-hosted AI — ENABLED
+
+OpenAI — DISABLED
+Anthropic — DISABLED
+Gemini — DISABLED
+Groq — DISABLED
+
+BYOK — OPTIONAL
+```
+
+If no external provider keys exist, the application must still boot normally.
+
+---
+
+# 17. DO NOT USE GROQ AS A REPLACEMENT
+
+Do not replace Ollama or llama.cpp with Groq just because Groq is easy to deploy.
+
+Groq may only exist later as an optional adapter if explicitly requested.
+
+It must not become the core AI backend.
+
+---
+
+# 18. RAG
+
+Build a real Retrieval-Augmented Generation system.
+
+Knowledge sources:
+
+* PDF
+* DOCX
+* TXT
+* Markdown
+* clinic data
+* company data
+* policies
+* FAQs
+* contracts
+* uploaded documents
+
+Pipeline:
+
+```text
+Upload
+ ↓
+Parse
+ ↓
+Clean
+ ↓
+Chunk
+ ↓
+Embed
+ ↓
+Store
+ ↓
+Retrieve
+ ↓
+Rank
+ ↓
+Inject context
+ ↓
+AI
+```
+
+Keep the vector layer abstract so its backend can be changed later.
+
+---
+
+# 19. MEMORY ENGINE
+
+Create scoped memory:
+
+```text
+Conversation Memory
+User Memory
+Clinic Memory
+Organization Memory
+Project Memory
+```
+
+Do NOT send the entire conversation history each time.
+
+Use:
+
+```text
+recent messages
++
+conversation summary
++
+relevant memory
++
+relevant RAG context
+```
+
+Support memory deletion and update.
+
+---
+
+# 20. TOOL ENGINE
+
+Create a generic tool system.
+
+Examples:
+
+```text
+search_knowledge
+search_clinic_data
+create_contract
+create_document
+create_table
+get_appointments
+create_appointment
+update_appointment
+calculate
+```
+
+The LLM may request a tool.
+
+The server validates and executes it.
+
+Do NOT allow arbitrary command execution.
+
+---
+
+# 21. MCP
+
+Design the tool architecture to become MCP-compatible.
+
+Future integrations:
+
+* CRM
+* appointments
+* accounting
+* email
+* WhatsApp
+* HR
+* calendar
+* ERP
+* inventory
+* documents
+* support systems
+
+---
+
+# 22. CONTRACT ENGINE
+
+Build a dedicated contract engine.
+
+Do not rely entirely on free-form LLM output.
+
+Use:
+
+```text
+User request
+ ↓
+AI extracts requirements
+ ↓
+Contract template
+ ↓
+variables
+ ↓
+clauses
+ ↓
+validation
+ ↓
+DOCX/PDF
+```
+
+Support tenant branding.
+
+---
+
+# 23. DOCUMENT ENGINE
+
+Support:
+
+* DOCX
+* PDF
+* tables
+* letters
+* reports
+* quotations
+* contracts
+
+Document generation should be tool-driven.
+
+---
+
+# 24. WORKFLOW ENGINE
+
+Create stateful workflows.
+
+Example:
+
+```text
+User wants appointment change
+ ↓
+AI understands request
+ ↓
+search appointment
+ ↓
+check availability
+ ↓
+ask for confirmation
+ ↓
+update appointment
+ ↓
+send result
+```
+
+Store workflow state.
+
+---
+
+# 25. VOICE
+
+Prepare architecture for:
+
+```text
+Speech
+ ↓
+STT
+ ↓
+Thanarah AI
+ ↓
+Text
+ ↓
+optional TTS
+```
+
+Create routes:
+
+```text
+POST /v1/audio/transcriptions
+POST /v1/audio/speech
+```
+
+Do not make voice mandatory for V1.
+
+---
+
+# 26. CLIENT-SIDE AI
+
+Prepare the architecture for future WebGPU / device-side inference.
+
+Goal:
+
+```text
+User device
+ ↓
+small local AI model
+ ↓
+Thanarah tools/RAG
+```
+
+This allows part of future inference load to happen on customer devices.
+
+Do not implement a huge browser model immediately.
+
+Build the interface only.
+
+---
+
+# 27. DATABASE
+
+Use MongoDB.
+
+I will provide the MongoDB connection separately.
+
+Use:
+
+```env
+MONGODB_URI=
+```
+
+Never hardcode it.
+
+Collections should include at least:
+
+```text
+users
+organizations
+clinics
+memberships
+
+conversations
+messages
+conversation_summaries
+
+memories
+knowledge_sources
+knowledge_chunks
+
+documents
+files
+
+ai_models
+ai_nodes
+ai_backends
+provider_connections
+
+tools
+tool_executions
+
+workflows
+workflow_runs
+
+contracts
+contract_templates
+
+api_keys
+api_requests
+
+usage_records
+audit_logs
+system_logs
+notifications
+```
+
+---
+
+# 28. AUTHENTICATION
+
+Implement:
+
+* signup
+* login
+* logout
+* refresh token
+* forgot password architecture
+* secure password hashing
+* protected routes
+
+Roles:
+
+```text
+OWNER
+ADMIN
+AI_ADMIN
+DEVELOPER
+STAFF
+USER
+```
+
+---
+
+# 29. SESSION RELIABILITY
+
+Do NOT allow silent logout after 15 minutes.
+
+Implement proper access + refresh token handling.
+
+The client should automatically refresh authentication before session expiration.
+
+If refresh fails, show a clear login-required state.
+
+Never silently lose unsaved user work.
+
+---
+
+# 30. API PLATFORM
+
+Thanarah AI must expose its own developer API.
+
+Routes:
+
+```text
+POST /v1/chat/completions
+
+POST /v1/knowledge/ingest
+POST /v1/knowledge/search
+
+POST /v1/contracts/generate
+
+POST /v1/documents/generate
+
+POST /v1/tools/execute
+
+POST /v1/workflows/run
+
+GET /v1/models
+
+GET /v1/usage
+```
+
+Where reasonable, `/v1/chat/completions` should be OpenAI-compatible.
+
+This is only protocol compatibility.
+
+It does NOT mean using OpenAI.
+
+---
+
+# 31. THANARAH API KEYS
+
+Generate keys like:
+
+```text
+thn_live_...
+thn_test_...
+```
+
+Only display the full secret once.
+
+Store only secure hashes.
+
+Support:
+
+* name
+* scopes
+* last used
+* creation
+* revoke
+* environment
+* internal rate protection
+
+---
+
+# 32. ADMIN DASHBOARD
+
+Create sections:
+
+```text
+Overview
+
+AI Chat
+
+Organizations
+Clinics
+Users
+
+Knowledge
+Memory
+Documents
+Contracts
+
+Tools
+Workflows
+
+Models
+AI Nodes
+AI Infrastructure
+
+API Keys
+Usage
+Logs
+
+Settings
+```
+
+---
+
+# 33. AI INFRASTRUCTURE DASHBOARD
+
+Admin should see:
+
+```text
+AI Node
+Engine
+Model
+Status
+Latency
+Current Load
+Requests
+Failures
+Priority
+Enabled
+Last Health Check
+```
+
+Admin can:
+
+* register node
+* disable node
+* enable node
+* test connection
+* change priority
+* configure model
+* inspect errors
+
+---
+
+# 34. OBSERVABILITY
+
+Every AI request should record:
+
+```text
+requestId
+tenantId
+userId
+conversationId
+
+backend
+node
+model
+
+routingDecision
+
+estimatedInputTokens
+estimatedOutputTokens
+
+latency
+status
+toolCalls
+error
+timestamp
+```
+
+Never log:
+
+* password
+* API keys
+* JWT
+* Mongo URI
+* encryption secrets
+
+---
+
+# 35. CUSTOMER EXPERIENCE
+
+Thanarah's business goal is not to show customers arbitrary token limits.
+
+Internally track usage for:
+
+* capacity planning
+* abuse protection
+* performance
+* infrastructure scaling
+* debugging
+
+Do not automatically block normal users based on a token quota unless explicitly configured.
+
+---
+
+# 36. PRODUCTION HOSTING ARCHITECTURE
+
+Development may happen on Replit.
+
+Production must NOT depend on Replit.
+
+Target architecture:
+
+```text
+GitHub
+  ↓
+Vercel
+  ↓
+Thanarah Web / Gateway
+  ↓
+MongoDB
+  ↓
+Thanarah AI Engine
+  ↓
+Self-hosted AI Nodes
+```
+
+---
+
+# 37. VERCEL ROLE
+
+Vercel should host:
+
+* Next.js
+* web frontend
+* compatible gateway functionality
+* authentication-facing web layer
+* dashboards
+
+Vercel must NOT host:
+
+* Ollama
+* llama.cpp
+* vLLM
+* large model files
+* persistent GPU inference
+* long-running Python AI process
+
+---
+
+# 38. AI ENGINE HOSTING
+
+The AI Engine must live separately behind:
+
+```text
+AI_ENGINE_URL
+```
+
+Example:
+
+```env
+AI_ENGINE_URL=https://engine.example.com
+```
+
+Communication must be over HTTPS.
+
+Use:
+
+```env
+AI_ENGINE_SECRET=
+```
+
+for server-to-server authentication.
+
+---
+
+# 39. WEBSITE MUST SURVIVE AI ENGINE FAILURE
+
+If the AI Engine is offline:
+
+* website opens
+* login works
+* dashboard works
+* conversations load
+* admin works
+
+Chat should show:
+
+"Thanarah AI Engine is currently unavailable."
+
+Do NOT crash the whole application.
+
+---
+
+# 40. MONGODB SERVERLESS SAFETY
+
+Use cached/reusable database connection logic.
+
+Do not create uncontrolled MongoDB connections for every request.
+
+---
+
+# 41. FILE STORAGE
+
+Do not permanently store uploads on Vercel's local filesystem.
+
+Create:
+
+```typescript
+interface StorageProvider {
+  upload(...)
+  delete(...)
+  getSignedUrl(...)
+}
+```
+
+Store only metadata in MongoDB.
+
+---
+
+# 42. STREAMING
+
+Implement AI streaming.
+
+Preferred:
+
+* SSE
+* Web Streams
+
+Architecture:
+
+```text
+AI Engine
+ ↓
+Gateway
+ ↓
+Browser
+```
+
+Support:
+
+* abort
+* disconnect
+* timeout
+* malformed stream
+* fallback errors
+
+---
+
+# 43. ERROR HANDLING
+
+Do not show raw stack traces.
+
+Create:
+
+* centralized backend errors
+* request IDs
+* frontend error states
+* error boundaries
+* logs
+
+Customer-safe message:
+
+"تعذر تنفيذ الطلب حاليًا. حاول مرة أخرى."
+
+---
+
+# 44. SECURITY
+
+Implement:
+
+* validation
+* authentication
+* authorization
+* tenant isolation
+* upload validation
+* rate protection
+* API key hashing
+* secure headers
+* encrypted secrets
+* audit logs
+
+Never expose secrets in frontend code.
+
+---
+
+# 45. ENVIRONMENT VARIABLES
+
+Create:
+
+`.env.example`
+
+Include:
+
+```env
+NODE_ENV=development
+
+NEXT_PUBLIC_APP_URL=
+
+MONGODB_URI=
+
+JWT_SECRET=
+JWT_REFRESH_SECRET=
+
+AI_ENGINE_URL=
+AI_ENGINE_SECRET=
+
+LOCAL_AI_ENABLED=true
+LOCAL_AI_ENGINE=llamacpp
+LOCAL_AI_BASE_URL=http://localhost:8080
+LOCAL_AI_MODEL=
+
+ENCRYPTION_KEY=
+```
+
+Do not commit real values.
+
+---
+
+# 46. VERCEL BUILD REQUIREMENT
+
+The project must be production-build clean.
+
+Before declaring deployment ready:
+
+```bash
+npm ci
+npm run lint
+npm run typecheck
+npm test
+npm run build
+```
+
+Fix every error.
+
+Do NOT use:
+
+```text
+ignoreBuildErrors
+```
+
+Do not disable TypeScript checking.
+
+Do not hide errors.
+
+---
+
+# 47. MONOREPO + VERCEL
+
+If this is a monorepo, explicitly configure the correct Vercel root.
+
+Document:
+
+* Root Directory
+* Install Command
+* Build Command
+* Output
+* Node version
+* npm version
+
+Create:
+
+```text
+docs/DEPLOYMENT_VERCEL.md
+```
+
+---
+
+# 48. HEALTH CHECKS
+
+Create:
+
+```text
+/api/health
+/api/health/database
+/api/health/ai
+```
+
+Show:
+
+```text
+Application
+MongoDB
+AI Engine
+AI Nodes
+```
+
+---
+
+# 49. TESTS
+
+At minimum test:
+
+* signup
+
+* login
+
+* token refresh
+
+* logout
+
+* protected routes
+
+* tenant isolation
+
+* conversation creation
+
+* message save
+
+* AI router
+
+* node fallback
+
+* RAG
+
+* tool validation
+
+* API key security
+
+* permissions
+
+---
+
+# 50. NO FAKE FEATURES
+
+Do NOT:
+
+* create buttons that do nothing
+* create fake analytics
+* fake model responses
+* fake AI health
+* use random placeholders
+* hardcode model answers
+
+If data does not exist, show empty states.
+
+---
+
+# 51. DEVELOPMENT ORDER
+
+Build in this order:
+
+## PHASE 1
+
+Repository and architecture audit
+
+## PHASE 2
+
+Monorepo and configuration
+
+## PHASE 3
+
+MongoDB
+
+## PHASE 4
+
+Authentication end-to-end
+
+## PHASE 5
+
+Refresh-token/session reliability
+
+## PHASE 6
+
+Tenant/clinic architecture
+
+## PHASE 7
+
+Chat UI and conversations
+
+## PHASE 8
+
+Python AI Engine
+
+## PHASE 9
+
+Local model adapter
+
+## PHASE 10
+
+Thanarah Intelligence Router
+
+## PHASE 11
+
+Streaming
+
+## PHASE 12
+
+Memory
+
+## PHASE 13
+
+RAG
+
+## PHASE 14
+
+Tools
+
+## PHASE 15
+
+Contracts and documents
+
+## PHASE 16
+
+Workflows
+
+## PHASE 17
+
+API platform
+
+## PHASE 18
+
+Admin AI Infrastructure dashboard
+
+## PHASE 19
+
+Observability
+
+## PHASE 20
+
+Production build + deployment hardening
+
+Do NOT skip to UI polish while core functionality is broken.
+
+---
+
+# 52. FIRST REQUIRED WORKING VERSION
+
+V1 must have REAL:
+
+* registration
+* login
+* session refresh
+* organizations
+* clinics
+* conversations
+* messages
+* Thanarah Chat UI
+* Python AI Engine
+* llama.cpp/Ollama adapter
+* AI Router
+* streaming
+* MongoDB persistence
+* basic memory
+* basic RAG
+* tool registry
+* one working tool
+* contract generation flow
+* Thanarah API key
+* `/v1/chat/completions`
+* admin AI infrastructure page
+* health checks
+* usage telemetry
+
+---
+
+# 53. ATTACHED FILES
+
+I am attaching:
+
+## FILE 1 — Thanarah AI Logo
+
+Use this exact logo.
+
+Do not recreate it.
+
+Use it on:
+
+* login
+* sidebar
+* chat
+* loading
+* dashboard
+* favicon where appropriate
+* generated documents where appropriate
+
+## FILE 2 — Thanarah AI Architecture Image
+
+Use the image as a visual architecture reference.
+
+Do not blindly copy every visual box.
+
+Use the technical architecture described in this prompt as the source of truth.
+
+## FILE 3 — Existing Repository / GitHub
+
+Inspect all code before rewriting anything.
+
+Preserve working components.
+
+## FILE 4 — MongoDB configuration
+
+Use the connection securely through environment variables.
+
+Do NOT write credentials into source code.
+
+---
+
+# 54. CRITICAL PROHIBITION
+
+Do NOT implement:
+
+* disposable email account farms
+* mass external AI account creation
+* CAPTCHA bypass
+* IP rotation for bypassing AI limits
+* fake-human browser automation
+* provider restriction bypassing
+
+Thanarah must be production-grade and stable.
+
+---
+
+# 55. SYSTEM OWNERSHIP
+
+Final principle:
+
+```text
+THANARAH OWNS:
+
+UI
+Backend
+AI Gateway
+Router
+Memory
+RAG
+Data
+Tools
+Workflows
+Contracts
+Documents
+Developer APIs
+AI node management
+Local/self-hosted inference architecture
+```
+
+Individual AI models must be replaceable components.
+
+---
+
+# 56. CURRENT PRIORITY
+
+Do NOT migrate Thanarah AI to Groq.
+
+Do NOT replace the architecture.
+
+First ensure:
+
+1. authentication works end-to-end
+2. session refresh works
+3. production build works
+4. Vercel frontend build works
+5. AI Engine separation is correct
+6. local inference remains primary
+
+---
+
+# 57. AFTER EVERY PHASE
+
+Report:
+
+```text
+COMPLETED:
+FILES CREATED:
+FILES MODIFIED:
+DATABASE CHANGES:
+ROUTES ADDED:
+TESTS RUN:
+BUILD RESULT:
+KNOWN ISSUES:
+NEXT PHASE:
+```
+
+Never claim something works unless it was tested.
+
+---
+
+# 58. START NOW
+
+First:
+
+1. Read this entire prompt.
+2. Inspect every attached file.
+3. Inspect the existing repository.
+4. Do not change architecture before inspection.
+5. Produce a short implementation map.
+6. Immediately begin building.
+7. Do not stop after planning.
+8. Fix existing build/auth errors before adding unnecessary features.
+
+The objective is to build:
+
+# THANARAH AI
+
+A scalable, independent AI infrastructure powering the entire Thanarah ecosystem.
