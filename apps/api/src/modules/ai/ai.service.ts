@@ -195,32 +195,35 @@ export class AiService {
     const requestId = uuidv4();
     const startTime = Date.now();
 
-    const conversation = await this.conversationsService.findById(
-      data.conversationId,
-      data.userId,
-    );
+    // Parallel: verify conversation + load tenant config simultaneously
+    const [conversation, tenantResult] = await Promise.all([
+      this.conversationsService.findById(data.conversationId, data.userId),
+      this.tenantsService.findById(data.tenantId).catch(() => null),
+    ]);
+    const tenantConfig: any = tenantResult?.aiConfig || {};
 
-    let tenantConfig: any = {};
-    try {
-      const tenant = await this.tenantsService.findById(data.tenantId);
-      tenantConfig = tenant.aiConfig || {};
-    } catch {}
+    // Parallel: save user message + fetch recent history simultaneously
+    const [, recentMessages] = await Promise.all([
+      this.messagesService.create({
+        tenantId: data.tenantId,
+        userId: data.userId,
+        conversationId: data.conversationId,
+        role: 'user',
+        content: data.content,
+      }),
+      this.messagesService.getRecentMessages(data.conversationId, 8),
+    ]);
 
-    // Save user message
-    await this.messagesService.create({
-      tenantId: data.tenantId,
-      userId: data.userId,
-      conversationId: data.conversationId,
-      role: 'user',
-      content: data.content,
-    });
-
+    // Auto-title non-blocking (don't await — fire and forget)
     if (conversation.messageCount === 0) {
-      await this.conversationsService.autoTitle(data.conversationId, data.content);
+      this.conversationsService.autoTitle(data.conversationId, data.content).catch(() => {});
     }
 
-    const recentMessages = await this.messagesService.getRecentMessages(data.conversationId, 8);
-    const messages = recentMessages.map((m) => ({ role: m.role, content: m.content }));
+    // Include current user message at end of history
+    const messages = [
+      ...recentMessages.map((m) => ({ role: m.role, content: m.content })),
+      { role: 'user', content: data.content },
+    ];
 
     const aiRequest = {
       requestId,

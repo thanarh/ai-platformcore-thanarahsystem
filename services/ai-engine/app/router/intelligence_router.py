@@ -122,7 +122,7 @@ class IntelligenceRouter:
             system_prompt=system_prompt,
             context=context,
             stream=chat_request.stream,
-            max_tokens=512,
+            max_tokens=300,
             temperature=0.7,
         )
 
