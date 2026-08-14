@@ -1,32 +1,49 @@
 ---
 name: Local-first AI architecture
-description: Thanarah AI uses local llama.cpp as the PRIMARY backend; external providers are BYOK-only and disabled by default.
+description: Ollama setup, model paths, env vars, and backend registry behavior for Thanarah AI Engine
 ---
 
-# Local-First AI Architecture
+# Local-first AI Architecture
 
-## The rule
-Local llama.cpp (port 8080) is ALWAYS the primary backend (priority 90). External providers (OpenAI, Anthropic, Gemini) are DISABLED by default — only activated when their API key secret is present.
+## Runtime Stack
+- **Ollama** binary: `/home/runner/.local/bin/ollama` (v0.32.9)
+- **Ollama libs** (llama-server + CPU SOs): `/home/runner/.local/lib/ollama/`
+- **Models storage**: `/home/runner/workspace/.ollama/models` (256GB workspace, persists)
+- **Ollama port**: `11434` (not 8080 — that was the original llama.cpp assumption)
 
-**Why:** Thanarah must own its AI infrastructure and not depend on external providers for core functionality.
+## Env Vars
+- `LOCAL_AI_ENABLED=true` — enables local backend in registry
+- `LOCAL_AI_BASE_URL=http://localhost:11434` — points FastAPI engine to Ollama
+- `LOCAL_AI_MODEL=qwen2.5:1.5b` — active model (upgraded from 0.5b; 0.5b was too small for Arabic)
 
-## How to apply
-- Never set an external provider as the default or required backend
-- The system must boot and work without any external API key
-- When local AI is not running, FallbackBackend returns a clean bilingual status message
-- Adding a new provider = add a backend class + register in registry.py when key is present
+## Workflow Command
+Ollama runs as the 4th service in concurrently:
+```
+OLLAMA_HOME=/home/runner/workspace/.ollama OLLAMA_MODELS=/home/runner/workspace/.ollama/models /home/runner/.local/bin/ollama serve
+```
 
-## Backend priority order
-| Priority | Backend | Condition |
-|----------|---------|-----------|
-| 90 | local-llamacpp | LOCAL_AI_ENABLED=true (default) |
-| 70 | openai | OPENAI_API_KEY secret present |
-| 60 | anthropic | ANTHROPIC_API_KEY secret present |
-| 1 | fallback | always — returns "Local AI Engine not connected" |
+## Priority Order (registry.py)
+- `fallback` — always registered (priority 0)
+- `local-llamacpp` — registered when `LOCAL_AI_ENABLED=true` (priority 90)
+- `openai` / `anthropic` — registered only when API key secret present (BYOK)
 
-## Key files
-- services/ai-engine/app/backends/registry.py — registration logic
-- services/ai-engine/app/backends/llamacpp.py — local backend (OpenAI-compatible)
-- services/ai-engine/app/backends/anthropic.py — Anthropic BYOK stub (ready)
-- services/ai-engine/app/config.py — LOCAL_AI_ENABLED, LOCAL_AI_BASE_URL env vars
-- services/ai-engine/app/backends/fallback.py — clean bilingual status message
+## System Prompt Identity
+`intelligence_router.py` → `THANARAH_BASE_SYSTEM` — identifies the AI as "ثنارة" from "ثنارة AI".
+Tenant can override with `tenantConfig.systemPrompt` (saved to `tenant.aiConfig.systemPrompt` via `PUT /tenants/:id/ai-config`).
+
+## AI Settings UI
+`/settings/ai` page in Next.js allows:
+- Communication style selection
+- Custom system prompt (or use default)
+- Pre-built templates (clinic, customer service, personal)
+Connected to `tenantsApi.updateAiConfig()` → `PUT /tenants/:id/ai-config`.
+
+**Why:**
+- 0.5b model could not follow system prompts at all (gave gibberish Arabic)
+- 1.5b model follows identity instructions correctly
+- External providers (OpenAI/Anthropic) must NEVER be required to boot
+
+**How to apply:**
+- If adding a new model: `ollama pull <model>` then update `LOCAL_AI_MODEL` env var and restart
+- Models stored in workspace → survive Replit restarts
+- Ollama binary/libs are in home dir → may need re-extraction if home resets (re-run the tar extraction from `/tmp/ollama.tar.zst` if it still exists, otherwise re-download)

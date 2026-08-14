@@ -4,7 +4,7 @@ import { useRouter, usePathname } from 'next/navigation';
 import {
   MessageSquare, Plus, Trash2, Edit3, Settings,
   LayoutDashboard, Key, BookOpen, LogOut, ChevronLeft,
-  Menu, Users, Zap
+  Menu, Users, Zap, Bot
 } from 'lucide-react';
 import { useAuthStore } from '@/store/auth';
 import { useChatStore } from '@/store/chat';
@@ -204,10 +204,20 @@ export default function Sidebar() {
                 </Link>
               )}
               <Link
+                href="/settings/ai"
+                className={cn(
+                  'flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-sm text-gray-600 hover:bg-gray-100 transition font-arabic',
+                  pathname === '/settings/ai' && 'bg-gray-100 text-thanarah-700'
+                )}
+              >
+                <Bot className="w-4 h-4 flex-shrink-0" />
+                إعدادات AI
+              </Link>
+              <Link
                 href="/settings/api-keys"
                 className={cn(
                   'flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-sm text-gray-600 hover:bg-gray-100 transition font-arabic',
-                  pathname?.startsWith('/settings') && 'bg-gray-100'
+                  pathname === '/settings/api-keys' && 'bg-gray-100 text-thanarah-700'
                 )}
               >
                 <Key className="w-4 h-4 flex-shrink-0" />
