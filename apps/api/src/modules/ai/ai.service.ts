@@ -60,10 +60,10 @@ export class AiService {
       await this.conversationsService.autoTitle(data.conversationId, data.content);
     }
 
-    // Get recent messages for context
+    // Get recent messages for context (8 messages = 4 turns, keeps prompt short)
     const recentMessages = await this.messagesService.getRecentMessages(
       data.conversationId,
-      20,
+      8,
     );
 
     const messages = recentMessages.map((m) => ({
@@ -219,7 +219,7 @@ export class AiService {
       await this.conversationsService.autoTitle(data.conversationId, data.content);
     }
 
-    const recentMessages = await this.messagesService.getRecentMessages(data.conversationId, 20);
+    const recentMessages = await this.messagesService.getRecentMessages(data.conversationId, 8);
     const messages = recentMessages.map((m) => ({ role: m.role, content: m.content }));
 
     const aiRequest = {

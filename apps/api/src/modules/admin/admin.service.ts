@@ -52,6 +52,14 @@ export class AdminService {
   }
 
   async getRecentLogs() {
-    return this.usageService.getRecentLogs(50);
+    return this.usageService.getRecentLogs(100);
+  }
+
+  async getAllTenants() {
+    return this.tenantsService.findAll();
+  }
+
+  async getAllApiKeys() {
+    return this.apiKeysService.findAll();
   }
 }

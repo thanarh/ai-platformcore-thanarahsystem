@@ -45,7 +45,7 @@ outputType = "webview"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "npx concurrently --names 'WEB,API,AI,OLLAMA' --prefix-colors 'green,blue,yellow,magenta' --kill-others-on-fail 'cd apps/web && npm run dev' 'cd apps/api && npm run start:dev' 'cd services/ai-engine && python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload' 'OLLAMA_HOME=/home/runner/workspace/.ollama OLLAMA_MODELS=/home/runner/workspace/.ollama/models OLLAMA_LIBRARY_PATH=/home/runner/workspace/.ollama-lib/lib/ollama /home/runner/workspace/.ollama-lib/bin/ollama serve'"
+args = "npx concurrently --names 'WEB,API,AI,OLLAMA' --prefix-colors 'green,blue,yellow,magenta' --kill-others-on-fail 'cd apps/web && npm run dev' 'cd apps/api && npm run start:dev' 'cd services/ai-engine && python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload' 'OLLAMA_HOME=/home/runner/workspace/.ollama OLLAMA_MODELS=/home/runner/workspace/.ollama/models OLLAMA_LIBRARY_PATH=/home/runner/workspace/.ollama-lib/lib/ollama OLLAMA_KEEP_ALIVE=-1 /home/runner/workspace/.ollama-lib/bin/ollama serve'"
 waitForPort = 5000
 
 [[ports]]

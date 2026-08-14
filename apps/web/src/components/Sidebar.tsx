@@ -4,7 +4,7 @@ import { useRouter, usePathname } from 'next/navigation';
 import {
   MessageSquare, Plus, Trash2, Edit3, Settings,
   LayoutDashboard, Key, BookOpen, LogOut, ChevronLeft,
-  Menu, Users, Zap, Bot
+  Menu, Users, Zap, Bot, Building2
 } from 'lucide-react';
 import { useAuthStore } from '@/store/auth';
 import { useChatStore } from '@/store/chat';
@@ -192,16 +192,41 @@ export default function Sidebar() {
             {/* Bottom nav */}
             <div className="p-2 border-t border-gray-100 space-y-0.5 flex-shrink-0">
               {isAdmin() && (
-                <Link
-                  href="/admin"
-                  className={cn(
-                    'flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-sm text-gray-600 hover:bg-gray-100 transition font-arabic',
-                    pathname?.startsWith('/admin') && 'bg-gray-100 text-thanarah-700'
+                <div>
+                  <Link
+                    href="/admin"
+                    className={cn(
+                      'flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-sm text-gray-600 hover:bg-gray-100 transition font-arabic',
+                      pathname?.startsWith('/admin') && 'bg-gray-100 text-thanarah-700'
+                    )}
+                  >
+                    <LayoutDashboard className="w-4 h-4 flex-shrink-0" />
+                    لوحة التحكم
+                  </Link>
+                  {/* Admin sub-links */}
+                  {pathname?.startsWith('/admin') && (
+                    <div className="mr-4 mt-0.5 border-r-2 border-thanarah-100 pr-2 space-y-0.5">
+                      {[
+                        { href: '/admin/tenants', label: 'المؤسسات', icon: Building2 },
+                        { href: '/admin/api-keys', label: 'مفاتيح API', icon: Key },
+                        { href: '/admin/messages', label: 'سجل الرسائل', icon: MessageSquare },
+                        { href: '/admin/users', label: 'المستخدمون', icon: Users },
+                      ].map(({ href, label, icon: Icon }) => (
+                        <Link
+                          key={href}
+                          href={href}
+                          className={cn(
+                            'flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition font-arabic',
+                            pathname === href && 'bg-thanarah-50 text-thanarah-700 font-medium'
+                          )}
+                        >
+                          <Icon className="w-3.5 h-3.5 flex-shrink-0" />
+                          {label}
+                        </Link>
+                      ))}
+                    </div>
                   )}
-                >
-                  <LayoutDashboard className="w-4 h-4 flex-shrink-0" />
-                  لوحة التحكم
-                </Link>
+                </div>
               )}
               <Link
                 href="/settings/ai"

@@ -77,6 +77,14 @@ export class ApiKeysService {
     await key.save();
   }
 
+  async findAll(): Promise<ApiKeyDocument[]> {
+    return this.apiKeyModel
+      .find({ isActive: true })
+      .sort({ createdAt: -1 })
+      .populate('tenantId', 'name nameAr')
+      .populate('createdBy', 'firstName lastName email');
+  }
+
   async getTotalCount(tenantId?: string): Promise<number> {
     const filter: any = { isActive: true };
     if (tenantId) filter.tenantId = new Types.ObjectId(tenantId);

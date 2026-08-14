@@ -19,4 +19,14 @@ export class AdminController {
   getLogs() {
     return this.adminService.getRecentLogs();
   }
+
+  @Get('tenants')
+  getTenants() {
+    return this.adminService.getAllTenants();
+  }
+
+  @Get('api-keys')
+  getApiKeys() {
+    return this.adminService.getAllApiKeys();
+  }
 }

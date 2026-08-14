@@ -39,10 +39,10 @@ export class ConversationsService {
     const conversation = await this.conversationModel.findById(id);
     if (!conversation) throw new NotFoundException('Conversation not found');
 
-    if (tenantId && conversation.tenantId.toString() !== tenantId) {
+    if (tenantId && conversation.tenantId.toString() !== tenantId.toString()) {
       throw new ForbiddenException('Access denied');
     }
-    if (userId && conversation.userId.toString() !== userId) {
+    if (userId && conversation.userId.toString() !== userId.toString()) {
       throw new ForbiddenException('Access denied');
     }
 

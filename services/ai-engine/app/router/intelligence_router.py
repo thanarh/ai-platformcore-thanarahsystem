@@ -122,7 +122,7 @@ class IntelligenceRouter:
             system_prompt=system_prompt,
             context=context,
             stream=chat_request.stream,
-            max_tokens=2048,
+            max_tokens=512,
             temperature=0.7,
         )
 
@@ -134,9 +134,9 @@ class IntelligenceRouter:
         route = self._decide_route(chat_request)
         logger.info(f"[TIR] Route decision: {route.backend_id} — {route.reason}")
 
-        # Try RAG if enabled (non-blocking — graceful if unavailable)
+        # Try RAG only if explicitly enabled AND knowledge base exists
         rag_sources = []
-        if route.rag_enabled:
+        if route.rag_enabled and chat_request.tenantConfig.get("ragEnabled") is True:
             try:
                 from app.rag.pipeline import RAGPipeline
                 rag = RAGPipeline()
@@ -198,7 +198,7 @@ class IntelligenceRouter:
         logger.info(f"[TIR Stream] Route: {route.backend_id}")
 
         rag_sources = []
-        if route.rag_enabled:
+        if route.rag_enabled and chat_request.tenantConfig.get("ragEnabled") is True:
             try:
                 from app.rag.pipeline import RAGPipeline
                 rag = RAGPipeline()

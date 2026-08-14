@@ -29,7 +29,7 @@ export class MessagesController {
     await this.conversationsService.findById(
       conversationId,
       user._id?.toString() ?? user.id,
-      user.tenantId,
+      user.tenantId?.toString(),
     );
 
     return this.messagesService.findByConversation(conversationId, 100);

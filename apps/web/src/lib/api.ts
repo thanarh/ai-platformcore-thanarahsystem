@@ -98,6 +98,8 @@ export const knowledgeApi = {
 export const adminApi = {
   stats: () => api.get('/admin/stats').then((r) => r.data),
   logs: () => api.get('/admin/logs').then((r) => r.data),
+  tenants: () => api.get('/admin/tenants').then((r) => r.data),
+  apiKeys: () => api.get('/admin/api-keys').then((r) => r.data),
 };
 
 // ──── Tenants ──────────────────────────────────────────────────────────────
