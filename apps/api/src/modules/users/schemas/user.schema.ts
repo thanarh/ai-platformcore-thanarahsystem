@@ -30,6 +30,14 @@ export class User {
   @Prop({ default: false })
   isEmailVerified: boolean;
 
+  /** Random token sent in the verification email (hashed with SHA-256) */
+  @Prop()
+  emailVerificationToken: string;
+
+  /** Token expiry — 24 hours from registration */
+  @Prop()
+  emailVerificationExpires: Date;
+
   @Prop()
   lastLoginAt: Date;
 
@@ -55,3 +63,4 @@ export const UserSchema = SchemaFactory.createForClass(User);
 // Indexes
 UserSchema.index({ email: 1 });
 UserSchema.index({ tenantId: 1 });
+UserSchema.index({ emailVerificationToken: 1 });

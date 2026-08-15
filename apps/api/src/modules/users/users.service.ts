@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, ConflictException } from '@nestjs/common
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import * as bcrypt from 'bcryptjs';
+import * as crypto from 'crypto';
 import { User, UserDocument } from './schemas/user.schema';
 import { Role } from '../../common/decorators/roles.decorator';
 
@@ -74,10 +75,53 @@ export class UsersService {
     return this.userModel.countDocuments({ isActive: true });
   }
 
+  // ─── Email Verification ───────────────────────────────────────────────────
+
+  /**
+   * Generate a secure random token, store its SHA-256 hash on the user,
+   * and return the raw token to be sent in the email link.
+   */
+  async generateVerificationToken(userId: string): Promise<string> {
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+    const expires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+
+    await this.userModel.findByIdAndUpdate(userId, {
+      emailVerificationToken: tokenHash,
+      emailVerificationExpires: expires,
+    });
+
+    return rawToken; // send this in the email
+  }
+
+  /**
+   * Find a user by the raw token from the email link.
+   * Returns null if token is invalid or expired.
+   */
+  async findByVerificationToken(rawToken: string): Promise<UserDocument | null> {
+    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+    return this.userModel.findOne({
+      emailVerificationToken: tokenHash,
+      emailVerificationExpires: { $gt: new Date() },
+      isEmailVerified: false,
+    });
+  }
+
+  /** Mark user's email as verified and clear the token */
+  async markEmailVerified(userId: string): Promise<void> {
+    await this.userModel.findByIdAndUpdate(userId, {
+      isEmailVerified: true,
+      emailVerificationToken: null,
+      emailVerificationExpires: null,
+    });
+  }
+
   toPublic(user: UserDocument) {
     const obj = user.toObject();
     delete obj.passwordHash;
     delete obj.refreshToken;
+    delete obj.emailVerificationToken;
+    delete obj.emailVerificationExpires;
     return obj;
   }
 }

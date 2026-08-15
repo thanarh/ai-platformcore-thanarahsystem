@@ -3,6 +3,7 @@ import {
   Post,
   Get,
   Body,
+  Query,
   UseGuards,
   HttpCode,
   HttpStatus,
@@ -51,5 +52,27 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   getMe(@CurrentUser('_id') userId: string) {
     return this.authService.getMe(userId.toString());
+  }
+
+  /**
+   * GET /auth/verify-email?token=xxx
+   * Called when the user clicks the link in the verification email.
+   */
+  @Get('verify-email')
+  @Public()
+  verifyEmail(@Query('token') token: string) {
+    return this.authService.verifyEmail(token);
+  }
+
+  /**
+   * POST /auth/resend-verification
+   * Body: { email }
+   * Allows a user to request a new verification email.
+   */
+  @Post('resend-verification')
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  resendVerification(@Body() body: { email: string }) {
+    return this.authService.resendVerification(body.email);
   }
 }

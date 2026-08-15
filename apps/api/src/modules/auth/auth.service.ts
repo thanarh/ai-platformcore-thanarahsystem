@@ -1,8 +1,14 @@
-import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  UnauthorizedException,
+  BadRequestException,
+  NotFoundException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { UsersService } from '../users/users.service';
 import { TenantsService } from '../tenants/tenants.service';
+import { EmailService } from '../email/email.service';
 import { Role } from '../../common/decorators/roles.decorator';
 
 @Injectable()
@@ -12,6 +18,7 @@ export class AuthService {
     private tenantsService: TenantsService,
     private jwtService: JwtService,
     private configService: ConfigService,
+    private emailService: EmailService,
   ) {}
 
   async register(data: {
@@ -32,7 +39,6 @@ export class AuthService {
       if (!tenant) throw new BadRequestException('Organization not found');
       tenantId = tenant._id.toString();
     } else {
-      // Create a personal tenant for the user
       const slug = `tenant-${Date.now()}`;
       const tenant = await this.tenantsService.create({
         slug,
@@ -43,7 +49,7 @@ export class AuthService {
       tenantId = tenant._id.toString();
     }
 
-    // Check if this is the first user (make them OWNER)
+    // First user globally becomes OWNER
     const totalUsers = await this.usersService.getTotalCount();
     const role = totalUsers === 0 ? Role.OWNER : Role.USER;
 
@@ -56,12 +62,21 @@ export class AuthService {
       tenantId,
     });
 
+    // Generate email verification token and send it (non-blocking)
+    const verificationToken = await this.usersService.generateVerificationToken(
+      user._id.toString(),
+    );
+    this.emailService
+      .sendVerificationEmail(user.email, user.firstName, verificationToken)
+      .catch(() => {}); // fire-and-forget
+
     const tokens = await this.generateTokens(user);
     await this.usersService.updateRefreshToken(user._id.toString(), tokens.refreshToken);
 
     return {
       user: this.usersService.toPublic(user),
       ...tokens,
+      emailVerificationSent: true,
     };
   }
 
@@ -96,6 +111,33 @@ export class AuthService {
     const user = await this.usersService.findById(userId);
     if (!user) throw new UnauthorizedException('User not found');
     return this.usersService.toPublic(user);
+  }
+
+  /** Verify email using the token from the link */
+  async verifyEmail(token: string) {
+    if (!token) throw new BadRequestException('Token is required');
+
+    const user = await this.usersService.findByVerificationToken(token);
+    if (!user) {
+      throw new BadRequestException('رابط التحقق غير صالح أو منتهي الصلاحية');
+    }
+
+    await this.usersService.markEmailVerified(user._id.toString());
+    return { success: true, message: 'تم تأكيد بريدك الإلكتروني بنجاح ✅' };
+  }
+
+  /** Resend verification email */
+  async resendVerification(email: string) {
+    const user = await this.usersService.findByEmail(email);
+    if (!user) throw new NotFoundException('User not found');
+    if (user.isEmailVerified) {
+      throw new BadRequestException('البريد الإلكتروني محقق بالفعل');
+    }
+
+    const token = await this.usersService.generateVerificationToken(user._id.toString());
+    await this.emailService.sendVerificationEmail(user.email, user.firstName, token);
+
+    return { success: true, message: 'تم إرسال رابط التحقق مجدداً' };
   }
 
   private async generateTokens(user: any) {
