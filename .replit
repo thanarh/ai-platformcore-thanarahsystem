@@ -62,4 +62,5 @@ externalPort = 8000
 
 [deployment]
 deploymentTarget = "vm"
+build = ["bash", "build.sh"]
 run = ["bash", "start.sh"]
