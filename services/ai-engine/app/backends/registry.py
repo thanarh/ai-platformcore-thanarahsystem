@@ -12,7 +12,6 @@ Add new backends here without changing any other code.
 import logging
 from typing import Dict, List, Optional
 from app.backends.base import AIBackend
-from app.backends.llamacpp import LlamaCppBackend
 from app.backends.fallback import FallbackBackend
 from app.config import settings
 
@@ -37,15 +36,22 @@ class BackendRegistry:
         # ── 1. Always register fallback (last resort, no network needed) ──
         self._register(FallbackBackend())
 
-        # ── 2. Local llama.cpp — PRIMARY backend ──────────────────────────
+        # ── 2. Local inference — PRIMARY backend ──────────────────────────
         # Registered whenever LOCAL_AI_ENABLED=true (default).
         # If the llama.cpp server is not running, requests fall through to
         # the fallback which returns a clean "not connected" message.
         if settings.local_ai_enabled:
-            llamacpp = LlamaCppBackend()
-            self._register(llamacpp)
+            if settings.local_ai_engine.lower() == "ollama":
+                from app.backends.ollama import OllamaBackend
+
+                local_backend = OllamaBackend()
+            else:
+                from app.backends.llamacpp import LlamaCppBackend
+
+                local_backend = LlamaCppBackend()
+            self._register(local_backend)
             logger.info(
-                f"✓ Local llama.cpp backend registered "
+                f"✓ Local {settings.local_ai_engine} backend registered "
                 f"(url={settings.local_ai_base_url}, "
                 f"model={settings.local_ai_model or 'auto-detect'})"
             )

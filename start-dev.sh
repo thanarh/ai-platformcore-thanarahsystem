@@ -23,4 +23,4 @@ exec npx concurrently \
   "cd apps/web && npm run dev" \
   "cd apps/api && npm run start:dev" \
   "cd services/ai-engine && python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload" \
-  "OLLAMA_HOME=/home/runner/workspace/.ollama OLLAMA_MODELS=/home/runner/workspace/.ollama/models OLLAMA_LIBRARY_PATH=/home/runner/workspace/.ollama-lib/lib/ollama OLLAMA_KEEP_ALIVE=-1 /home/runner/workspace/.ollama-lib/bin/ollama serve"
+  "bash start-ollama.sh"

@@ -1,0 +1,159 @@
+"""Native Ollama backend adapter using the /api/chat protocol."""
+
+import json
+import logging
+import time
+from typing import AsyncGenerator
+
+import httpx
+
+from app.backends.base import AIBackend, AIRequest, AIResponse, HealthStatus
+from app.backends.openai_compatible import THANARAH_SYSTEM_PROMPT
+from app.config import settings
+
+logger = logging.getLogger(__name__)
+
+
+class OllamaBackend(AIBackend):
+    """Local Ollama inference backend."""
+
+    def __init__(self):
+        super().__init__(backend_id="local-llamacpp", name="Local Ollama")
+        self.base_url = settings.local_ai_base_url.rstrip("/")
+        self.default_model = settings.local_ai_model
+        self.priority = 90
+        self.enabled = settings.local_ai_enabled
+        self._client = None
+
+    def _get_client(self) -> httpx.AsyncClient:
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(
+                base_url=self.base_url,
+                timeout=httpx.Timeout(
+                    connect=3.0,
+                    read=180.0,
+                    write=10.0,
+                    pool=5.0,
+                ),
+            )
+        return self._client
+
+    def _build_messages(self, request: AIRequest) -> list:
+        system = request.system_prompt or THANARAH_SYSTEM_PROMPT
+        if request.context:
+            system += f"\n\n--- Context ---\n{request.context}"
+        return [{"role": "system", "content": system}, *request.messages]
+
+    def _model(self, request: AIRequest) -> str:
+        model = request.model or self.default_model
+        if not model:
+            raise RuntimeError("LOCAL_AI_MODEL is not configured")
+        return model
+
+    async def is_available(self) -> bool:
+        return (await self.health_check()).available
+
+    async def chat(self, request: AIRequest) -> AIResponse:
+        start = time.time()
+        model = self._model(request)
+        try:
+            response = await self._get_client().post(
+                "/api/chat",
+                json={
+                    "model": model,
+                    "messages": self._build_messages(request),
+                    "stream": False,
+                    "options": {
+                        "num_predict": request.max_tokens,
+                        "temperature": request.temperature,
+                    },
+                },
+            )
+            response.raise_for_status()
+            data = response.json()
+            latency = (time.time() - start) * 1000
+            self.record_success(latency)
+            return AIResponse(
+                content=data.get("message", {}).get("content", ""),
+                model=data.get("model", model),
+                backend=self.backend_id,
+                input_tokens=data.get("prompt_eval_count", 0),
+                output_tokens=data.get("eval_count", 0),
+                finish_reason=data.get("done_reason"),
+            )
+        except Exception as error:
+            self.record_failure()
+            logger.error("[%s] chat failed: %s", self.name, error)
+            raise
+
+    async def stream_chat(self, request: AIRequest) -> AsyncGenerator[str, None]:
+        start = time.time()
+        model = self._model(request)
+        try:
+            async with self._get_client().stream(
+                "POST",
+                "/api/chat",
+                json={
+                    "model": model,
+                    "messages": self._build_messages(request),
+                    "stream": True,
+                    "options": {
+                        "num_predict": request.max_tokens,
+                        "temperature": request.temperature,
+                    },
+                },
+            ) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if not line:
+                        continue
+                    data = json.loads(line)
+                    content = data.get("message", {}).get("content", "")
+                    if content:
+                        yield content
+                    if data.get("done"):
+                        break
+            self.record_success((time.time() - start) * 1000)
+        except Exception as error:
+            self.record_failure()
+            logger.error("[%s] stream failed: %s", self.name, error)
+            raise
+
+    async def health_check(self) -> HealthStatus:
+        start = time.time()
+        try:
+            response = await self._get_client().get("/api/tags", timeout=5)
+            response.raise_for_status()
+            models = response.json().get("models", [])
+            names = {
+                model.get("name") or model.get("model")
+                for model in models
+            }
+            latency = (time.time() - start) * 1000
+            if self.default_model and self.default_model not in names:
+                return HealthStatus(
+                    available=False,
+                    latency_ms=latency,
+                    error=f"Model {self.default_model} is not installed",
+                )
+            active_model = self.default_model or next(iter(names), None)
+            return HealthStatus(
+                available=bool(active_model),
+                latency_ms=latency,
+                model=active_model,
+                error=None if active_model else "No local model is installed",
+            )
+        except Exception as error:
+            return HealthStatus(available=False, error=str(error))
+
+    def to_dict(self) -> dict:
+        data = super().to_dict()
+        data.update(
+            {
+                "type": "local",
+                "engine": "ollama",
+                "baseUrl": self.base_url,
+                "model": self.default_model or "auto",
+            }
+        )
+        return data

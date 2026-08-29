@@ -5,8 +5,8 @@ When local AI is configured but not reachable, returns a clean status message.
 from typing import AsyncGenerator
 from app.backends.base import AIBackend, AIRequest, AIResponse, HealthStatus
 
-_MSG_AR = "محرك ثناره AI المحلي غير متصل حالياً.\n\nيرجى التأكد من تشغيل خادم llama.cpp على المنفذ 8080، أو تواصل مع المسؤول لإعادة تشغيل المحرك."
-_MSG_EN = "Thanarah Local AI Engine is not currently connected.\n\nPlease ensure the llama.cpp server is running on port 8080, or contact your administrator to restart the engine."
+_MSG_AR = "محرك ثنارة AI المحلي غير متاح حالياً. يرجى إعادة تشغيل المحرك المحلي أو التحقق من تثبيت النموذج."
+_MSG_EN = "Thanarah Local AI Engine is currently unavailable. Please restart the local engine or verify that its model is installed."
 _MSG = f"{_MSG_AR}\n\n{_MSG_EN}"
 
 

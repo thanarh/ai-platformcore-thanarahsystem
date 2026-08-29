@@ -9,9 +9,9 @@ class Settings(BaseSettings):
 
     # Local AI
     local_ai_enabled: bool = False
-    local_ai_engine: str = "llamacpp"
-    local_ai_base_url: str = "http://localhost:8080"
-    local_ai_model: str = ""
+    local_ai_engine: str = "ollama"
+    local_ai_base_url: str = "http://localhost:11434"
+    local_ai_model: str = "qwen2.5:0.5b"
 
     # External providers (BYOK)
     openai_api_key: Optional[str] = None

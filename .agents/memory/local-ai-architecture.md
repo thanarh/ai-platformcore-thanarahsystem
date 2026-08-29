@@ -13,14 +13,16 @@ description: Ollama setup, model paths, env vars, and backend registry behavior 
 
 ## Env Vars
 - `LOCAL_AI_ENABLED=true` — enables local backend in registry
+- `LOCAL_AI_ENGINE=ollama` — selects the native Ollama adapter
 - `LOCAL_AI_BASE_URL=http://localhost:11434` — points FastAPI engine to Ollama
 - `LOCAL_AI_MODEL=qwen2.5:1.5b` — active model (upgraded from 0.5b; 0.5b was too small for Arabic)
 
-## Workflow Command
-Ollama runs as the 4th service in concurrently:
-```
-OLLAMA_HOME=/home/runner/workspace/.ollama OLLAMA_MODELS=/home/runner/workspace/.ollama/models OLLAMA_LIBRARY_PATH=/home/runner/workspace/.ollama-lib/lib/ollama /home/runner/workspace/.ollama-lib/bin/ollama serve
-```
+## Protocol and startup rule
+Use Ollama's native `/api/chat` protocol, not `/v1/chat/completions`; the bundled Ollama build exposes model listing under `/v1` but does not support OpenAI-compatible chat completions. Startup must ensure the configured model is installed before declaring Ollama ready.
+
+**Why:** A healthy `/v1/models` response can contain no models, while `/v1/chat/completions` still returns 404 and silently sends conversations to the fallback backend.
+
+**How to apply:** Start Ollama through the project launcher, which checks `/api/tags` and pulls the configured model when absent. Keep the legacy backend ID `local-llamacpp` for stored tenant compatibility.
 
 ## Priority Order (registry.py)
 - `fallback` — always registered (priority 0)
