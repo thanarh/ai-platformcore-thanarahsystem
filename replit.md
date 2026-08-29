@@ -14,13 +14,18 @@ services/
 
 ## How to Run
 
-The main workflow starts all three services via `concurrently`:
+The **Start application** workflow runs:
 
 ```bash
-npm run dev
+bash start-dev.sh
 ```
 
-Or individually:
+This starts the web app, API, AI engine, and local Ollama service. It derives the
+API's development JWT and encryption values from the `SESSION_SECRET` stored in
+Replit Secrets, without printing or copying the secret.
+
+To run the application services individually after providing their required
+environment variables:
 ```bash
 npm run dev:web     # Next.js on port 5000
 npm run dev:api     # NestJS on port 3001
