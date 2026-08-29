@@ -5,7 +5,10 @@
 set -e
 
 echo "🐍 Installing Python dependencies..."
-pip install -r services/ai-engine/requirements.txt
+mkdir -p .pythonlibs/lib/python3.12/site-packages
+python -m pip install --disable-pip-version-check --break-system-packages \
+  --target .pythonlibs/lib/python3.12/site-packages \
+  -r services/ai-engine/requirements.txt
 echo "✅ Python dependencies ready"
 
 echo "📦 Building Next.js..."

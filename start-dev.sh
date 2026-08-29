@@ -11,7 +11,9 @@ npm ci --prefix apps/web --no-audit --no-fund
 npm ci --prefix apps/api --no-audit --no-fund
 
 echo "Installing Python dependencies..."
-python -m pip install --disable-pip-version-check \
+mkdir -p .pythonlibs/lib/python3.12/site-packages
+python -m pip install --disable-pip-version-check --break-system-packages \
+  --target .pythonlibs/lib/python3.12/site-packages \
   -r services/ai-engine/requirements.txt
 
 exec npx concurrently \

@@ -17,3 +17,11 @@ Use `MongooseModule.forRoot(uri, { lazyConnection: true, bufferCommands: true })
 Use `tlsAllowInvalidCertificates=True` in the AsyncIOMotorClient options as first attempt; the database.py wraps attempts in try/except and starts the AI engine in degraded mode if all fail.
 
 **Why:** `lazyConnection: true` is in `MongooseModuleOptions` (forRoot) but NOT in `MongooseModuleAsyncOptions` (forRootAsync). Must use sync forRoot with `process.env.MONGODB_URI` directly.
+
+## One-off account and maintenance scripts
+
+Always connect with `dbName: "thanarah_ai"` before reading or changing application records, and verify authentication through the API after any credential update.
+
+**Why:** An Atlas URI can select a different default database than the NestJS application, which explicitly uses `thanarah_ai`; a successful write to the URI-default database may be invisible to the app.
+
+**How to apply:** For bootstrap, repair, or inspection scripts, mirror the application's database options and validate the resulting behavior through the public API rather than trusting the direct database write alone.

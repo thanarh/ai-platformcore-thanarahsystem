@@ -18,3 +18,6 @@ derive_secret() {
 export JWT_SECRET="${JWT_SECRET:-$(derive_secret jwt)}"
 export JWT_REFRESH_SECRET="${JWT_REFRESH_SECRET:-$(derive_secret refresh)}"
 export ENCRYPTION_KEY="${ENCRYPTION_KEY:-$(derive_secret encryption)}"
+
+PYTHON_SITE_PACKAGES="$PWD/.pythonlibs/lib/python3.12/site-packages"
+export PYTHONPATH="${PYTHON_SITE_PACKAGES}${PYTHONPATH:+:${PYTHONPATH}}"
