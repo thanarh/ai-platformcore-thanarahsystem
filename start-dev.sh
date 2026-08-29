@@ -3,18 +3,16 @@
 
 set -e
 
-if [ -z "${SESSION_SECRET:-}" ]; then
-  echo "SESSION_SECRET is required. Add it to Replit Secrets before starting."
-  exit 1
-fi
+source "$(dirname "$0")/scripts/prepare-secrets.sh"
 
-derive_secret() {
-  printf '%s' "${SESSION_SECRET}:$1" | sha256sum | cut -d' ' -f1
-}
+echo "Installing locked Node.js dependencies..."
+npm ci --no-audit --no-fund
+npm ci --prefix apps/web --no-audit --no-fund
+npm ci --prefix apps/api --no-audit --no-fund
 
-export JWT_SECRET="${JWT_SECRET:-$(derive_secret jwt)}"
-export JWT_REFRESH_SECRET="${JWT_REFRESH_SECRET:-$(derive_secret refresh)}"
-export ENCRYPTION_KEY="${ENCRYPTION_KEY:-$(derive_secret encryption)}"
+echo "Installing Python dependencies..."
+python -m pip install --disable-pip-version-check \
+  -r services/ai-engine/requirements.txt
 
 exec npx concurrently \
   --names "WEB,API,AI,OLLAMA" \

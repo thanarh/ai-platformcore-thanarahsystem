@@ -5,6 +5,8 @@ set -e
 
 echo "🌿 Starting Thanarah AI platform..."
 
+source "$(dirname "$0")/scripts/prepare-secrets.sh"
+
 # Install root node_modules if missing (dev only)
 if [ ! -d "node_modules" ]; then
   echo "📦 Installing root dependencies..."

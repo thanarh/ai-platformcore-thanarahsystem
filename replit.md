@@ -22,7 +22,9 @@ bash start-dev.sh
 
 This starts the web app, API, AI engine, and local Ollama service. It derives the
 API's development JWT and encryption values from the `SESSION_SECRET` stored in
-Replit Secrets, without printing or copying the secret.
+Replit Secrets, without printing or copying the secret. On each start it also
+restores the root, web, API, and Python dependencies from the repository's
+lockfiles and requirements file, so the workflow works from a fresh import.
 
 To run the application services individually after providing their required
 environment variables:
