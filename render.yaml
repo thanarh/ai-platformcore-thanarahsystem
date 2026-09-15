@@ -10,6 +10,8 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: PYTHON_VERSION
+        value: 3.12.8
       - key: API_PORT
         value: 3001
       - key: AI_ENGINE_PORT

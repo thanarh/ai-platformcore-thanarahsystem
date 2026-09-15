@@ -33,6 +33,10 @@ https://YOUR-RENDER-DOMAIN/api/health
 https://YOUR-RENDER-DOMAIN/api/health/ai
 ```
 
+## إذا ظهر خطأ `pydantic-core` أو `tiktoken`
+
+هذا يحدث عندما تختار Render Python 3.14 وتحاول بناء إصدارات قديمة من هذه الحزم من المصدر. يحتوي المشروع الآن على `.python-version` و`PYTHON_VERSION=3.12.8` حتى يستخدم Render عجلات Python الجاهزة بدلاً من Cargo/Rust. بعد سحب آخر commit، أعد النشر باستخدام **Clear build cache & deploy**.
+
 ## إذا ظهر الخطأ `nest: not found`
 
 هذا يعني أن Render بنى المشروع الجذر فقط ولم يثبت `apps/api/node_modules`. استخدم Build Command التالي:
