@@ -45,6 +45,10 @@ export class Tenant {
     byokEnabled?: boolean;
     localAiEnabled?: boolean;
     ragEnabled?: boolean;
+    responseProfile?: 'fast' | 'balanced' | 'deep';
+    historyWindow?: number;
+    maxHistoryChars?: number;
+    memoryEnabled?: boolean;
   };
 
   @Prop({ type: Object, default: {} })

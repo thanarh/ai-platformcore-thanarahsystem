@@ -1,7 +1,9 @@
 import {
   Controller,
   Get,
+  Post,
   Param,
+  Body,
   UseGuards,
   NotFoundException,
   ForbiddenException,
@@ -18,6 +20,24 @@ export class MessagesController {
     private readonly messagesService: MessagesService,
     private readonly conversationsService: ConversationsService,
   ) {}
+
+  @Post(':messageId/feedback')
+  async addFeedback(
+    @Param('messageId') messageId: string,
+    @Body() body: { rating: 'up' | 'down'; correction?: string },
+    @CurrentUser() user: any,
+  ) {
+    const message = await this.messagesService.findById(messageId);
+    if (!message || message.role !== 'assistant') throw new NotFoundException('Message not found');
+    await this.conversationsService.findById(
+      message.conversationId.toString(),
+      user._id?.toString() ?? user.id,
+      user.tenantId?.toString(),
+    );
+    if (!['up', 'down'].includes(body.rating)) throw new ForbiddenException('Invalid rating');
+    const updated = await this.messagesService.addFeedback(messageId, body.rating, body.correction);
+    return { ok: true, messageId: updated?._id, feedback: updated?.feedback };
+  }
 
   @Get(':conversationId')
   async findByConversation(

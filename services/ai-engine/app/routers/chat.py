@@ -1,8 +1,10 @@
+import asyncio
 import json
 import logging
 from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import StreamingResponse
 from app.models.chat import ChatRequest, ChatResponse
+from app.memory import memory_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -28,10 +30,20 @@ async def chat_stream(request: Request, chat_request: ChatRequest):
     async def event_generator():
         try:
             stream_gen, route, rag_sources = await tir.stream_route(chat_request)
+            full_content = []
             async for token in stream_gen:
+                full_content.append(token)
                 data = json.dumps({"delta": token})
                 yield f"data: {data}\n\n"
-            
+
+            # Learn from the completed exchange after delivery preparation.
+            if (chat_request.tenantConfig or {}).get("memoryEnabled", True) is not False:
+                try:
+                    last_user_msg = next((m.content for m in reversed(chat_request.messages) if m.role == "user"), "")
+                    asyncio.create_task(memory_service.remember(chat_request.tenantId, chat_request.userId, last_user_msg, "".join(full_content)))
+                except Exception:
+                    pass
+
             # Send metadata at the end
             meta = {
                 "meta": {

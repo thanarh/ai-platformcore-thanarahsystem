@@ -1,4 +1,4 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional
 
 
@@ -7,19 +7,62 @@ class Settings(BaseSettings):
     ai_engine_port: int = 8000
     node_env: str = "development"
 
-    # Local AI
-    local_ai_enabled: bool = False
+    # Local AI generation — free and local-first by default.
+    local_ai_enabled: bool = True
     local_ai_engine: str = "ollama"
     local_ai_base_url: str = "http://localhost:11434"
     local_ai_model: str = "qwen2.5:0.5b"
+    local_ai_keep_alive: str = "10m"
+    local_ai_num_ctx: int = 2048
+    local_ai_num_thread: int = 4
+    local_ai_num_batch: int = 64
+    local_ai_max_tokens_fast: int = 96
+    local_ai_max_tokens_balanced: int = 256
+    local_ai_max_tokens_deep: int = 512
 
-    # External providers (BYOK)
+    # Lightweight continual memory: retrieval only, never retrains per request.
+    memory_enabled: bool = True
+    memory_cache_size: int = 256
+    memory_recall_limit: int = 3
+    memory_scan_limit: int = 5000
+    memory_max_per_tenant: int = 100000
+    memory_item_chars: int = 1000
+    memory_min_score: float = 0.15
+
+    # Exact-response cache for repeated prompts; bounded to protect RAM.
+    response_cache_enabled: bool = True
+    response_cache_size: int = 512
+    response_cache_ttl_seconds: int = 900
+    rag_max_scan: int = 2000
+    rag_default_limit: int = 5
+
+    # Local embeddings for semantic RAG. Sentence Transformers is optional;
+    # the service falls back to deterministic hashing embeddings automatically.
+    embedding_provider: str = "auto"
+    embedding_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    embedding_device: str = "cpu"
+    embedding_fallback_dimension: int = 384
+
+    # External providers are opt-in; local operation is the default.
+    allow_external_providers: bool = False
+    free_provider_only: bool = True
+    free_providers_enabled: bool = False
+    groq_api_key: Optional[str] = None
+    groq_model: str = "openai/gpt-oss-20b"
+    groq_daily_limit: int = 100
+    groq_rpm_limit: int = 10
+    openrouter_api_key: Optional[str] = None
+    openrouter_model: str = "openrouter/free"
+    openrouter_daily_limit: int = 100
+    openrouter_rpm_limit: int = 10
     openai_api_key: Optional[str] = None
     anthropic_api_key: Optional[str] = None
 
-    class Config:
-        env_file = ".env"
-        extra = "ignore"
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        extra="ignore",
+        case_sensitive=False,
+    )
 
 
 settings = Settings()

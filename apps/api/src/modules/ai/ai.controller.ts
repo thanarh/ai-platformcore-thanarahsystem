@@ -58,6 +58,11 @@ export class AiController {
     return this.aiService.getAiHealth();
   }
 
+  @Get('capabilities')
+  getCapabilities() {
+    return this.aiService.getCapabilities();
+  }
+
   @Get('backends')
   @UseGuards(RolesGuard)
   @Roles(Role.ADMIN, Role.OWNER, Role.AI_ADMIN)

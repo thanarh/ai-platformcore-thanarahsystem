@@ -1,0 +1,40 @@
+services:
+  - type: web
+    name: thanarah-ai
+    runtime: node
+    plan: free
+    buildCommand: bash render-build.sh
+    startCommand: bash render-start.sh
+    healthCheckPath: /
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: API_PORT
+        value: 3001
+      - key: AI_ENGINE_PORT
+        value: 8000
+      - key: NEXT_API_URL
+        value: http://127.0.0.1:3001
+      - key: AI_ENGINE_URL
+        value: http://127.0.0.1:8000
+      - key: LOCAL_AI_ENABLED
+        value: false
+      - key: FREE_PROVIDER_ONLY
+        value: true
+      - key: FREE_PROVIDERS_ENABLED
+        value: false
+      - key: ALLOW_EXTERNAL_PROVIDERS
+        value: false
+      - key: MONGODB_URI
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: ENCRYPTION_KEY
+        generateValue: true
+      - key: GROQ_API_KEY
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false

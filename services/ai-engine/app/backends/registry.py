@@ -61,8 +61,38 @@ class BackendRegistry:
                 "Set LOCAL_AI_ENABLED=true to enable the primary backend."
             )
 
-        # ── 3. OpenAI — BYOK, optional, disabled by default ───────────────
-        if settings.openai_api_key:
+        # ── 3. Optional free providers — explicit opt-in and quota protected ─
+        if settings.free_providers_enabled:
+            from app.backends.free_provider import QuotaOpenAIBackend
+            if settings.groq_api_key:
+                groq = QuotaOpenAIBackend(
+                    backend_id="groq-free",
+                    name="Groq Free",
+                    base_url="https://api.groq.com/openai/v1",
+                    api_key=settings.groq_api_key,
+                    model=settings.groq_model,
+                    daily_limit=settings.groq_daily_limit,
+                    rpm_limit=settings.groq_rpm_limit,
+                )
+                groq.priority = 80
+                self._register(groq)
+                logger.info("✓ Groq free backend registered with local quota guard")
+            if settings.openrouter_api_key:
+                openrouter = QuotaOpenAIBackend(
+                    backend_id="openrouter-free",
+                    name="OpenRouter Free",
+                    base_url="https://openrouter.ai/api/v1",
+                    api_key=settings.openrouter_api_key,
+                    model=settings.openrouter_model,
+                    daily_limit=settings.openrouter_daily_limit,
+                    rpm_limit=settings.openrouter_rpm_limit,
+                )
+                openrouter.priority = 75
+                self._register(openrouter)
+                logger.info("✓ OpenRouter free backend registered with local quota guard")
+
+        # ── 4. Paid/BYOK providers — never register in free-only mode ───────
+        if settings.allow_external_providers and not settings.free_provider_only and settings.openai_api_key:
             from app.backends.openai_compatible import OpenAICompatibleBackend
             openai_backend = OpenAICompatibleBackend(
                 backend_id="openai",
@@ -76,8 +106,7 @@ class BackendRegistry:
             self._register(openai_backend)
             logger.info("✓ OpenAI BYOK backend registered (optional)")
 
-        # ── 4. Anthropic — BYOK, optional, disabled by default ────────────
-        if settings.anthropic_api_key:
+        if settings.allow_external_providers and not settings.free_provider_only and settings.anthropic_api_key:
             from app.backends.anthropic import AnthropicBackend
             anthropic_backend = AnthropicBackend(api_key=settings.anthropic_api_key)
             self._register(anthropic_backend)

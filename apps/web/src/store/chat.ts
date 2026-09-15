@@ -6,6 +6,11 @@ export interface Message {
   role: 'user' | 'assistant' | 'system';
   content: string;
   isStreaming?: boolean;
+  feedback?: {
+    rating?: 'up' | 'down';
+    correction?: string;
+    createdAt?: string;
+  };
   aiMetadata?: {
     model?: string;
     backend?: string;

@@ -3,11 +3,15 @@ Thanarah RAG Pipeline
 Upload → Parse → Clean → Chunk → Embed → Store → Retrieve → Rank → Context → LLM
 Vector storage is behind an abstraction — backend can be changed later.
 """
+import asyncio
 import logging
 import io
+import re
 from typing import List, Optional
 import numpy as np
 from app.database import get_db
+from app.embeddings import embedding_service
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -24,28 +28,10 @@ def cosine_similarity(a: List[float], b: List[float]) -> float:
 
 
 class EmbeddingModel:
-    """
-    Simple TF-IDF based embedding for development.
-    Replace with a real embedding model (e.g., sentence-transformers, OpenAI embeddings) for production.
-    """
+    """Compatibility wrapper around the local embedding service."""
 
     def encode(self, text: str) -> List[float]:
-        """Produce a simple hash-based pseudo-embedding for development."""
-        # Simple bag-of-words style vector for demo purposes
-        # In production, use: sentence-transformers, OpenAI text-embedding-3-small, etc.
-        import hashlib
-        words = text.lower().split()
-        dim = 128
-        vector = [0.0] * dim
-        for word in words:
-            h = int(hashlib.md5(word.encode()).hexdigest(), 16)
-            idx = h % dim
-            vector[idx] += 1.0
-        # Normalize
-        norm = sum(v * v for v in vector) ** 0.5
-        if norm > 0:
-            vector = [v / norm for v in vector]
-        return vector
+        return embedding_service.encode(text)
 
 
 class DocumentParser:
@@ -93,11 +79,12 @@ class DocumentParser:
 class TextChunker:
     """Split text into overlapping chunks for retrieval."""
 
-    def __init__(self, chunk_size: int = 500, overlap: int = 50):
+    def __init__(self, chunk_size: int = 350, overlap: int = 40):
         self.chunk_size = chunk_size
         self.overlap = overlap
 
     def chunk(self, text: str) -> List[str]:
+        text = re.sub(r"\s+", " ", text).strip()
         words = text.split()
         chunks = []
         start = 0
@@ -175,8 +162,17 @@ class RAGPipeline:
 
         query_embedding = self.embedder.encode(query)
 
-        # Get all chunks for this tenant (small scale — use a real vector DB for production)
-        chunks = await db.knowledge_chunks.find({"tenantId": tenant_id}).to_list(length=1000)
+        # Bounded scan keeps CPU/RAM predictable until a native vector index is enabled.
+        try:
+            chunks = await asyncio.wait_for(
+                db.knowledge_chunks.find(
+                    {"tenantId": tenant_id},
+                    {"content": 1, "embedding": 1, "sourceId": 1, "chunkIndex": 1},
+                ).sort("chunkIndex", 1).to_list(length=settings.rag_max_scan),
+                timeout=0.5,
+            )
+        except Exception:
+            return []
 
         if not chunks:
             return []
@@ -186,7 +182,11 @@ class RAGPipeline:
         for chunk in chunks:
             embedding = chunk.get("embedding", [])
             if embedding:
-                score = cosine_similarity(query_embedding, embedding)
+                vector_score = cosine_similarity(query_embedding, embedding)
+                query_terms = set(re.findall(r"[\w\u0600-\u06ff]{2,}", query.lower()))
+                content_terms = set(re.findall(r"[\w\u0600-\u06ff]{2,}", chunk.get("content", "").lower()))
+                lexical_score = len(query_terms & content_terms) / max(1, len(query_terms))
+                score = (vector_score * 0.8) + (lexical_score * 0.2)
                 if score >= threshold:
                     scored.append({
                         "content": chunk["content"],
@@ -197,7 +197,7 @@ class RAGPipeline:
 
         # Sort by score descending
         scored.sort(key=lambda x: x["score"], reverse=True)
-        return scored[:limit]
+        return scored[: min(limit, settings.rag_default_limit)]
 
     async def ingest_text(self, source_id: str, tenant_id: str, text: str) -> int:
         """Ingest plain text directly."""

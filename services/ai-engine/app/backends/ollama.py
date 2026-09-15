@@ -44,6 +44,16 @@ class OllamaBackend(AIBackend):
             system += f"\n\n--- Context ---\n{request.context}"
         return [{"role": "system", "content": system}, *request.messages]
 
+    def _options(self, request: AIRequest) -> dict:
+        return {
+            "num_predict": max(32, min(request.max_tokens, settings.local_ai_max_tokens_deep)),
+            "temperature": request.temperature,
+            "num_ctx": settings.local_ai_num_ctx,
+            "num_thread": settings.local_ai_num_thread,
+            "num_batch": settings.local_ai_num_batch,
+            "keep_alive": settings.local_ai_keep_alive,
+        }
+
     def _model(self, request: AIRequest) -> str:
         model = request.model or self.default_model
         if not model:
@@ -63,10 +73,7 @@ class OllamaBackend(AIBackend):
                     "model": model,
                     "messages": self._build_messages(request),
                     "stream": False,
-                    "options": {
-                        "num_predict": request.max_tokens,
-                        "temperature": request.temperature,
-                    },
+                    "options": self._options(request),
                 },
             )
             response.raise_for_status()
@@ -97,10 +104,7 @@ class OllamaBackend(AIBackend):
                     "model": model,
                     "messages": self._build_messages(request),
                     "stream": True,
-                    "options": {
-                        "num_predict": request.max_tokens,
-                        "temperature": request.temperature,
-                    },
+                    "options": self._options(request),
                 },
             ) as response:
                 response.raise_for_status()

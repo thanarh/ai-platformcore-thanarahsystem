@@ -2,7 +2,7 @@
 export const dynamic = 'force-dynamic';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
-import { Send, Square, RefreshCw, Copy, Menu } from 'lucide-react';
+import { Send, Square, RefreshCw, Copy, Menu, ThumbsUp, ThumbsDown } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useChatStore, Message } from '@/store/chat';
@@ -23,6 +23,7 @@ export default function ChatPage() {
 
   const [input, setInput] = useState('');
   const [abortController, setAbortController] = useState<AbortController | null>(null);
+  const [feedback, setFeedback] = useState<Record<string, 'up' | 'down'>>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -32,7 +33,14 @@ export default function ChatPage() {
     if (!convId) return;
     setLoading(true);
     messagesApi.list(convId)
-      .then((msgs) => setMessages(convId, msgs))
+      .then((msgs) => {
+        setMessages(convId, msgs);
+        const savedFeedback: Record<string, 'up' | 'down'> = {};
+        msgs.forEach((message: Message) => {
+          if (message._id && message.feedback?.rating) savedFeedback[message._id] = message.feedback.rating;
+        });
+        setFeedback(savedFeedback);
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [convId]);
@@ -131,7 +139,19 @@ export default function ChatPage() {
             key={idx}
             message={msg}
             onCopy={() => handleCopy(msg.content)}
+            feedback={msg._id ? feedback[msg._id] : undefined}
+            onFeedback={async (rating) => {
+              if (!msg._id) return;
+              const correction = rating === 'down' && typeof window !== 'undefined'
+                ? window.prompt('ما التصحيح أو التحسين المطلوب؟') || undefined
+                : undefined;
+              try {
+                await messagesApi.feedback(msg._id, rating, correction);
+                setFeedback((current) => ({ ...current, [msg._id as string]: rating }));
+              } catch {}
+            }}
           />
+
         ))}
         <div ref={messagesEndRef} />
       </div>
@@ -181,7 +201,7 @@ export default function ChatPage() {
   );
 }
 
-function MessageBubble({ message, onCopy }: { message: Message; onCopy: () => void }) {
+function MessageBubble({ message, onCopy, onFeedback, feedback }: { message: Message; onCopy: () => void; onFeedback: (rating: 'up' | 'down') => void; feedback?: 'up' | 'down' }) {
   const isUser = message.role === 'user';
   const isArabic = isRTL(message.content);
 
@@ -218,6 +238,20 @@ function MessageBubble({ message, onCopy }: { message: Message; onCopy: () => vo
                 )}
                 {!message.isStreaming && message.content && (
                   <div className="flex items-center justify-end mt-2 opacity-0 group-hover:opacity-100 transition">
+                    <button
+                      onClick={() => onFeedback('up')}
+                      className={cn('p-1 transition', feedback === 'up' ? 'text-green-600' : 'text-gray-400 hover:text-green-600')}
+                      title="رد مفيد"
+                    >
+                      <ThumbsUp className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => onFeedback('down')}
+                      className={cn('p-1 transition', feedback === 'down' ? 'text-red-600' : 'text-gray-400 hover:text-red-600')}
+                      title="يحتاج إلى تحسين"
+                    >
+                      <ThumbsDown className="w-3.5 h-3.5" />
+                    </button>
                     <button
                       onClick={onCopy}
                       className="p-1 text-gray-400 hover:text-gray-600 transition"

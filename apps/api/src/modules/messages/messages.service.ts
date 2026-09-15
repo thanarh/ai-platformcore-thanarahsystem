@@ -26,6 +26,30 @@ export class MessagesService {
     return message.save();
   }
 
+  async findById(messageId: string): Promise<MessageDocument | null> {
+    return this.messageModel.findById(new Types.ObjectId(messageId));
+  }
+
+  async addFeedback(
+    messageId: string,
+    rating: 'up' | 'down',
+    correction?: string,
+  ): Promise<MessageDocument | null> {
+    return this.messageModel.findOneAndUpdate(
+      { _id: new Types.ObjectId(messageId), role: 'assistant' },
+      {
+        $set: {
+          feedback: {
+            rating,
+            correction: correction?.trim().slice(0, 2000),
+            createdAt: new Date(),
+          },
+        },
+      },
+      { new: true },
+    );
+  }
+
   async findByConversation(conversationId: string, limit = 50): Promise<MessageDocument[]> {
     return this.messageModel
       .find({ conversationId: new Types.ObjectId(conversationId) })

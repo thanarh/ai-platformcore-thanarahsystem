@@ -68,7 +68,9 @@ export class AiService {
 
     const messages = recentMessages.map((m) => ({
       role: m.role,
-      content: m.content,
+      content: m.feedback?.correction
+        ? `${m.content}\n\n[ملاحظة تصحيحية من المستخدم: ${m.feedback.correction}]`
+        : m.content,
     }));
 
     // Build AI request payload
@@ -221,7 +223,12 @@ export class AiService {
 
     // Include current user message at end of history
     const messages = [
-      ...recentMessages.map((m) => ({ role: m.role, content: m.content })),
+      ...recentMessages.map((m) => ({
+        role: m.role,
+        content: m.feedback?.correction
+          ? `${m.content}\n\n[ملاحظة تصحيحية من المستخدم: ${m.feedback.correction}]`
+          : m.content,
+      })),
       { role: 'user', content: data.content },
     ];
 
@@ -321,6 +328,15 @@ export class AiService {
       return response.data;
     } catch {
       return { status: 'unavailable', backends: [] };
+    }
+  }
+
+  async getCapabilities() {
+    try {
+      const response = await axios.get(`${this.aiEngineUrl}/backends/capabilities`, { timeout: 5000 });
+      return response.data;
+    } catch {
+      return { generation: { enabled: false }, embeddings: { ready: false }, rag: { enabled: false } };
     }
   }
 

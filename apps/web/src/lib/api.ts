@@ -62,6 +62,8 @@ export const conversationsApi = {
 export const messagesApi = {
   list: (conversationId: string) =>
     api.get(`/messages/${conversationId}`).then((r) => r.data),
+  feedback: (messageId: string, rating: 'up' | 'down', correction?: string) =>
+    api.post(`/messages/${messageId}/feedback`, { rating, correction }).then((r) => r.data),
 };
 
 // ──── AI ───────────────────────────────────────────────────────────────────
@@ -69,6 +71,7 @@ export const aiApi = {
   chat: (conversationId: string, content: string) =>
     api.post('/ai/chat', { conversationId, content }).then((r) => r.data),
   health: () => api.get('/ai/health').then((r) => r.data),
+  capabilities: () => api.get('/ai/capabilities').then((r) => r.data),
   backends: () => api.get('/ai/backends').then((r) => r.data),
   updateBackend: (id: string, data: any) =>
     api.put(`/ai/backends/${id}`, data).then((r) => r.data),

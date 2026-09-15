@@ -3,12 +3,17 @@ Thanarah Intelligence Router (TIR)
 Every AI request passes through this router.
 It decides which backend to use based on availability, priority, and context.
 """
+import asyncio
+import hashlib
 import logging
 import time
+from collections import OrderedDict
 from typing import Optional, List, AsyncGenerator
 from app.backends.registry import BackendRegistry
 from app.backends.base import AIRequest, AIResponse
 from app.models.chat import ChatRequest, ChatResponse, RouteDecision
+from app.config import settings
+from app.memory import memory_service
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +48,37 @@ class IntelligenceRouter:
 
     def __init__(self, registry: BackendRegistry):
         self.registry = registry
+        self._response_cache: OrderedDict[str, tuple[float, ChatResponse]] = OrderedDict()
+
+    def _cache_key(self, request: ChatRequest) -> str:
+        tenant_config = request.tenantConfig or {}
+        profile = tenant_config.get("responseProfile", "fast")
+        latest = "|".join(f"{m.role}:{m.content}" for m in request.messages[-2:])
+        raw = f"{request.tenantId}|{profile}|{tenant_config.get('systemPrompt', '')}|{latest}"
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+    def _cached(self, request: ChatRequest) -> Optional[ChatResponse]:
+        if not settings.response_cache_enabled:
+            return None
+        key = self._cache_key(request)
+        entry = self._response_cache.get(key)
+        if not entry:
+            return None
+        created, response = entry
+        if time.time() - created > settings.response_cache_ttl_seconds:
+            self._response_cache.pop(key, None)
+            return None
+        self._response_cache.move_to_end(key)
+        return response.model_copy(update={"requestId": request.requestId, "latencyMs": 0})
+
+    def _store_cache(self, request: ChatRequest, response: ChatResponse) -> None:
+        if not settings.response_cache_enabled or response.backend == "fallback":
+            return
+        key = self._cache_key(request)
+        self._response_cache[key] = (time.time(), response)
+        self._response_cache.move_to_end(key)
+        while len(self._response_cache) > settings.response_cache_size:
+            self._response_cache.popitem(last=False)
 
     def _decide_route(
         self, request: ChatRequest
@@ -92,17 +128,47 @@ class IntelligenceRouter:
             fallback_order=fallback_order,
         )
 
-    def _build_context(self, request: ChatRequest, rag_results: Optional[list] = None) -> Optional[str]:
+    def _profile(self, request: ChatRequest) -> str:
+        configured = (request.tenantConfig or {}).get("responseProfile", "fast")
+        if configured in {"fast", "balanced", "deep"}:
+            return configured
+        text = " ".join(m.content for m in request.messages[-2:])
+        if len(text) > 900 or any(word in text.lower() for word in ["حلل", "قارن", "اشرح بالتفصيل", "analyze", "compare", "deep"]):
+            return "deep"
+        if len(text) > 240:
+            return "balanced"
+        return "fast"
+
+    def _trim_messages(self, request: ChatRequest) -> list:
+        tenant_config = request.tenantConfig or {}
+        window = max(2, min(int(tenant_config.get("historyWindow", 4)), 8))
+        messages = request.messages[-window:]
+        max_chars = int(tenant_config.get("maxHistoryChars", 5000))
+        output, used = [], 0
+        for message in reversed(messages):
+            content = message.content[-1800:]
+            if used + len(content) > max_chars and output:
+                break
+            output.append({"role": message.role, "content": content})
+            used += len(content)
+        return list(reversed(output))
+
+    def _build_context(self, request: ChatRequest, rag_results: Optional[list] = None, memories: Optional[list] = None) -> Optional[str]:
         """Build context string from conversation summary and RAG results."""
         parts = []
 
         if request.conversationSummary:
             parts.append(f"## Conversation Summary\n{request.conversationSummary}")
 
+        if memories:
+            parts.append("## Relevant Previous Learnings\nUse only when relevant:")
+            for i, memory in enumerate(memories[:settings.memory_recall_limit], 1):
+                parts.append(f"{i}. سؤال سابق: {memory.get('query', '')}\nإجابة سابقة: {memory.get('answer', '')}")
+
         if rag_results:
             parts.append("## Relevant Knowledge")
-            for i, result in enumerate(rag_results[:5], 1):
-                parts.append(f"{i}. {result.get('content', '')}")
+            for i, result in enumerate(rag_results[:3], 1):
+                parts.append(f"{i}. {result.get('content', '')[:1200]}")
 
         return "\n\n".join(parts) if parts else None
 
@@ -114,29 +180,49 @@ class IntelligenceRouter:
     ) -> AIRequest:
         """Build AIRequest from ChatRequest."""
         tenant_config = chat_request.tenantConfig or {}
-        system_prompt = tenant_config.get("systemPrompt", THANARAH_BASE_SYSTEM)
+        profile = self._profile(chat_request)
+        compact_prompt = "أنت ثنارة، مساعد عربي/إنجليزي مفيد. أجب بلغة المستخدم وباختصار وبدقة. لا تكشف تفاصيل النموذج."
+        system_prompt = tenant_config.get("systemPrompt") or (compact_prompt if profile == "fast" else THANARAH_BASE_SYSTEM)
+        max_tokens = {
+            "fast": settings.local_ai_max_tokens_fast,
+            "balanced": settings.local_ai_max_tokens_balanced,
+            "deep": settings.local_ai_max_tokens_deep,
+        }[profile]
 
         return AIRequest(
-            messages=[{"role": m.role, "content": m.content} for m in chat_request.messages],
+            messages=self._trim_messages(chat_request),
             model=route.model,
             system_prompt=system_prompt,
             context=context,
             stream=chat_request.stream,
-            max_tokens=300,
-            temperature=0.7,
+            max_tokens=max_tokens,
+            temperature=0.35 if profile == "fast" else 0.55 if profile == "balanced" else 0.7,
         )
 
     async def route(self, chat_request: ChatRequest) -> ChatResponse:
         """Route a chat request through the best available backend."""
         start = time.time()
 
+        cached = self._cached(chat_request)
+        if cached is not None:
+            return cached
+
         # Decide route
         route = self._decide_route(chat_request)
         logger.info(f"[TIR] Route decision: {route.backend_id} — {route.reason}")
 
+        # Recall a few relevant memories with cheap lexical matching; no model retraining.
+        memories = []
+        if (chat_request.tenantConfig or {}).get("memoryEnabled", True) is not False:
+            try:
+                last_user_msg = next((m.content for m in reversed(chat_request.messages) if m.role == "user"), "")
+                memories = await memory_service.recall(chat_request.tenantId, last_user_msg)
+            except Exception:
+                pass
+
         # Try RAG only if explicitly enabled AND knowledge base exists
         rag_sources = []
-        if route.rag_enabled and chat_request.tenantConfig.get("ragEnabled") is True:
+        if route.rag_enabled and (chat_request.tenantConfig or {}).get("ragEnabled") is True:
             try:
                 from app.rag.pipeline import RAGPipeline
                 rag = RAGPipeline()
@@ -150,7 +236,7 @@ class IntelligenceRouter:
             except Exception as e:
                 logger.debug(f"RAG skipped: {e}")
 
-        context = self._build_context(chat_request, rag_sources)
+        context = self._build_context(chat_request, rag_sources, memories)
         ai_request = self._build_ai_request(chat_request, route, context)
 
         # Try primary backend, then fallbacks
@@ -165,7 +251,14 @@ class IntelligenceRouter:
                 response = await backend.chat(ai_request)
                 latency_ms = int((time.time() - start) * 1000)
 
-                return ChatResponse(
+                if (chat_request.tenantConfig or {}).get("memoryEnabled", True) is not False:
+                    try:
+                        last_user_msg = next((m.content for m in reversed(chat_request.messages) if m.role == "user"), "")
+                        asyncio.create_task(memory_service.remember(chat_request.tenantId, chat_request.userId, last_user_msg, response.content))
+                    except Exception:
+                        pass
+
+                result = ChatResponse(
                     content=response.content,
                     model=response.model or backend_id,
                     backend=backend_id,
@@ -176,6 +269,8 @@ class IntelligenceRouter:
                     ragSources=rag_sources,
                     requestId=chat_request.requestId,
                 )
+                self._store_cache(chat_request, result)
+                return result
             except Exception as e:
                 logger.warning(f"[TIR] Backend {backend_id} failed: {e}, trying next...")
                 continue
@@ -197,8 +292,16 @@ class IntelligenceRouter:
         route = self._decide_route(chat_request)
         logger.info(f"[TIR Stream] Route: {route.backend_id}")
 
+        memories = []
+        if (chat_request.tenantConfig or {}).get("memoryEnabled", True) is not False:
+            try:
+                last_user_msg = next((m.content for m in reversed(chat_request.messages) if m.role == "user"), "")
+                memories = await memory_service.recall(chat_request.tenantId, last_user_msg)
+            except Exception:
+                pass
+
         rag_sources = []
-        if route.rag_enabled and chat_request.tenantConfig.get("ragEnabled") is True:
+        if route.rag_enabled and (chat_request.tenantConfig or {}).get("ragEnabled") is True:
             try:
                 from app.rag.pipeline import RAGPipeline
                 rag = RAGPipeline()
@@ -211,7 +314,7 @@ class IntelligenceRouter:
             except Exception:
                 pass
 
-        context = self._build_context(chat_request, rag_sources)
+        context = self._build_context(chat_request, rag_sources, memories)
         ai_request = self._build_ai_request(chat_request, route, context)
         ai_request.stream = True
 

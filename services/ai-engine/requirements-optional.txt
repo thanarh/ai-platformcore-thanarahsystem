@@ -1,0 +1,4 @@
+# Optional stronger local semantic search stack.
+# The application automatically falls back to hashing embeddings if these are not installed.
+sentence-transformers>=5.0.0
+faiss-cpu>=1.8.0

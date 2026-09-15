@@ -21,6 +21,9 @@ async def init_db():
         await test_client.admin.command("ping")
         client = test_client
         db = client.thanarah_ai
+        await db.ai_memories.create_index([("tenantId", 1), ("createdAt", -1)])
+        await db.knowledge_chunks.create_index([("tenantId", 1), ("chunkIndex", 1)])
+        await db.knowledge_chunks.create_index([("sourceId", 1)])
         logger.info("✅ MongoDB connected successfully")
     except Exception as e:
         logger.warning("⚠️  MongoDB not yet reachable — AI engine starting in degraded mode")

@@ -40,6 +40,13 @@ export class Message {
   editedAt: Date;
 
   @Prop({ type: Object, default: {} })
+  feedback: {
+    rating?: 'up' | 'down';
+    correction?: string;
+    createdAt?: Date;
+  };
+
+  @Prop({ type: Object, default: {} })
   attachments: {
     files?: Array<{ name: string; url: string; type: string; size: number }>;
   };

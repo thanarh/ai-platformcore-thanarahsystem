@@ -1,7 +1,7 @@
 'use client';
 export const dynamic = 'force-dynamic';
 import { useEffect, useState } from 'react';
-import { tenantsApi } from '@/lib/api';
+import { aiApi, tenantsApi } from '@/lib/api';
 import { Bot, Save, RefreshCw, Sparkles, MessageSquare, Sliders } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -40,12 +40,18 @@ export default function AiSettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [capabilities, setCapabilities] = useState<any>(null);
   const [form, setForm] = useState({
     systemPrompt: '',
     communicationStyle: 'professional',
+    responseProfile: 'fast',
+    memoryEnabled: true,
   });
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    aiApi.capabilities().then(setCapabilities).catch(() => setCapabilities(null));
+  }, []);
 
   const load = async () => {
     setLoading(true);
@@ -55,6 +61,8 @@ export default function AiSettingsPage() {
       setForm({
         systemPrompt: t?.aiConfig?.systemPrompt || '',
         communicationStyle: t?.aiConfig?.communicationStyle || 'professional',
+        responseProfile: t?.aiConfig?.responseProfile || 'fast',
+        memoryEnabled: t?.aiConfig?.memoryEnabled !== false,
       });
     } catch {}
     setLoading(false);
@@ -67,6 +75,8 @@ export default function AiSettingsPage() {
       await tenantsApi.updateAiConfig(tenant._id, {
         systemPrompt: form.systemPrompt || null,
         communicationStyle: form.communicationStyle,
+        responseProfile: form.responseProfile,
+        memoryEnabled: form.memoryEnabled,
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
@@ -146,6 +156,34 @@ export default function AiSettingsPage() {
           </div>
         </div>
 
+        {/* Performance profile */}
+        <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-4">
+          <div className="flex items-center gap-2">
+            <Sliders className="w-4 h-4 text-thanarah-600" />
+            <div>
+              <h2 className="font-medium text-gray-900 font-arabic">سرعة الرد واستهلاك الموارد</h2>
+              <p className="text-xs text-gray-500 font-arabic mt-0.5">لا يتم تدريب النموذج مع كل رسالة؛ يتم استخدام ذاكرة خفيفة واسترجاع ذكي</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              { value: 'fast', label: 'سريع', desc: 'ردود قصيرة واستهلاك منخفض' },
+              { value: 'balanced', label: 'متوازن', desc: 'جودة وسرعة متوازنة' },
+              { value: 'deep', label: 'تحليل عميق', desc: 'مهام طويلة واستهلاك أعلى' },
+            ].map((profile) => (
+              <button key={profile.value} onClick={() => setForm(f => ({ ...f, responseProfile: profile.value }))}
+                className={cn('p-3 rounded-xl border-2 text-right transition', form.responseProfile === profile.value ? 'border-thanarah-500 bg-thanarah-50' : 'border-gray-200 hover:border-gray-300')}>
+                <p className="text-sm font-medium text-gray-800 font-arabic">{profile.label}</p>
+                <p className="text-[11px] text-gray-500 mt-1 font-arabic">{profile.desc}</p>
+              </button>
+            ))}
+          </div>
+          <label className="flex items-center justify-between border border-gray-200 rounded-xl px-3 py-2.5 cursor-pointer">
+            <span className="text-sm text-gray-700 font-arabic">تعلّم من المحادثات عبر الذاكرة والاسترجاع</span>
+            <input type="checkbox" checked={form.memoryEnabled} onChange={(e) => setForm(f => ({ ...f, memoryEnabled: e.target.checked }))} className="w-4 h-4 accent-thanarah-600" />
+          </label>
+        </div>
+
         {/* System prompt */}
         <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-4">
           <div className="flex items-center justify-between">
@@ -199,6 +237,40 @@ export default function AiSettingsPage() {
               </button>
             ))}
           </div>
+        </div>
+
+        {/* Free AI stack status */}
+        <div className="bg-thanarah-50 border border-thanarah-100 rounded-xl p-5 space-y-4">
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-thanarah-600" />
+            <div>
+              <h2 className="font-medium text-gray-900 font-arabic">حلول ذكاء اصطناعي مجانية</h2>
+              <p className="text-xs text-gray-500 font-arabic mt-0.5">تشغيل محلي بدون رسوم لكل طلب</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="bg-white rounded-xl border border-thanarah-100 p-3">
+              <p className="text-xs text-gray-500 font-arabic">التوليد المحلي</p>
+              <p className="text-sm font-semibold text-thanarah-700 mt-1 font-arabic">
+                {capabilities?.generation?.enabled ? `${capabilities.generation.engine} · ${capabilities.generation.model}` : 'غير متاح حالياً'}
+              </p>
+            </div>
+            <div className="bg-white rounded-xl border border-thanarah-100 p-3">
+              <p className="text-xs text-gray-500 font-arabic">البحث الدلالي</p>
+              <p className="text-sm font-semibold text-thanarah-700 mt-1 font-arabic">
+                {capabilities?.embeddings?.ready ? (capabilities.embeddings.provider === 'hashing-fallback' ? 'وضع احتياطي مجاني' : 'Sentence Transformers') : 'غير متاح حالياً'}
+              </p>
+            </div>
+            <div className="bg-white rounded-xl border border-thanarah-100 p-3">
+              <p className="text-xs text-gray-500 font-arabic">قاعدة المعرفة RAG</p>
+              <p className="text-sm font-semibold text-thanarah-700 mt-1 font-arabic">
+                {capabilities?.rag?.enabled ? 'مفعّلة' : 'غير متاحة حالياً'}
+              </p>
+            </div>
+          </div>
+          <p className="text-xs text-thanarah-700 font-arabic leading-relaxed">
+            النظام مصمم ليعمل محلياً عبر Ollama مع نماذج مفتوحة المصدر، ويستخدم Sentence Transformers عند توفره مع بديل مضمّن لا يحتاج إلى خدمة مدفوعة.
+          </p>
         </div>
 
         {/* Info box */}

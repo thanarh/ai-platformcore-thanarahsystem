@@ -3,15 +3,16 @@
 # Starts Ollama and ensures the default model is loaded.
 # Models are stored in the workspace so they persist across restarts.
 
-export OLLAMA_HOME=/home/runner/workspace/.ollama
-export OLLAMA_MODELS=/home/runner/workspace/.ollama/models
-export OLLAMA_HOST=127.0.0.1:11434
-export OLLAMA_LIBRARY_PATH=/home/runner/workspace/.ollama-lib/lib/ollama
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export OLLAMA_HOME="${OLLAMA_HOME:-$SCRIPT_DIR/.ollama}"
+export OLLAMA_MODELS="${OLLAMA_MODELS:-$OLLAMA_HOME/models}"
+export OLLAMA_HOST="${OLLAMA_HOST:-127.0.0.1:11434}"
+export OLLAMA_LIBRARY_PATH="${OLLAMA_LIBRARY_PATH:-$SCRIPT_DIR/.ollama-lib/lib/ollama}"
 export OLLAMA_KEEP_ALIVE=-1
 
 mkdir -p "$OLLAMA_MODELS"
 
-OLLAMA_BIN=/home/runner/workspace/.ollama-lib/bin/ollama
+OLLAMA_BIN="${OLLAMA_BIN:-$SCRIPT_DIR/.ollama-lib/bin/ollama}"
 DEFAULT_MODEL="${LOCAL_AI_MODEL:-qwen2.5:0.5b}"
 
 echo "🤖 Starting Ollama (model: $DEFAULT_MODEL)..."
