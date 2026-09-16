@@ -252,7 +252,7 @@ export default function AiSettingsPage() {
             <div className="bg-white rounded-xl border border-thanarah-100 p-3">
               <p className="text-xs text-gray-500 font-arabic">محرك المحادثة</p>
               <p className="text-sm font-semibold text-thanarah-700 mt-1 font-arabic">
-                {capabilities?.generation?.enabled ? 'جاهز' : 'جاري الاتصال'}
+                {capabilities?.generation?.advanced ? 'الوضع المتقدم' : capabilities?.generation?.enabled ? 'الوضع الأساسي' : 'جاري الاتصال'}
               </p>
             </div>
             <div className="bg-white rounded-xl border border-thanarah-100 p-3">
@@ -269,7 +269,7 @@ export default function AiSettingsPage() {
             </div>
           </div>
           <p className="text-xs text-thanarah-700 font-arabic leading-relaxed">
-            تعمل خدمات ثنارة كوحدة موحدة للمحادثة، استرجاع المعرفة، والذاكرة الذكية مع مسارات استمرارية تمنع توقف تجربة المستخدم.
+            يعمل الوضع الأساسي للمحادثة واسترجاع المعرفة دائماً. عند تفعيل خدمة التوليد المتقدمة تظهر حالتها هنا تلقائياً.
           </p>
         </div>
 

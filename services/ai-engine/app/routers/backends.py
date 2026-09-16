@@ -8,14 +8,21 @@ router = APIRouter()
 
 
 @router.get("/capabilities")
-async def capabilities():
+async def capabilities(request: Request):
     """Return branded service readiness without exposing infrastructure details."""
     embedding_info = embedding_service.info()
     memory_info = memory_service.info()
+    registry: BackendRegistry = request.app.state.registry
+    backend_health = await registry.get_health()
+    advanced_ready = any(
+        item.get("id") != "fallback" and item.get("enabled") and item.get("healthy")
+        for item in backend_health
+    )
     return {
         "generation": {
             "enabled": True,
-            "status": "ready",
+            "advanced": advanced_ready,
+            "status": "advanced" if advanced_ready else "core",
             "service": "Thanarah Intelligence",
         },
         "embeddings": {

@@ -1,15 +1,16 @@
-"""Thanarah continuity backend.
+"""Thanarah continuity response service.
 
-This backend is always available. It keeps chat responsive during provider outages
-and turns retrieved organizational knowledge into a useful grounded response.
+This service keeps chat useful when advanced generation is not active and turns
+retrieved organizational knowledge into grounded responses.
 """
+import re
 from typing import AsyncGenerator
 
 from app.backends.base import AIBackend, AIRequest, AIResponse, HealthStatus
 
 
 class FallbackBackend(AIBackend):
-    """Always-available branded continuity response path."""
+    """Always-available branded core response path."""
 
     def __init__(self):
         super().__init__(backend_id="fallback", name="Thanarah Core")
@@ -28,6 +29,13 @@ class FallbackBackend(AIBackend):
         return any("\u0600" <= char <= "\u06ff" for char in text)
 
     @staticmethod
+    def _normalize(text: str) -> str:
+        value = text.lower().strip()
+        value = re.sub(r"[ًٌٍَُِّْـ]", "", value)
+        value = value.replace("أ", "ا").replace("إ", "ا").replace("آ", "ا")
+        return re.sub(r"[^\w\u0600-\u06ff]+", " ", value).strip()
+
+    @staticmethod
     def _knowledge_context(context: str | None) -> list[str]:
         if not context or "## Relevant Knowledge" not in context:
             return []
@@ -39,41 +47,53 @@ class FallbackBackend(AIBackend):
                 items.append(cleaned.split(". ", 1)[1].strip())
         return items[:3]
 
+    @staticmethod
+    def _contains_phrase(normalized: str, phrases: tuple[str, ...]) -> bool:
+        padded = f" {normalized} "
+        return any(f" {phrase} " in padded for phrase in phrases)
+
     def _respond(self, request: AIRequest) -> str:
         user_text = self._latest_user_message(request)
+        normalized = self._normalize(user_text)
         arabic = self._is_arabic(user_text) or not user_text
-        knowledge = self._knowledge_context(request.context)
 
+        if self._contains_phrase(
+            normalized,
+            ("هلا", "ياهلا", "يا هلا", "مرحبا", "اهلا", "السلام عليكم", "صباح الخير", "مساء الخير", "hello", "hi", "hey"),
+        ):
+            return "هلا بك، أنا ثنارة. كيف أقدر أساعدك؟" if arabic else "Hello, I'm Thanarah. How can I help?"
+
+        if self._contains_phrase(normalized, ("شكرا", "شكراً", "مشكور", "تسلم", "thanks", "thank you")):
+            return "العفو، يسعدني مساعدتك." if arabic else "You're welcome. I'm happy to help."
+
+        if self._contains_phrase(normalized, ("كيف حالك", "اخبارك", "كيفك", "how are you")):
+            return "بخير وجاهز لمساعدتك. ما الذي تريد إنجازه؟" if arabic else "I'm ready to help. What would you like to accomplish?"
+
+        if self._contains_phrase(normalized, ("من انت", "ما اسمك", "اسمك", "who are you")):
+            return "أنا ثنارة، مساعدك الذكي من منصة ثنارة AI." if arabic else "I'm Thanarah, your AI assistant from Thanarah AI."
+
+        if self._contains_phrase(normalized, ("مساعده", "ساعدني", "ماذا تستطيع", "ما خدماتك", "help", "what can you do")):
+            if arabic:
+                return "أستطيع مساعدتك في المحادثة، البحث داخل قاعدة المعرفة، تنظيم المعلومات، والإجابة عن بيانات مؤسستك. اكتب طلبك أو أضف تفاصيل أكثر."
+            return "I can help with conversation, knowledge search, information organization, and answers based on your organization's data."
+
+        knowledge = self._knowledge_context(request.context)
         if knowledge:
             joined = "\n\n".join(f"• {item}" for item in knowledge)
             if arabic:
-                return (
-                    "بناءً على المعلومات المتاحة في قاعدة معرفة ثنارة:\n\n"
-                    f"{joined}\n\n"
-                    "إذا أردت، أعد صياغة السؤال بتفصيل أكبر لأحدد الإجابة المطلوبة بدقة."
-                )
-            return (
-                "Based on the information available in the Thanarah knowledge base:\n\n"
-                f"{joined}\n\n"
-                "You can add more detail to your question for a more precise answer."
-            )
+                return f"بناءً على المعلومات المتاحة في قاعدة معرفة ثنارة:\n\n{joined}\n\nيمكنك إضافة تفاصيل أكثر للحصول على نتيجة أدق."
+            return f"Based on the information available in Thanarah Knowledge:\n\n{joined}\n\nAdd more detail for a more precise result."
 
-        normalized = user_text.lower()
-        if any(word in normalized for word in ("مرحبا", "مرحباً", "السلام", "اهلا", "أهلا", "hello", "hi")):
-            return "مرحباً، أنا ثنارة. كيف يمكنني مساعدتك اليوم؟" if arabic else "Hello, I'm Thanarah. How can I help you today?"
-
-        if any(word in normalized for word in ("من انت", "من أنت", "اسمك", "who are you")):
-            return "أنا ثنارة، مساعدك الذكي من منصة ثنارة AI." if arabic else "I'm Thanarah, your AI assistant from Thanarah AI."
+        tokens = normalized.split()
+        if not normalized or (len(tokens) == 1 and len(normalized) <= 7):
+            if arabic:
+                shown = f" «{user_text}»" if user_text else ""
+                return f"لم أفهم المقصود من{shown}. اكتب سؤالك بجملة أو أضف تفاصيل أكثر وسأساعدك."
+            return "I couldn't determine what you mean. Please write a complete question or add more detail."
 
         if arabic:
-            return (
-                "استلمت طلبك، لكن خدمة الإجابات المتقدمة قيد الاستعادة حالياً. "
-                "يمكنك متابعة استخدام المحادثة وقاعدة المعرفة، وسأجيب من المعلومات المضافة إليها فور توفر تطابق مناسب."
-            )
-        return (
-            "I received your request, but advanced responses are currently being restored. "
-            "You can continue using chat and the knowledge base, and I will answer from matched organizational information."
-        )
+            return "لا توجد معلومات كافية للإجابة بدقة على هذا الطلب. أضف تفاصيل أكثر أو أضف المعلومات المرتبطة به إلى قاعدة معرفة ثنارة."
+        return "There is not enough information to answer this accurately. Add more detail or add the relevant information to Thanarah Knowledge."
 
     async def is_available(self) -> bool:
         return True
