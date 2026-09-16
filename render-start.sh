@@ -12,6 +12,9 @@ export NEXT_API_URL="${NEXT_API_URL:-http://127.0.0.1:${API_PORT}}"
 export LOCAL_AI_ENABLED="${LOCAL_AI_ENABLED:-false}"
 export FREE_PROVIDER_ONLY="${FREE_PROVIDER_ONLY:-true}"
 export FREE_PROVIDERS_ENABLED="${FREE_PROVIDERS_ENABLED:-false}"
+# Render may inject WEB_CONCURRENCY from CPU count. This service runs three
+# application processes in one instance, so the Python engine must stay single-worker.
+export WEB_CONCURRENCY=1
 export PYTHONUNBUFFERED=1
 export PYTHONPATH="${ROOT_DIR}/.pythonlibs:${ROOT_DIR}/.pythonlibs/lib/python3.12/site-packages:${ROOT_DIR}/services/ai-engine:${PYTHONPATH:-}"
 
@@ -38,7 +41,7 @@ wait_for_url() {
 echo "[START] Launching Thanarah Intelligence service"
 (
   cd services/ai-engine
-  python3 -m uvicorn main:app --host 127.0.0.1 --port "$AI_ENGINE_PORT"
+  python3 -m uvicorn main:app --host 127.0.0.1 --port "$AI_ENGINE_PORT" --workers 1
 ) > >(sed -u 's/^/[AI] /') 2>&1 &
 AI_PID=$!
 wait_for_url "Thanarah Intelligence" "http://127.0.0.1:${AI_ENGINE_PORT}/health" 75
