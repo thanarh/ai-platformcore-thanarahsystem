@@ -131,6 +131,9 @@ class RAGPipeline:
         # Chunk
         chunks = self.chunker.chunk(text)
 
+        # Replace previous chunks for the source so retries remain idempotent.
+        await db.knowledge_chunks.delete_many({"sourceId": source_id, "tenantId": tenant_id})
+
         # Embed and store
         stored = 0
         for i, chunk in enumerate(chunks):
@@ -169,9 +172,10 @@ class RAGPipeline:
                     {"tenantId": tenant_id},
                     {"content": 1, "embedding": 1, "sourceId": 1, "chunkIndex": 1},
                 ).sort("chunkIndex", 1).to_list(length=settings.rag_max_scan),
-                timeout=0.5,
+                timeout=settings.rag_query_timeout_seconds,
             )
-        except Exception:
+        except Exception as exc:
+            logger.warning("Knowledge retrieval query failed: %s", str(exc)[:200])
             return []
 
         if not chunks:
@@ -185,8 +189,16 @@ class RAGPipeline:
                 vector_score = cosine_similarity(query_embedding, embedding)
                 query_terms = set(re.findall(r"[\w\u0600-\u06ff]{2,}", query.lower()))
                 content_terms = set(re.findall(r"[\w\u0600-\u06ff]{2,}", chunk.get("content", "").lower()))
-                lexical_score = len(query_terms & content_terms) / max(1, len(query_terms))
-                score = (vector_score * 0.8) + (lexical_score * 0.2)
+                shared_terms = query_terms & content_terms
+                lexical_score = len(shared_terms) / max(1, len(query_terms))
+                # Long identifiers, ticket numbers, and mixed alpha-numeric codes are
+                # highly discriminative and must outrank older, generally similar text.
+                identifier_terms = {
+                    term for term in query_terms
+                    if len(term) >= 6 or any(char.isdigit() for char in term)
+                }
+                identifier_score = len(identifier_terms & content_terms) / max(1, len(identifier_terms))
+                score = (vector_score * 0.55) + (lexical_score * 0.30) + (identifier_score * 0.15)
                 if score >= threshold:
                     scored.append({
                         "content": chunk["content"],
@@ -208,5 +220,5 @@ class RAGPipeline:
     async def delete_source(self, source_id: str):
         """Remove all chunks for a source."""
         db = get_db()
-        if db:
+        if db is not None:
             await db.knowledge_chunks.delete_many({"sourceId": source_id})

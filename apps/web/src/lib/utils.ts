@@ -16,7 +16,6 @@ export function formatDate(date: string | Date, lang: 'ar' | 'en' = 'ar') {
 }
 
 export function detectLanguage(text: string): 'ar' | 'en' {
-  const arabicPattern = /[\u0600-\u06FF]/;
   const arabicChars = (text.match(/[\u0600-\u06FF]/g) || []).length;
   const totalChars = text.replace(/\s/g, '').length;
   if (totalChars === 0) return 'ar';
@@ -38,54 +37,73 @@ export async function streamChat(
   token: string,
   onDelta: (delta: string) => void,
   onDone: (meta?: any) => void,
-  onError: (err: string) => void
+  onError: (err: string) => void,
 ) {
-  const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
-  const res = await fetch(`${baseUrl}/api/ai/chat/stream`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({ conversationId, content }),
-  });
+  try {
+    const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
+    const res = await fetch(`${baseUrl}/api/ai/chat/stream`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ conversationId, content }),
+    });
 
-  if (!res.ok || !res.body) {
-    onError('Failed to connect to AI engine');
-    return;
-  }
+    if (!res.ok || !res.body) {
+      const detail = await res.text().catch(() => '');
+      onError(detail || 'تعذر الاتصال بخدمة ثنارة الذكية.');
+      return;
+    }
 
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-  let meta: any = null;
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let meta: any = null;
+    let completed = false;
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() || '';
-
-    for (const line of lines) {
-      if (!line.startsWith('data: ')) continue;
-      const raw = line.slice(6).trim();
-      if (raw === '[DONE]') {
-        onDone(meta);
-        return;
-      }
-      try {
-        const parsed = JSON.parse(raw);
-        if (parsed.error) {
-          onError(parsed.content || 'AI error');
+    const processEvent = (event: string) => {
+      for (const line of event.split(/\r?\n/)) {
+        if (!line.startsWith('data:')) continue;
+        const raw = line.slice(5).trim();
+        if (!raw) continue;
+        if (raw === '[DONE]') {
+          completed = true;
+          onDone(meta);
           return;
         }
-        if (parsed.delta) onDelta(parsed.delta);
-        if (parsed.meta) meta = parsed.meta;
-      } catch {}
-    }
-  }
+        try {
+          const parsed = JSON.parse(raw);
+          if (parsed.error) {
+            completed = true;
+            onError(parsed.content || 'تعذر إكمال الطلب حالياً.');
+            return;
+          }
+          if (parsed.delta) onDelta(parsed.delta);
+          if (parsed.meta) meta = parsed.meta;
+        } catch {
+          // Keep buffering future events; malformed server frames must not freeze the UI.
+        }
+      }
+    };
 
-  onDone(meta);
+    while (!completed) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const events = buffer.split(/\r?\n\r?\n/);
+      buffer = events.pop() || '';
+      for (const event of events) {
+        processEvent(event);
+        if (completed) break;
+      }
+    }
+
+    if (!completed && buffer.trim()) processEvent(buffer);
+    if (!completed) onDone(meta);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'تعذر الاتصال بخدمة ثنارة الذكية.';
+    onError(message);
+  }
 }

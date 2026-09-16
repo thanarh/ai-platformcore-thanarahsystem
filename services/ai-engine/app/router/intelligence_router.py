@@ -100,8 +100,8 @@ class IntelligenceRouter:
             return RouteDecision(
                 backend_id="fallback",
                 reason="No configured backends available",
-                rag_enabled=False,
-                fallback_order=["fallback"],
+                rag_enabled=tenant_config.get("ragEnabled", True),
+                fallback_order=[],
             )
 
         # Use preferred backend if specified and available
@@ -220,9 +220,9 @@ class IntelligenceRouter:
             except Exception:
                 pass
 
-        # Try RAG only if explicitly enabled AND knowledge base exists
+        # Knowledge retrieval is enabled by default and can be disabled per tenant.
         rag_sources = []
-        if route.rag_enabled and (chat_request.tenantConfig or {}).get("ragEnabled") is True:
+        if route.rag_enabled and (chat_request.tenantConfig or {}).get("ragEnabled", True) is not False:
             try:
                 from app.rag.pipeline import RAGPipeline
                 rag = RAGPipeline()
@@ -301,7 +301,7 @@ class IntelligenceRouter:
                 pass
 
         rag_sources = []
-        if route.rag_enabled and (chat_request.tenantConfig or {}).get("ragEnabled") is True:
+        if route.rag_enabled and (chat_request.tenantConfig or {}).get("ragEnabled", True) is not False:
             try:
                 from app.rag.pipeline import RAGPipeline
                 rag = RAGPipeline()

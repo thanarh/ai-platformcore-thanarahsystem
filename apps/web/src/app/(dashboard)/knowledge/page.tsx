@@ -12,35 +12,65 @@ export default function KnowledgePage() {
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [searching, setSearching] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [form, setForm] = useState({ name: '', type: 'document', text: '' });
 
   useEffect(() => { loadSources(); }, []);
 
   const loadSources = () => {
     setLoading(true);
-    knowledgeApi.list().then(setSources).catch(() => {}).finally(() => setLoading(false));
+    setError('');
+    knowledgeApi.list()
+      .then(setSources)
+      .catch(() => setError('تعذر تحميل قاعدة المعرفة. تحقق من اتصال الخدمة وقاعدة البيانات.'))
+      .finally(() => setLoading(false));
   };
 
   const handleAdd = async () => {
-    if (!form.name.trim() || !form.text.trim()) return;
-    await knowledgeApi.create({ name: form.name, type: form.type, text: form.text });
-    setForm({ name: '', type: 'document', text: '' });
-    setShowAdd(false);
-    loadSources();
+    if (!form.name.trim() || !form.text.trim() || saving) return;
+    setSaving(true);
+    setError('');
+    setNotice('');
+    try {
+      await knowledgeApi.create({ name: form.name.trim(), type: form.type, text: form.text.trim() });
+      setForm({ name: '', type: 'document', text: '' });
+      setShowAdd(false);
+      setNotice('تمت إضافة المصدر وتجهيزه للبحث بنجاح.');
+      loadSources();
+    } catch (requestError: any) {
+      setError(requestError?.response?.data?.message || 'تعذر إضافة المصدر إلى قاعدة المعرفة.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleDelete = async (id: string) => {
     if (!confirm('هل أنت متأكد من حذف هذا المصدر؟')) return;
-    await knowledgeApi.delete(id);
-    loadSources();
+    setError('');
+    try {
+      await knowledgeApi.delete(id);
+      setNotice('تم حذف المصدر.');
+      loadSources();
+    } catch {
+      setError('تعذر حذف المصدر حالياً.');
+    }
   };
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
     setSearching(true);
-    const res = await knowledgeApi.search(searchQuery).catch(() => ({ results: [] }));
-    setSearchResults(res.results || []);
-    setSearching(false);
+    setError('');
+    try {
+      const res = await knowledgeApi.search(searchQuery.trim());
+      setSearchResults(res.results || []);
+      if (!res.results?.length) setNotice('لم يتم العثور على نتائج مطابقة.');
+    } catch {
+      setError('تعذر البحث في قاعدة المعرفة حالياً.');
+    } finally {
+      setSearching(false);
+    }
   };
 
   const statusIcon = (status: string) => {
@@ -67,6 +97,17 @@ export default function KnowledgePage() {
             إضافة مصدر
           </button>
         </div>
+
+        {error && (
+          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 font-arabic">
+            {error}
+          </div>
+        )}
+        {notice && !error && (
+          <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700 font-arabic">
+            {notice}
+          </div>
+        )}
 
         {/* Search */}
         <div className="flex gap-2">
@@ -124,9 +165,10 @@ export default function KnowledgePage() {
             <div className="flex gap-2">
               <button
                 onClick={handleAdd}
-                className="flex-1 bg-thanarah-700 text-white rounded-lg py-2 text-sm hover:bg-thanarah-600 transition font-arabic"
+                disabled={saving || !form.name.trim() || !form.text.trim()}
+                className="flex-1 bg-thanarah-700 text-white rounded-lg py-2 text-sm hover:bg-thanarah-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition font-arabic"
               >
-                حفظ
+                {saving ? 'جاري الحفظ...' : 'حفظ'}
               </button>
               <button
                 onClick={() => setShowAdd(false)}

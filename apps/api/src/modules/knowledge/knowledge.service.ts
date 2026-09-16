@@ -27,6 +27,7 @@ export class KnowledgeService {
     fileMimeType?: string;
     fileSizeBytes?: number;
     metadata?: object;
+    text?: string;
   }): Promise<KnowledgeSourceDocument> {
     const source = new this.knowledgeModel({
       tenantId: new Types.ObjectId(data.tenantId),
@@ -42,7 +43,20 @@ export class KnowledgeService {
 
     await source.save();
 
-    // Trigger async processing in Python AI engine
+    // Text entries are small and should be ready when the request completes.
+    // File processing remains asynchronous because downloads and parsing can take longer.
+    if (data.text?.trim()) {
+      await this.processSource(
+        source._id.toString(),
+        data.tenantId,
+        data.fileUrl,
+        data.fileMimeType,
+        data.text.trim(),
+      );
+      const updatedSource = await this.knowledgeModel.findById(source._id);
+      return updatedSource || source;
+    }
+
     this.processSource(source._id.toString(), data.tenantId, data.fileUrl, data.fileMimeType).catch(
       (err) => this.logger.warn(`Source processing failed: ${err.message}`),
     );
@@ -50,24 +64,34 @@ export class KnowledgeService {
     return source;
   }
 
-  private async processSource(sourceId: string, tenantId: string, fileUrl: string, mimeType: string) {
+  private async processSource(
+    sourceId: string,
+    tenantId: string,
+    fileUrl?: string,
+    mimeType?: string,
+    text?: string,
+  ) {
     try {
-      await axios.post(`${this.aiEngineUrl}/knowledge/ingest`, {
+      const response = await axios.post(`${this.aiEngineUrl}/knowledge/ingest`, {
         sourceId,
         tenantId,
         fileUrl,
-        mimeType,
+        mimeType: mimeType || 'text/plain',
+        text,
       }, { timeout: 300000 });
 
       await this.knowledgeModel.findByIdAndUpdate(sourceId, {
         status: 'ready',
+        chunkCount: response.data?.chunkCount || 0,
         processedAt: new Date(),
+        $unset: { errorMessage: 1 },
       });
     } catch (err) {
       await this.knowledgeModel.findByIdAndUpdate(sourceId, {
         status: 'error',
-        errorMessage: err.message,
+        errorMessage: err.response?.data?.detail || err.message,
       });
+      throw err;
     }
   }
 

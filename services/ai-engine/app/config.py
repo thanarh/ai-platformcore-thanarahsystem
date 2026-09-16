@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     response_cache_ttl_seconds: int = 900
     rag_max_scan: int = 2000
     rag_default_limit: int = 5
+    rag_query_timeout_seconds: float = 15.0
 
     # Local embeddings for semantic RAG. Sentence Transformers is optional;
     # the service falls back to deterministic hashing embeddings automatically.

@@ -239,37 +239,37 @@ export default function AiSettingsPage() {
           </div>
         </div>
 
-        {/* Free AI stack status */}
+        {/* Thanarah intelligence services */}
         <div className="bg-thanarah-50 border border-thanarah-100 rounded-xl p-5 space-y-4">
           <div className="flex items-center gap-2">
             <Sparkles className="w-4 h-4 text-thanarah-600" />
             <div>
-              <h2 className="font-medium text-gray-900 font-arabic">حلول ذكاء اصطناعي مجانية</h2>
-              <p className="text-xs text-gray-500 font-arabic mt-0.5">تشغيل محلي بدون رسوم لكل طلب</p>
+              <h2 className="font-medium text-gray-900 font-arabic">خدمات ثنارة الذكية</h2>
+              <p className="text-xs text-gray-500 font-arabic mt-0.5">حالة مكونات الذكاء والمعرفة في المنصة</p>
             </div>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="bg-white rounded-xl border border-thanarah-100 p-3">
-              <p className="text-xs text-gray-500 font-arabic">التوليد المحلي</p>
+              <p className="text-xs text-gray-500 font-arabic">محرك المحادثة</p>
               <p className="text-sm font-semibold text-thanarah-700 mt-1 font-arabic">
-                {capabilities?.generation?.enabled ? `${capabilities.generation.engine} · ${capabilities.generation.model}` : 'غير متاح حالياً'}
+                {capabilities?.generation?.enabled ? 'جاهز' : 'جاري الاتصال'}
               </p>
             </div>
             <div className="bg-white rounded-xl border border-thanarah-100 p-3">
               <p className="text-xs text-gray-500 font-arabic">البحث الدلالي</p>
               <p className="text-sm font-semibold text-thanarah-700 mt-1 font-arabic">
-                {capabilities?.embeddings?.ready ? (capabilities.embeddings.provider === 'hashing-fallback' ? 'وضع احتياطي مجاني' : 'Sentence Transformers') : 'غير متاح حالياً'}
+                {capabilities?.embeddings?.ready ? 'جاهز' : 'جاري التهيئة'}
               </p>
             </div>
             <div className="bg-white rounded-xl border border-thanarah-100 p-3">
-              <p className="text-xs text-gray-500 font-arabic">قاعدة المعرفة RAG</p>
+              <p className="text-xs text-gray-500 font-arabic">قاعدة معرفة ثنارة</p>
               <p className="text-sm font-semibold text-thanarah-700 mt-1 font-arabic">
-                {capabilities?.rag?.enabled ? 'مفعّلة' : 'غير متاحة حالياً'}
+                {capabilities?.rag?.enabled ? 'جاهزة' : 'جاري الاتصال'}
               </p>
             </div>
           </div>
           <p className="text-xs text-thanarah-700 font-arabic leading-relaxed">
-            النظام مصمم ليعمل محلياً عبر Ollama مع نماذج مفتوحة المصدر، ويستخدم Sentence Transformers عند توفره مع بديل مضمّن لا يحتاج إلى خدمة مدفوعة.
+            تعمل خدمات ثنارة كوحدة موحدة للمحادثة، استرجاع المعرفة، والذاكرة الذكية مع مسارات استمرارية تمنع توقف تجربة المستخدم.
           </p>
         </div>
 

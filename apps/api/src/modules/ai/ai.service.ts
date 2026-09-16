@@ -251,6 +251,36 @@ export class AiService {
 
     let fullContent = '';
     let aiMeta: any = {};
+    let sseBuffer = '';
+    let doneSent = false;
+    let responseEnded = false;
+    const continuityContent = 'خدمة ثنارة الذكية قيد الاستعادة حالياً. تم حفظ رسالتك ويمكنك متابعة استخدام المحادثة وقاعدة المعرفة.';
+
+    const persistAssistant = async (content: string, metadata: any = {}) => {
+      if (!content) return;
+      const latencyMs = Date.now() - startTime;
+      await this.messagesService.create({
+        tenantId: data.tenantId,
+        userId: data.userId,
+        conversationId: data.conversationId,
+        role: 'assistant',
+        content,
+        aiMetadata: { ...metadata, requestId, latency: latencyMs },
+      });
+      await this.conversationsService.incrementMessageCount(data.conversationId);
+    };
+
+    const finishWithContinuity = async () => {
+      if (responseEnded) return;
+      responseEnded = true;
+      if (!fullContent) {
+        fullContent = continuityContent;
+        data.res.write(`data: ${JSON.stringify({ delta: continuityContent })}\n\n`);
+        await persistAssistant(continuityContent, { backend: 'thanarah-core' }).catch(() => {});
+      }
+      if (!doneSent) data.res.write('data: [DONE]\n\n');
+      data.res.end();
+    };
 
     try {
       const response = await axios.post(
@@ -262,63 +292,70 @@ export class AiService {
         },
       );
 
+      data.res.flushHeaders?.();
+
       response.data.on('data', (chunk: Buffer) => {
-        const lines = chunk.toString().split('\n');
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const raw = line.slice(6).trim();
+        sseBuffer += chunk.toString('utf8');
+        const events = sseBuffer.split(/\r?\n\r?\n/);
+        sseBuffer = events.pop() || '';
+
+        for (const event of events) {
+          for (const line of event.split(/\r?\n/)) {
+            if (!line.startsWith('data:')) continue;
+            const raw = line.slice(5).trim();
+            if (!raw) continue;
             if (raw === '[DONE]') {
+              doneSent = true;
               data.res.write('data: [DONE]\n\n');
-              return;
+              continue;
             }
             try {
               const parsed = JSON.parse(raw);
               if (parsed.delta) fullContent += parsed.delta;
               if (parsed.meta) aiMeta = parsed.meta;
-              data.res.write(`data: ${raw}\n\n`);
-            } catch {}
+              data.res.write(`data: ${JSON.stringify(parsed)}\n\n`);
+            } catch (error) {
+              this.logger.warn(`Ignored malformed AI stream event: ${error.message}`);
+            }
           }
         }
       });
 
       response.data.on('end', async () => {
+        if (responseEnded) return;
+        responseEnded = true;
         const latencyMs = Date.now() - startTime;
 
-        // Save complete assistant message
-        if (fullContent) {
-          await this.messagesService.create({
-            tenantId: data.tenantId,
-            userId: data.userId,
-            conversationId: data.conversationId,
-            role: 'assistant',
-            content: fullContent,
-            aiMetadata: { ...aiMeta, requestId, latency: latencyMs },
-          });
-
-          await this.conversationsService.incrementMessageCount(data.conversationId);
-          await this.usageService.record({
-            tenantId: data.tenantId,
-            userId: data.userId,
-            conversationId: data.conversationId,
-            requestId,
-            backend: aiMeta.backend,
-            model: aiMeta.model,
-            latencyMs,
-            status: 'success',
-          }).catch(() => {});
+        if (!fullContent) {
+          fullContent = continuityContent;
+          data.res.write(`data: ${JSON.stringify({ delta: continuityContent })}\n\n`);
         }
 
+        await persistAssistant(fullContent, aiMeta).catch((error) =>
+          this.logger.warn(`Assistant message persistence failed: ${error.message}`),
+        );
+        await this.usageService.record({
+          tenantId: data.tenantId,
+          userId: data.userId,
+          conversationId: data.conversationId,
+          requestId,
+          backend: aiMeta.backend || 'thanarah-core',
+          model: aiMeta.model,
+          latencyMs,
+          status: 'success',
+        }).catch(() => {});
+
+        if (!doneSent) data.res.write('data: [DONE]\n\n');
         data.res.end();
       });
 
-      response.data.on('error', () => {
-        data.res.write('data: {"error": true, "content": "تعذر إكمال الطلب حاليًا."}\n\n');
-        data.res.end();
+      response.data.on('error', async (error: Error) => {
+        this.logger.error(`AI stream disconnected: ${error.message}`);
+        await finishWithContinuity();
       });
     } catch (error) {
       this.logger.error(`Stream failed: ${error.message}`);
-      data.res.write('data: {"error": true, "content": "تعذر إكمال الطلب حاليًا."}\n\n');
-      data.res.end();
+      await finishWithContinuity();
     }
   }
 

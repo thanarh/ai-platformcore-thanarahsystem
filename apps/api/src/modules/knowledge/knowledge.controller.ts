@@ -37,6 +37,7 @@ export class KnowledgeController {
       fileMimeType: body.fileMimeType,
       fileSizeBytes: body.fileSizeBytes,
       metadata: body.metadata,
+      text: body.text,
     });
   }
 

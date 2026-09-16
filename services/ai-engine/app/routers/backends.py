@@ -9,37 +9,40 @@ router = APIRouter()
 
 @router.get("/capabilities")
 async def capabilities():
-    """Return the free/local AI capabilities available in this installation."""
+    """Return branded service readiness without exposing infrastructure details."""
+    embedding_info = embedding_service.info()
+    memory_info = memory_service.info()
     return {
         "generation": {
-            "engine": settings.local_ai_engine,
-            "model": settings.local_ai_model,
-            "enabled": settings.local_ai_enabled,
-            "local": True,
-            "cost": "free-local",
+            "enabled": True,
+            "status": "ready",
+            "service": "Thanarah Intelligence",
         },
-        "embeddings": embedding_service.info(),
+        "embeddings": {
+            "ready": embedding_info.get("ready", True),
+            "status": "ready" if embedding_info.get("ready", True) else "initializing",
+            "service": "Thanarah Semantic Search",
+        },
         "performance": {
             "profiles": ["fast", "balanced", "deep"],
             "defaultProfile": "fast",
-            "contextWindow": settings.local_ai_num_ctx,
-            "threads": settings.local_ai_num_thread,
-            "batchSize": settings.local_ai_num_batch,
-            "keepAlive": settings.local_ai_keep_alive,
-            "trainingPerRequest": False,
         },
-        "memory": memory_service.info(),
+        "memory": {
+            "enabled": memory_info.get("enabled", True),
+            "status": "ready" if memory_info.get("enabled", True) else "disabled",
+            "service": "Thanarah Memory",
+        },
         "rag": {
             "enabled": True,
+            "status": "ready",
+            "service": "Thanarah Knowledge",
             "documentFormats": [
                 "text/plain",
                 "text/markdown",
                 "application/pdf",
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             ],
-            "storage": "MongoDB with cosine similarity retrieval",
         },
-        "optionalProviders": ["openai-compatible", "anthropic"],
     }
 
 
