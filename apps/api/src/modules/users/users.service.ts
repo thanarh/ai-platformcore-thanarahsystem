@@ -49,6 +49,16 @@ export class UsersService {
     return this.userModel.find({ tenantId: new Types.ObjectId(tenantId), isActive: true });
   }
 
+  async findPublicByTenant(tenantId: string) {
+    return this.userModel
+      .find({ tenantId: new Types.ObjectId(tenantId), isActive: true })
+      .select(
+        '-passwordHash -refreshToken -emailVerificationToken -emailVerificationExpires',
+      )
+      .sort({ createdAt: -1 })
+      .lean();
+  }
+
   async updateLastLogin(userId: string): Promise<void> {
     await this.userModel.findByIdAndUpdate(userId, { lastLoginAt: new Date() });
   }

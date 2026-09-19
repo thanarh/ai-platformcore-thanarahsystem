@@ -16,9 +16,24 @@ PIP_USER=0 python -m pip install --disable-pip-version-check --break-system-pack
   --target .pythonlibs/lib/python3.12/site-packages \
   -r services/ai-engine/requirements.txt
 
-bash start-ollama.sh > >(sed -u 's/^/[OLLAMA] /') 2>&1 &
+OLLAMA_PID=""
+APP_PID=""
+
+cleanup() {
+  trap - EXIT INT TERM
+  if [[ -n "$APP_PID" ]]; then
+    kill -TERM -- "-$APP_PID" 2>/dev/null || true
+  fi
+  if [[ -n "$OLLAMA_PID" ]]; then
+    kill -TERM -- "-$OLLAMA_PID" 2>/dev/null || true
+  fi
+  wait "$APP_PID" 2>/dev/null || true
+  wait "$OLLAMA_PID" 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
+
+setsid bash start-ollama.sh > >(sed -u 's/^/[OLLAMA] /') 2>&1 &
 OLLAMA_PID=$!
-trap 'kill "$OLLAMA_PID" 2>/dev/null || true' EXIT INT TERM
 
 echo "Waiting for the local model warm-up..."
 for _ in $(seq 1 90); do
@@ -30,10 +45,17 @@ if [[ ! -f /tmp/thanarah-ollama-ready ]]; then
   exit 1
 fi
 
-npx concurrently \
+setsid npx concurrently \
   --names "WEB,API,AI" \
   --prefix-colors "green,blue,yellow" \
   --kill-others-on-fail \
   "cd apps/web && npm run dev" \
   "cd apps/api && npm run start:dev" \
-  "cd services/ai-engine && python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
+  "cd services/ai-engine && python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload" &
+APP_PID=$!
+
+set +e
+wait "$APP_PID"
+STATUS=$?
+set -e
+exit "$STATUS"

@@ -17,14 +17,31 @@ const ROLE_LABELS: Record<string, { label: string; color: string }> = {
 export default function UsersPage() {
   const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    api.get('/tenants/my').then(async (res) => {
-      if (res.data?._id) {
-        const usersRes = await api.get(`/tenants/${res.data._id}/users`).catch(() => ({ data: [] }));
-        setUsers(usersRes.data || []);
+    const loadUsers = async () => {
+      setLoading(true);
+      setError('');
+      try {
+        const tenantResponse = await api.get('/tenants/my');
+        if (!tenantResponse.data?._id) {
+          setError('حسابك غير مرتبط بمنظمة.');
+          return;
+        }
+        const usersResponse = await api.get(`/tenants/${tenantResponse.data._id}/users`);
+        if (!Array.isArray(usersResponse.data)) {
+          throw new Error('Invalid users response');
+        }
+        setUsers(usersResponse.data);
+      } catch {
+        setError('تعذر تحميل المستخدمين. تحقق من صلاحيات الحساب ثم أعد المحاولة.');
+      } finally {
+        setLoading(false);
       }
-    }).catch(() => {}).finally(() => setLoading(false));
+    };
+
+    void loadUsers();
   }, []);
 
   return (
@@ -41,6 +58,10 @@ export default function UsersPage() {
           {loading ? (
             <div className="p-6 flex justify-center">
               <div className="w-5 h-5 border-2 border-thanarah-600 border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : error ? (
+            <div className="p-8 text-center text-red-600">
+              <p className="text-sm font-arabic">{error}</p>
             </div>
           ) : users.length === 0 ? (
             <div className="p-8 text-center text-gray-400">

@@ -42,3 +42,14 @@ test('tenant-scoped AI and message routes remain present', () => {
   assert.match(messagesController, /@CurrentUser\(\) user/);
   assert.match(messagesController, /user\.tenantId/);
 });
+
+test('tenant user listing exists, is tenant-scoped, and excludes credentials', () => {
+  const tenantsController = read('apps/api/src/modules/tenants/tenants.controller.ts');
+  const usersService = read('apps/api/src/modules/users/users.service.ts');
+  assert.match(tenantsController, /@Get\(':id\/users'\)/);
+  assert.match(tenantsController, /user\.tenantId\.toString\(\) !== id/);
+  assert.match(tenantsController, /findPublicByTenant\(id\)/);
+  assert.match(usersService, /-passwordHash/);
+  assert.match(usersService, /-refreshToken/);
+  assert.match(usersService, /tenantId: new Types\.ObjectId\(tenantId\)/);
+});

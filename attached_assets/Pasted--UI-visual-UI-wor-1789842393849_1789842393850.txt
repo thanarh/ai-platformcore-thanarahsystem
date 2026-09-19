@@ -1,0 +1,139 @@
+ممتاز، التعديل البصري ناجح، ولا أريد أي تعديلات UI إضافية الآن.
+
+من هذه اللحظة أوقف أي visual/UI work وانتقل إلى **AI Performance Phase 0 + Phase 1** التي طلبتها سابقًا.
+
+أريد منك أولًا أن تفحص الـAI pipeline الحالي بالكامل قبل تعديل أي شيء.
+
+الهدف ليس تغيير شكل Chat UI، بل جعل Thanarah AI أسرع وأقوى، مع الحفاظ على الـarchitecture الحالية.
+
+نفّذ بالترتيب التالي:
+
+1. Audit كامل لمسار AI request:
+   Frontend → NestJS → Python/FastAPI → Memory/RAG → Ollama → Qwen → Streaming → Frontend.
+
+2. أنشئ:
+   `docs/ai-performance-baseline.md`
+
+وسجل:
+
+* architecture الحالية
+* AI model
+* Ollama configuration
+* CPU/RAM configuration
+* RAG flow
+* Memory flow
+* streaming implementation
+* external providers إن وجدت
+* جميع نقاط latency المحتملة
+
+3. أضف performance telemetry لكل request:
+
+* requestId
+* route
+* routerMs
+* memoryMs
+* retrievalMs
+* embeddingMs
+* promptBuildMs
+* ollamaQueueMs
+* modelLoadMs
+* timeToFirstTokenMs
+* generationMs
+* totalMs
+* inputTokens
+* outputTokens
+* cacheHit
+* model
+
+لا تسجل أي بيانات حساسة للمرضى في logs.
+
+4. افحص الـstreaming الحالي وتأكد أن أول token/chunk يصل للواجهة فور توفره، ولا ينتظر اكتمال الإجابة.
+
+5. افحص Ollama وتأكد أن Qwen لا يعاد تحميله لكل request.
+
+6. افحص الـconversation history. لا ترسل تاريخ المحادثة كاملًا بلا حدود. استخدم context management مناسبًا مع الحفاظ على جودة المحادثة.
+
+7. شغّل عمليات Memory retrieval وKnowledge retrieval بالتوازي عندما تكون مستقلة وآمنة.
+
+8. أضف exact-response cache داخلي فقط في هذه المرحلة، مع tenant isolation كامل.
+
+9. اعمل benchmark فعلي للنظام الحالي قبل وبعد التعديلات.
+
+استخدم على الأقل 20 test cases تشمل:
+
+* Arabic
+* English
+* simple chat
+* long question
+* multi-turn
+* memory
+* RAG
+* no-context
+* streaming
+* cached request
+
+قِس:
+
+* TTFT
+* total latency
+* tokens/sec
+* CPU
+* RAM
+* cache hit/miss
+
+10. لا تغير Qwen إلى موديل آخر الآن.
+    لا نريد أي تغيير في الموديل قبل الحصول على benchmark حقيقي.
+
+11. لا تضف أي API مدفوع أو خدمة خارجية.
+
+ممنوع الآن:
+
+* OpenAI
+* Anthropic
+* Gemini
+* Groq
+* OpenRouter
+* أي paid AI API
+* إعادة بناء المشروع
+* حذف MongoDB
+* تغيير NestJS
+* تغيير FastAPI
+* تغيير authentication
+* تغيير tenant isolation
+* إضافة Qdrant الآن
+* إضافة SearXNG الآن
+
+هذه ستكون مراحل لاحقة.
+
+بعد التنفيذ أنشئ:
+
+`docs/ai-performance-phase-1.md`
+
+ويجب أن يحتوي على:
+
+* الملفات التي تم تعديلها
+* الملفات الجديدة
+* ما تم تحسينه
+* latency BEFORE
+* latency AFTER
+* TTFT BEFORE
+* TTFT AFTER
+* tokens/sec
+* CPU usage
+* RAM usage
+* cache performance
+* الاختبارات التي نجحت
+* المشاكل المتبقية
+
+ثم شغّل:
+
+* frontend build
+* backend build
+* AI tests
+* existing tests
+* performance benchmarks
+* health checks
+
+**لا تبدأ Phase 2 بعد ذلك. توقف وأرسل لي التقرير الرقمي الكامل.**
+
+أريد أرقامًا حقيقية من النظام، وليس عبارات مثل "أصبح أسرع" أو "performance improved".
