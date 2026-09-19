@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import api from '@/lib/api';
 import { Users, Shield } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useAuthStore } from '@/store/auth';
 
 const ROLE_LABELS: Record<string, { label: string; color: string }> = {
   OWNER: { label: 'مالك', color: 'bg-purple-50 text-purple-700' },
@@ -15,6 +16,7 @@ const ROLE_LABELS: Record<string, { label: string; color: string }> = {
 };
 
 export default function UsersPage() {
+  const { user } = useAuthStore();
   const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -24,6 +26,15 @@ export default function UsersPage() {
       setLoading(true);
       setError('');
       try {
+        if (user?.role === 'OWNER' || user?.role === 'ADMIN') {
+          const usersResponse = await api.get('/admin/users');
+          if (!Array.isArray(usersResponse.data)) {
+            throw new Error('Invalid users response');
+          }
+          setUsers(usersResponse.data);
+          return;
+        }
+
         const tenantResponse = await api.get('/tenants/my');
         if (!tenantResponse.data?._id) {
           setError('حسابك غير مرتبط بمنظمة.');
@@ -42,7 +53,7 @@ export default function UsersPage() {
     };
 
     void loadUsers();
-  }, []);
+  }, [user?.role]);
 
   return (
     <div className="flex-1 overflow-auto p-6" dir="rtl">

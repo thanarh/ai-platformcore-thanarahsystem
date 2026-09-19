@@ -25,6 +25,12 @@ export class AdminController {
     return this.adminService.getAllTenants();
   }
 
+  @Get('users')
+  @Roles(Role.ADMIN, Role.OWNER)
+  getUsers() {
+    return this.adminService.getAllUsers();
+  }
+
   @Get('api-keys')
   getApiKeys() {
     return this.adminService.getAllApiKeys();

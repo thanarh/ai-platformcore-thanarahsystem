@@ -59,6 +59,16 @@ export class UsersService {
       .lean();
   }
 
+  async findAllPublic() {
+    return this.userModel
+      .find({ isActive: true })
+      .select(
+        '-passwordHash -refreshToken -emailVerificationToken -emailVerificationExpires',
+      )
+      .sort({ createdAt: -1 })
+      .lean();
+  }
+
   async updateLastLogin(userId: string): Promise<void> {
     await this.userModel.findByIdAndUpdate(userId, { lastLoginAt: new Date() });
   }

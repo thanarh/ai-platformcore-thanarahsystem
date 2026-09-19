@@ -66,6 +66,10 @@ export class AdminService {
     return this.tenantsService.findAll();
   }
 
+  async getAllUsers() {
+    return this.usersService.findAllPublic();
+  }
+
   async getAllApiKeys() {
     return this.apiKeysService.findAll();
   }

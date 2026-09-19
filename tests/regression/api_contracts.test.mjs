@@ -53,3 +53,14 @@ test('tenant user listing exists, is tenant-scoped, and excludes credentials', (
   assert.match(usersService, /-refreshToken/);
   assert.match(usersService, /tenantId: new Types\.ObjectId\(tenantId\)/);
 });
+
+test('global owner user listing is role-protected and credential-safe', () => {
+  const adminController = read('apps/api/src/modules/admin/admin.controller.ts');
+  const usersService = read('apps/api/src/modules/users/users.service.ts');
+  assert.match(adminController, /@Get\('users'\)/);
+  assert.match(adminController, /@Roles\(Role\.ADMIN, Role\.OWNER\)/);
+  assert.match(adminController, /getAllUsers\(\)/);
+  assert.match(usersService, /findAllPublic\(\)/);
+  assert.match(usersService, /-passwordHash/);
+  assert.match(usersService, /-refreshToken/);
+});
