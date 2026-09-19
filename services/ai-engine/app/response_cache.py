@@ -21,6 +21,12 @@ from app.database import get_db
 from app.models.chat import ChatRequest, ChatResponse
 
 _TOKEN_RE = re.compile(r"[\w\u0600-\u06ff]{2,}", re.UNICODE)
+_CONTEXT_DEPENDENT_WORDS = {
+    "هذا", "هذه", "ذلك", "تلك", "هنا", "هناك", "فيه", "فيها", "عليه", "عليها",
+    "السابق", "السابقة", "المذكور", "المذكورة", "اكمل", "تابع", "نعم", "كمل",
+    "this", "that", "these", "those", "it", "they", "them", "above", "previous",
+    "continue", "yes", "no",
+}
 
 
 class ResponseCacheService:
@@ -71,7 +77,6 @@ class ResponseCacheService:
 
     @classmethod
     def key(cls, request: ChatRequest) -> str:
-        tenant_config = request.tenantConfig or {}
         messages = "|".join(
             f"{message.role}:{cls._normalize(message.content)}"
             for message in request.messages[-8:]
@@ -84,6 +89,25 @@ class ResponseCacheService:
                 cls.context_fingerprint(request),
                 request.conversationSummary or "",
                 messages,
+            ]
+        )
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+    @classmethod
+    def _prompt_reusable(cls, request: ChatRequest) -> bool:
+        tokens = cls._normalize(cls._last_user_text(request)).split()
+        return bool(tokens) and len(tokens) <= 80 and not (set(tokens) & _CONTEXT_DEPENDENT_WORDS)
+
+    @classmethod
+    def prompt_key(cls, request: ChatRequest) -> str:
+        raw = "|".join(
+            [
+                "prompt",
+                request.tenantId,
+                request.userId or "anonymous",
+                cls._profile(request),
+                cls.context_fingerprint(request),
+                cls._normalize(cls._last_user_text(request)),
             ]
         )
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()
@@ -114,6 +138,91 @@ class ResponseCacheService:
         while len(self._memory) > settings.response_cache_size:
             self._memory.popitem(last=False)
 
+    @staticmethod
+    def _mongo_identity(value: str | None) -> list:
+        if not value:
+            return [None]
+        values: list = [value]
+        try:
+            from bson import ObjectId
+            if ObjectId.is_valid(value):
+                values.append(ObjectId(value))
+        except Exception:
+            pass
+        return values
+
+    async def _historical_response(
+        self,
+        db,
+        request: ChatRequest,
+        prompt_key: str,
+    ) -> Optional[ChatResponse]:
+        """Reuse a previously accepted answer for the same user message."""
+        query_text = self._last_user_text(request).strip()
+        token_count = len(self._normalize(query_text).split())
+        medical_mode = (request.tenantConfig or {}).get("medicalMode") or {}
+        if (
+            not query_text
+            or not request.userId
+            or token_count > 20
+            or medical_mode.get("enabled") is True
+        ):
+            return None
+        content_hash = hashlib.sha256(
+            " ".join(query_text.lower().split()).encode("utf-8")
+        ).hexdigest()
+        user_messages = await db.messages.find(
+            {
+                "tenantId": {"$in": self._mongo_identity(request.tenantId)},
+                "userId": {"$in": self._mongo_identity(request.userId)},
+                "role": "user",
+                "$or": [
+                    {"contentHash": content_hash},
+                    {"content": query_text},
+                ],
+            },
+            {"conversationId": 1, "createdAt": 1},
+        ).sort("createdAt", -1).limit(6).to_list(None)
+
+        for user_message in user_messages:
+            if not user_message.get("createdAt"):
+                continue
+            assistant = await db.messages.find_one(
+                {
+                    "conversationId": user_message.get("conversationId"),
+                    "role": "assistant",
+                    "createdAt": {"$gt": user_message.get("createdAt")},
+                },
+                sort=[("createdAt", 1)],
+            )
+            if not assistant:
+                continue
+            feedback = assistant.get("feedback") or {}
+            correction = (feedback.get("correction") or "").strip()
+            if feedback.get("rating") == "down" and not correction:
+                continue
+            content = correction or (assistant.get("content") or "").strip()
+            ai_metadata = assistant.get("aiMetadata") or {}
+            backend = ai_metadata.get("backend")
+            if (
+                not content
+                or backend in {"fallback", "thanarah-core"}
+                or (not correction and ai_metadata.get("ragSources"))
+                or "قيد الاستعادة" in content
+                or "تعذر إكمال الطلب" in content
+            ):
+                continue
+            response = ChatResponse(
+                content=content,
+                model="thanarah-memory",
+                backend="thanarah-cache",
+                routeDecision="Accepted answer from conversation memory",
+                requestId=request.requestId,
+            )
+            self._remember_in_process(prompt_key, response)
+            return response
+        return None
+
     async def get(self, request: ChatRequest) -> Optional[ChatResponse]:
         if not self._enabled(request):
             return None
@@ -135,6 +244,24 @@ class ResponseCacheService:
                 )
             self._memory.pop(key, None)
 
+        prompt_key = self.prompt_key(request) if self._prompt_reusable(request) else None
+        if prompt_key:
+            prompt_entry = self._memory.get(prompt_key)
+            if prompt_entry:
+                created, response = prompt_entry
+                if time.time() - created <= settings.response_cache_prompt_ttl_seconds:
+                    self._memory.move_to_end(prompt_key)
+                    return response.model_copy(
+                        update={
+                            "model": "thanarah-memory",
+                            "backend": "thanarah-cache",
+                            "routeDecision": "Fast repeated-message reuse",
+                            "requestId": request.requestId,
+                            "latencyMs": 0,
+                        }
+                    )
+                self._memory.pop(prompt_key, None)
+
         if not settings.persistent_response_cache_enabled:
             return None
         db = get_db()
@@ -151,6 +278,32 @@ class ResponseCacheService:
                 response = self._cache_response(exact, request.requestId, "Persistent exact response reuse")
                 self._remember_in_process(key, response)
                 return response
+
+            if prompt_key:
+                repeated = await asyncio.wait_for(
+                    db.ai_response_cache.find_one(
+                        {
+                            "promptKey": prompt_key,
+                            "expiresAt": {"$gt": now},
+                        },
+                        sort=[("updatedAt", -1)],
+                    ),
+                    timeout=settings.response_cache_db_timeout_seconds,
+                )
+                if repeated and repeated.get("content"):
+                    response = self._cache_response(
+                        repeated,
+                        request.requestId,
+                        "Persistent repeated-message reuse",
+                    )
+                    self._remember_in_process(prompt_key, response)
+                    return response
+                historical = await asyncio.wait_for(
+                    self._historical_response(db, request, prompt_key),
+                    timeout=settings.response_cache_db_timeout_seconds,
+                )
+                if historical is not None:
+                    return historical
 
             standalone = len(request.messages) <= 2 and not request.conversationSummary
             query = self._last_user_text(request)
@@ -201,6 +354,9 @@ class ResponseCacheService:
 
         key = self.key(request)
         self._remember_in_process(key, response)
+        prompt_key = self.prompt_key(request) if self._prompt_reusable(request) else None
+        if prompt_key:
+            self._remember_in_process(prompt_key, response)
         if not settings.persistent_response_cache_enabled:
             return
         db = get_db()
@@ -210,6 +366,7 @@ class ResponseCacheService:
         now = datetime.now(timezone.utc)
         document = {
             "key": key,
+            "promptKey": prompt_key,
             "tenantId": request.tenantId,
             "userId": request.userId or None,
             "profile": self._profile(request),

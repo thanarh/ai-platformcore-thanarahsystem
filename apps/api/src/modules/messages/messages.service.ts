@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
+import { createHash } from 'crypto';
 import { Message, MessageDocument } from './schemas/message.schema';
 
 @Injectable()
@@ -15,12 +16,14 @@ export class MessagesService {
     content: string;
     aiMetadata?: object;
   }): Promise<MessageDocument> {
+    const normalizedContent = data.content.trim().replace(/\s+/g, ' ').toLowerCase();
     const message = new this.messageModel({
       tenantId: new Types.ObjectId(data.tenantId),
       userId: new Types.ObjectId(data.userId),
       conversationId: new Types.ObjectId(data.conversationId),
       role: data.role,
       content: data.content,
+      contentHash: createHash('sha256').update(normalizedContent).digest('hex'),
       aiMetadata: data.aiMetadata || {},
     });
     return message.save();

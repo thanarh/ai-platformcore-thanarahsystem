@@ -63,7 +63,13 @@ services:
       - key: PERSISTENT_RESPONSE_CACHE_ENABLED
         value: true
       - key: PERSISTENT_RESPONSE_CACHE_TTL_SECONDS
+        value: 604800
+      - key: RESPONSE_CACHE_SIZE
+        value: 2048
+      - key: RESPONSE_CACHE_TTL_SECONDS
         value: 21600
+      - key: RESPONSE_CACHE_PROMPT_TTL_SECONDS
+        value: 604800
       - key: RESPONSE_CACHE_SEMANTIC_MIN_SCORE
         value: 0.92
       - key: EXTERNAL_AI_ENABLED

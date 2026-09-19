@@ -47,9 +47,85 @@ async def check_cache() -> None:
     answer = ChatResponse(content="الإجابة المعتمدة", backend="thanarah-local")
     await response_cache_service.store(source, answer)
     assert (await response_cache_service.get(source)).content == "الإجابة المعتمدة"
+
+    repeated_with_history = ChatRequest(
+        tenantId="tenant-a",
+        userId="user-a",
+        messages=[
+            {"role": "user", "content": "مرحبا"},
+            {"role": "assistant", "content": "أهلاً بك"},
+            {"role": "user", "content": "اشرح سياسة الإجازات الخاصة بنا"},
+        ],
+        tenantConfig=source.tenantConfig,
+    )
+    repeated = await response_cache_service.get(repeated_with_history)
+    assert repeated is not None and repeated.content == "الإجابة المعتمدة"
+    assert repeated.routeDecision == "Fast repeated-message reuse"
+
+    ambiguous = ChatRequest(
+        tenantId="tenant-a",
+        userId="user-a",
+        messages=[{"role": "user", "content": "كمل"}],
+        tenantConfig=source.tenantConfig,
+    )
+    await response_cache_service.store(
+        ambiguous,
+        ChatResponse(content="إجابة مرتبطة بسياق", backend="thanarah-local"),
+    )
+    ambiguous_elsewhere = ChatRequest(
+        tenantId="tenant-a",
+        userId="user-a",
+        messages=[
+            {"role": "user", "content": "موضوع مختلف"},
+            {"role": "assistant", "content": "تفاصيل مختلفة"},
+            {"role": "user", "content": "كمل"},
+        ],
+        tenantConfig=source.tenantConfig,
+    )
+    assert await response_cache_service.get(ambiguous_elsewhere) is None
     assert await response_cache_service.get(request(user="user-b")) is None
     assert await response_cache_service.get(request(tenant="tenant-b")) is None
     assert await response_cache_service.get(request(medical=True)) is None
+
+
+async def check_historical_message_reuse() -> None:
+    class Cursor:
+        def sort(self, *_args):
+            return self
+
+        def limit(self, *_args):
+            return self
+
+        async def to_list(self, _length):
+            return [
+                {"conversationId": "current", "createdAt": 20},
+                {"conversationId": "previous", "createdAt": 10},
+            ]
+
+    class Messages:
+        def find(self, *_args, **_kwargs):
+            return Cursor()
+
+        async def find_one(self, query, **_kwargs):
+            if query.get("conversationId") == "current":
+                return None
+            return {
+                "content": "رد قديم",
+                "feedback": {"rating": "down", "correction": "الرد المصحح والمعتمد"},
+                "aiMetadata": {"backend": "thanarah-local"},
+            }
+
+    class Db:
+        messages = Messages()
+
+    source = request()
+    prompt_key = response_cache_service.prompt_key(source)
+    result = await response_cache_service._historical_response(Db(), source, prompt_key)
+    assert result is not None
+    assert result.content == "الرد المصحح والمعتمد"
+    assert result.routeDecision == "Accepted answer from conversation memory"
+    medical_source = request(medical=True)
+    assert await response_cache_service._historical_response(Db(), medical_source, prompt_key) is None
 
 
 def check_dialect() -> None:
@@ -123,6 +199,7 @@ async def main() -> None:
     check_dialect()
     check_branding_and_keepalive()
     await check_cache()
+    await check_historical_message_reuse()
     await check_local_concurrency_isolation()
     print("HYBRID_INTELLIGENCE_TEST_OK")
 

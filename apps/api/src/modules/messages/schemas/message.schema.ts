@@ -20,6 +20,9 @@ export class Message {
   @Prop({ required: true })
   content: string;
 
+  @Prop({ index: false })
+  contentHash?: string;
+
   @Prop({ type: Object, default: {} })
   aiMetadata: {
     model?: string;
@@ -66,3 +69,4 @@ export const MessageSchema = SchemaFactory.createForClass(Message);
 MessageSchema.index({ conversationId: 1, createdAt: 1 });
 MessageSchema.index({ tenantId: 1, createdAt: -1 });
 MessageSchema.index({ userId: 1 });
+MessageSchema.index({ tenantId: 1, userId: 1, role: 1, contentHash: 1, createdAt: -1 });

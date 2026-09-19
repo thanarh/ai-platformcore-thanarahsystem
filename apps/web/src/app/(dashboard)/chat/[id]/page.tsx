@@ -12,9 +12,9 @@ import { streamChat, cn, isRTL } from '@/lib/utils';
 import { ThanarahIcon } from '@/components/ThanarahLogo';
 
 const THINKING_MESSAGES = [
-  'نفهم طلبك وسياق المحادثة...',
-  'نراجع المعرفة المرتبطة بسؤالك...',
-  'جالسين نجيب لك أفضل وأنسب رد...',
+  'نحلّل سياق طلبك بدقة',
+  'نرتّب المعلومات الأكثر صلة',
+  'نصوغ لك إجابة واضحة ومتكاملة',
 ];
 
 export default function ChatPage() {
@@ -228,13 +228,50 @@ function MessageBubble({ message, onCopy, onPin, onFeedback, feedback }: { messa
   const isUser = message.role === 'user';
   const isArabic = isRTL(message.content);
   const [thinkingStep, setThinkingStep] = useState(0);
+  const [thinkingText, setThinkingText] = useState('');
+  const [showThinkingIcon, setShowThinkingIcon] = useState(false);
 
   useEffect(() => {
-    if (!message.isStreaming || message.content) return;
-    const timer = window.setInterval(() => {
-      setThinkingStep((current) => (current + 1) % THINKING_MESSAGES.length);
-    }, 1800);
-    return () => window.clearInterval(timer);
+    if (!message.isStreaming || message.content) {
+      setThinkingText('');
+      setShowThinkingIcon(false);
+      return;
+    }
+
+    let cancelled = false;
+    let timer: number;
+
+    const typeSentence = (step: number) => {
+      const sentence = THINKING_MESSAGES[step];
+      let character = 0;
+      setThinkingStep(step);
+      setThinkingText('');
+      setShowThinkingIcon(false);
+
+      const typeNext = () => {
+        if (cancelled) return;
+        character += 1;
+        setThinkingText(sentence.slice(0, character));
+        if (character >= Math.min(7, sentence.length)) setShowThinkingIcon(true);
+
+        if (character < sentence.length) {
+          timer = window.setTimeout(typeNext, 78);
+        } else {
+          timer = window.setTimeout(
+            () => typeSentence((step + 1) % THINKING_MESSAGES.length),
+            2600,
+          );
+        }
+      };
+
+      timer = window.setTimeout(typeNext, step === 0 ? 320 : 500);
+    };
+
+    typeSentence(0);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
   }, [message.isStreaming, message.content]);
 
   return (
@@ -262,27 +299,28 @@ function MessageBubble({ message, onCopy, onPin, onFeedback, feedback }: { messa
           </div>
         ) : (
           <div
-            className="bg-white border border-gray-200 rounded-2xl rounded-tr-md px-4 py-3 shadow-sm group"
+            className={cn(
+              'group',
+              message.isStreaming && !message.content
+                ? 'bg-transparent px-1 py-2'
+                : 'bg-white border border-gray-200 rounded-2xl rounded-tr-md px-4 py-3 shadow-sm',
+            )}
             dir={isArabic ? 'rtl' : 'ltr'}
           >
             {message.isStreaming && !message.content ? (
-              <div className="min-w-[230px] py-1" dir="rtl">
-                <div className="flex items-center gap-3">
-                  <div className="thanarah-thinking-logo flex h-9 w-9 items-center justify-center rounded-xl bg-thanarah-50">
-                    <ThanarahIcon className="h-6 w-6" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p key={thinkingStep} className="animate-message-in text-xs font-medium text-thanarah-800 font-arabic">
-                      {THINKING_MESSAGES[thinkingStep]}
-                    </p>
-                    <div className="mt-2 flex items-center gap-1.5">
-                      <div className="typing-dot" />
-                      <div className="typing-dot" />
-                      <div className="typing-dot" />
-                    </div>
-                  </div>
+              <div className="min-w-[240px] min-h-10 flex items-center gap-2.5 text-thanarah-800" dir="rtl">
+                <p key={thinkingStep} className="min-w-0 text-[13px] font-medium font-arabic leading-7 tracking-[0.01em]">
+                  {thinkingText}
+                </p>
+                <div
+                  className={cn(
+                    'thanarah-thinking-logo flex h-7 w-7 flex-shrink-0 items-center justify-center transition-opacity duration-700',
+                    showThinkingIcon ? 'opacity-100' : 'opacity-0',
+                  )}
+                  aria-hidden="true"
+                >
+                  <ThanarahIcon className="h-5 w-5" />
                 </div>
-                <div className="thanarah-thinking-progress mt-3 h-1 overflow-hidden rounded-full bg-thanarah-50" />
               </div>
             ) : (
               <>

@@ -25,6 +25,7 @@ async def init_db():
         await db.knowledge_chunks.create_index([("tenantId", 1), ("chunkIndex", 1)])
         await db.knowledge_chunks.create_index([("sourceId", 1)])
         await db.ai_response_cache.create_index("key", unique=True)
+        await db.ai_response_cache.create_index([("promptKey", 1), ("updatedAt", -1)])
         await db.ai_response_cache.create_index(
             [("tenantId", 1), ("userId", 1), ("profile", 1), ("createdAt", -1)]
         )

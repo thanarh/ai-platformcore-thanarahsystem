@@ -95,28 +95,12 @@ html, body {
 }
 
 @keyframes thanarah-thinking-float {
-  0%, 100% { transform: translateY(0) scale(1); }
-  50% { transform: translateY(-2px) scale(1.04); }
-}
-
-@keyframes thanarah-thinking-sweep {
-  from { transform: translateX(-110%); }
-  to { transform: translateX(310%); }
+  0%, 100% { transform: rotate(-3deg) scale(0.98); opacity: 0.78; }
+  50% { transform: rotate(5deg) scale(1.02); opacity: 1; }
 }
 
 .thanarah-thinking-logo {
-  animation: thanarah-thinking-float 1.8s ease-in-out infinite;
-  will-change: transform;
-}
-
-.thanarah-thinking-progress::after {
-  content: '';
-  display: block;
-  width: 35%;
-  height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, transparent, var(--thanarah-green), transparent);
-  animation: thanarah-thinking-sweep 1.4s ease-in-out infinite;
+  animation: thanarah-thinking-float 5.2s ease-in-out infinite;
   will-change: transform;
 }
 

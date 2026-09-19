@@ -35,10 +35,11 @@ class Settings(BaseSettings):
 
     # Exact-response cache for repeated prompts; bounded to protect RAM.
     response_cache_enabled: bool = True
-    response_cache_size: int = 512
-    response_cache_ttl_seconds: int = 900
+    response_cache_size: int = 2048
+    response_cache_ttl_seconds: int = 21600
+    response_cache_prompt_ttl_seconds: int = 604800
     persistent_response_cache_enabled: bool = True
-    persistent_response_cache_ttl_seconds: int = 21600
+    persistent_response_cache_ttl_seconds: int = 604800
     response_cache_db_timeout_seconds: float = 1.0
     response_cache_semantic_scan_limit: int = 250
     response_cache_semantic_min_score: float = 0.92
