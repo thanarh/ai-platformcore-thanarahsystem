@@ -12,15 +12,28 @@ npm ci --prefix apps/api --no-audit --no-fund
 
 echo "Installing Python dependencies..."
 mkdir -p .pythonlibs/lib/python3.12/site-packages
-python -m pip install --disable-pip-version-check --break-system-packages \
+PIP_USER=0 python -m pip install --disable-pip-version-check --break-system-packages \
   --target .pythonlibs/lib/python3.12/site-packages \
   -r services/ai-engine/requirements.txt
 
-exec npx concurrently \
-  --names "WEB,API,AI,OLLAMA" \
-  --prefix-colors "green,blue,yellow,magenta" \
+bash start-ollama.sh > >(sed -u 's/^/[OLLAMA] /') 2>&1 &
+OLLAMA_PID=$!
+trap 'kill "$OLLAMA_PID" 2>/dev/null || true' EXIT INT TERM
+
+echo "Waiting for the local model warm-up..."
+for _ in $(seq 1 90); do
+  [[ -f /tmp/thanarah-ollama-ready ]] && break
+  sleep 1
+done
+if [[ ! -f /tmp/thanarah-ollama-ready ]]; then
+  echo "Local model did not become ready within 90 seconds." >&2
+  exit 1
+fi
+
+npx concurrently \
+  --names "WEB,API,AI" \
+  --prefix-colors "green,blue,yellow" \
   --kill-others-on-fail \
   "cd apps/web && npm run dev" \
   "cd apps/api && npm run start:dev" \
-  "cd services/ai-engine && python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload" \
-  "bash start-ollama.sh"
+  "cd services/ai-engine && python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload"

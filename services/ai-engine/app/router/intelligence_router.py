@@ -14,6 +14,7 @@ from app.config import settings
 from app.memory import memory_service
 from app.response_cache import response_cache_service
 from app.memory.daily_learning import daily_learning_service
+from app.telemetry import RequestTelemetry
 
 logger = logging.getLogger(__name__)
 
@@ -123,12 +124,13 @@ class IntelligenceRouter:
         tenant_config = request.tenantConfig or {}
         window = max(2, min(int(tenant_config.get("historyWindow", 4)), 8))
         messages = request.messages[-window:]
-        max_chars = int(tenant_config.get("maxHistoryChars", 5000))
+        max_chars = max(500, min(int(tenant_config.get("maxHistoryChars", 5000)), 8000))
         output, used = [], 0
         for message in reversed(messages):
-            content = message.content[-1800:]
-            if used + len(content) > max_chars and output:
+            remaining = max_chars - used
+            if remaining <= 0:
                 break
+            content = message.content[-min(1800, remaining):]
             output.append({"role": message.role, "content": content})
             used += len(content)
         return list(reversed(output))
@@ -141,28 +143,45 @@ class IntelligenceRouter:
         user_profile: Optional[dict] = None,
     ) -> Optional[str]:
         """Build context string from conversation summary and RAG results."""
-        parts = []
+        max_chars = max(3000, min(settings.local_ai_num_ctx * 2, 12000))
+        parts: list[str] = []
+        used = 0
+
+        def append_part(value: str, limit: int) -> None:
+            nonlocal used
+            remaining = max_chars - used
+            if remaining <= 0:
+                return
+            clipped = value[: min(limit, remaining)]
+            if clipped:
+                parts.append(clipped)
+                used += len(clipped)
 
         if request.conversationSummary:
-            parts.append(f"## Conversation Summary\n{request.conversationSummary}")
+            append_part(f"## Conversation Summary\n{request.conversationSummary}", 2000)
 
         if user_profile:
-            parts.append(
+            append_part(
                 "## Communication Profile\n"
                 f"Preferred language: {user_profile.get('preferredLanguage', 'unknown')}\n"
                 f"Arabic dialect: {user_profile.get('arabicDialect', 'neutral')}\n"
-                "Use this only to adapt language and tone; never treat it as factual knowledge."
+                "Use this only to adapt language and tone; never treat it as factual knowledge.",
+                600,
             )
 
         if memories:
-            parts.append("## Relevant Previous Learnings\nUse only when relevant:")
+            append_part("## Relevant Previous Learnings\nUse only when relevant:", 100)
             for i, memory in enumerate(memories[:settings.memory_recall_limit], 1):
-                parts.append(f"{i}. سؤال سابق: {memory.get('query', '')}\nإجابة سابقة: {memory.get('answer', '')}")
+                append_part(
+                    f"{i}. سؤال سابق: {memory.get('query', '')}\n"
+                    f"إجابة سابقة: {memory.get('answer', '')}",
+                    900,
+                )
 
         if rag_results:
-            parts.append("## Relevant Knowledge")
+            append_part("## Relevant Knowledge", 30)
             for i, result in enumerate(rag_results[:3], 1):
-                parts.append(f"{i}. {result.get('content', '')[:1200]}")
+                append_part(f"{i}. {result.get('content', '')}", 1200)
 
         return "\n\n".join(parts) if parts else None
 
@@ -170,6 +189,7 @@ class IntelligenceRouter:
         self,
         chat_request: ChatRequest,
         route: RouteDecision,
+        telemetry: Optional[RequestTelemetry] = None,
     ) -> tuple[list, list, dict]:
         """Load memory, RAG, and communication profile concurrently."""
         tenant_config = chat_request.tenantConfig or {}
@@ -179,6 +199,7 @@ class IntelligenceRouter:
         )
 
         async def load_memories() -> list:
+            started = time.perf_counter()
             if tenant_config.get("memoryEnabled", True) is False or not last_user_msg:
                 return []
             try:
@@ -189,16 +210,27 @@ class IntelligenceRouter:
                 )
             except Exception:
                 return []
+            finally:
+                if telemetry is not None:
+                    telemetry.add_ms("memoryMs", started)
 
         async def load_rag() -> list:
+            started = time.perf_counter()
             if not route.rag_enabled or tenant_config.get("ragEnabled", True) is False or not last_user_msg:
                 return []
             try:
                 from app.rag.pipeline import RAGPipeline
-                return await RAGPipeline().retrieve(chat_request.tenantId, last_user_msg)
+                return await RAGPipeline().retrieve(
+                    chat_request.tenantId,
+                    last_user_msg,
+                    telemetry=telemetry,
+                )
             except Exception as error:
                 logger.debug("RAG skipped: %s", error)
                 return []
+            finally:
+                if telemetry is not None:
+                    telemetry.add_ms("retrievalMs", started)
 
         async def within_deadline(coro, fallback):
             try:
@@ -229,7 +261,10 @@ class IntelligenceRouter:
         tenant_config = chat_request.tenantConfig or {}
         profile = self._profile(chat_request)
         compact_prompt = "أنت ثنارة، مساعد متعدد اللغات. افهم لغة المستخدم ولهجته وأجب بها مباشرة وباختصار ودقة. لا تكشف تفاصيل النموذج."
-        system_prompt = tenant_config.get("systemPrompt") or (compact_prompt if profile == "fast" else THANARAH_BASE_SYSTEM)
+        system_prompt = str(
+            tenant_config.get("systemPrompt")
+            or (compact_prompt if profile == "fast" else THANARAH_BASE_SYSTEM)
+        )[:4000]
         industry = str(tenant_config.get("industry", "general"))
         if industry in SECTOR_INSTRUCTIONS:
             system_prompt += f"\n\n## تعليمات القطاع\n{SECTOR_INSTRUCTIONS[industry]}"
@@ -274,19 +309,32 @@ class IntelligenceRouter:
 
     async def route(self, chat_request: ChatRequest) -> ChatResponse:
         """Route a chat request through the best available backend."""
-        start = time.time()
+        telemetry = RequestTelemetry(request_id=chat_request.requestId) if chat_request.requestId else RequestTelemetry()
 
         cached = await response_cache_service.get(chat_request)
         if cached is not None:
+            telemetry.set_ms("routerMs", (time.perf_counter() - telemetry.started_at) * 1000)
+            telemetry.finish(
+                route=cached.backend or "thanarah-cache",
+                model=cached.model,
+                cache_hit=True,
+                input_tokens=cached.inputTokens,
+                output_tokens=cached.outputTokens,
+            )
             return cached
 
         # Decide route
+        router_started = time.perf_counter()
         route = self._decide_route(chat_request)
+        telemetry.add_ms("routerMs", router_started)
         logger.info(f"[TIR] Route decision: {route.backend_id} — {route.reason}")
 
-        memories, rag_sources, user_profile = await self._load_context_sources(chat_request, route)
+        memories, rag_sources, user_profile = await self._load_context_sources(chat_request, route, telemetry)
+        prompt_started = time.perf_counter()
         context = self._build_context(chat_request, rag_sources, memories, user_profile)
         ai_request = self._build_ai_request(chat_request, route, context)
+        ai_request.telemetry = telemetry
+        telemetry.add_ms("promptBuildMs", prompt_started)
 
         # Try primary backend, then fallbacks
         backends_to_try = [route.backend_id] + route.fallback_order
@@ -297,8 +345,15 @@ class IntelligenceRouter:
                 continue
 
             try:
+                generation_started = time.perf_counter()
                 response = await backend.chat(ai_request)
-                latency_ms = int((time.time() - start) * 1000)
+                telemetry.add_ms("generationMs", generation_started)
+                telemetry.finish(
+                    route=backend_id,
+                    model=response.model or backend_id,
+                    input_tokens=response.input_tokens,
+                    output_tokens=response.output_tokens,
+                )
 
                 if (chat_request.tenantConfig or {}).get("memoryEnabled", True) is not False:
                     try:
@@ -314,9 +369,9 @@ class IntelligenceRouter:
                     routeDecision=route.reason,
                     inputTokens=response.input_tokens,
                     outputTokens=response.output_tokens,
-                    latencyMs=latency_ms,
+                    latencyMs=int(telemetry.values.get("totalMs", 0)),
                     ragSources=rag_sources,
-                    requestId=chat_request.requestId,
+                    requestId=telemetry.request_id,
                 )
                 asyncio.create_task(response_cache_service.store(chat_request, result))
                 return result
@@ -325,10 +380,11 @@ class IntelligenceRouter:
                 continue
 
         # All backends failed — should not reach here due to fallback backend
+        telemetry.finish(route="none")
         return ChatResponse(
             content="تعذر إكمال الطلب. حاول مرة أخرى.",
             backend="none",
-            requestId=chat_request.requestId,
+            requestId=telemetry.request_id,
         )
 
     async def stream_route(self, chat_request: ChatRequest):
@@ -338,6 +394,7 @@ class IntelligenceRouter:
         The generator tries each backend in priority order and falls through
         on connection errors — even mid-stream failures are caught gracefully.
         """
+        telemetry = RequestTelemetry(request_id=chat_request.requestId) if chat_request.requestId else RequestTelemetry()
         cached = await response_cache_service.get(chat_request)
         if cached is not None:
             cache_route = RouteDecision(
@@ -348,17 +405,32 @@ class IntelligenceRouter:
             )
 
             async def _cached_stream() -> AsyncGenerator[str, None]:
+                telemetry.set_ms("routerMs", (time.perf_counter() - telemetry.started_at) * 1000)
+                telemetry.set_ms("timeToFirstTokenMs", (time.perf_counter() - telemetry.started_at) * 1000)
+                telemetry.set_ms("generationMs", 0)
+                telemetry.finish(
+                    route="thanarah-cache",
+                    model=cached.model,
+                    cache_hit=True,
+                    input_tokens=cached.inputTokens,
+                    output_tokens=cached.outputTokens,
+                )
                 yield cached.content
 
             return _cached_stream(), cache_route, []
 
+        router_started = time.perf_counter()
         route = self._decide_route(chat_request)
+        telemetry.add_ms("routerMs", router_started)
         logger.info(f"[TIR Stream] Route: {route.backend_id}")
 
-        memories, rag_sources, user_profile = await self._load_context_sources(chat_request, route)
+        memories, rag_sources, user_profile = await self._load_context_sources(chat_request, route, telemetry)
+        prompt_started = time.perf_counter()
         context = self._build_context(chat_request, rag_sources, memories, user_profile)
         ai_request = self._build_ai_request(chat_request, route, context)
         ai_request.stream = True
+        ai_request.telemetry = telemetry
+        telemetry.add_ms("promptBuildMs", prompt_started)
 
         backends_to_try = [route.backend_id] + route.fallback_order
         registry = self.registry
@@ -374,14 +446,22 @@ class IntelligenceRouter:
                 if not backend:
                     continue
                 emitted = False
+                generation_started = time.perf_counter()
                 try:
                     logger.info(f"[TIR Stream] Trying backend: {backend_id}")
                     content_parts = []
                     async for token in backend.stream_chat(ai_request):
                         emitted = True
+                        if "timeToFirstTokenMs" not in telemetry.values:
+                            telemetry.add_ms("timeToFirstTokenMs", telemetry.started_at)
                         content_parts.append(token)
                         yield token
                     route.backend_id = backend_id
+                    telemetry.add_ms("generationMs", generation_started)
+                    telemetry.finish(
+                        route=backend_id,
+                        model=getattr(backend, "default_model", None) or backend_id,
+                    )
                     if content_parts:
                         asyncio.create_task(
                             response_cache_service.store(
@@ -403,6 +483,8 @@ class IntelligenceRouter:
                             f"[TIR Stream] Backend '{backend_id}' disconnected after partial output; "
                             "not mixing a second model into the same answer"
                         )
+                        telemetry.add_ms("generationMs", generation_started)
+                        telemetry.finish(route=backend_id, model=getattr(backend, "default_model", None) or backend_id)
                         return
                     logger.warning(
                         f"[TIR Stream] Backend '{backend_id}' failed: {e} — trying next"
@@ -410,6 +492,7 @@ class IntelligenceRouter:
                     continue
 
             # All backends exhausted — should not reach here since fallback always succeeds
+            telemetry.finish(route="none")
             yield "تعذر إكمال الطلب. حاول مرة أخرى.\n\nUnable to complete the request."
 
         return _resilient_stream(), route, rag_sources

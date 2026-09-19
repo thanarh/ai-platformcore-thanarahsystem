@@ -1,0 +1,367 @@
+أريد منك الآن تطوير نظام الذكاء الاصطناعي الموجود في هذا المشروع، لكن **لا تعيد بناء المشروع من الصفر ولا تستبدل الـarchitecture الحالية بالكامل**. سنطوره تدريجيًا إلى AI Engine قوي سيكون لاحقًا الـAI Core لمنصة Thanarah Core، وسيتم دمجه مع WhatsApp والعيادات والموقع وموظفي العيادة.
+
+## الهدف النهائي للمشروع
+
+نريد بناء Local AI Infrastructure تعتمد على Open Source فقط، بدون أي مدفوعات إضافية وبدون الاعتماد على OpenAI أو Anthropic أو Gemini أو Groq أو OpenRouter أو أي AI API خارجي.
+
+الموجود حاليًا يجب الحفاظ عليه، خصوصًا:
+
+* Next.js frontend
+* NestJS backend
+* Python/FastAPI AI engine
+* MongoDB
+* Ollama
+* Qwen 2.5 7B
+* Authentication
+* Conversations
+* Memory
+* RAG/Knowledge functionality
+* Streaming إن كان موجودًا
+* Multi-tenant architecture
+* Existing APIs
+
+لدينا Render server بموارد تقريبية:
+
+* 12 CPU
+* 24 GB RAM
+
+ولا أريد إضافة أي خدمة مدفوعة.
+
+---
+
+# PHASE 0 — AUDIT & BASELINE
+
+قبل تعديل أي شيء:
+
+1. افحص المشروع بالكامل.
+2. افهم architecture الحالية.
+3. حدد مسار الطلب الكامل:
+
+Frontend
+→ NestJS
+→ Python AI Engine
+→ RAG/Memory
+→ Ollama
+→ Qwen
+→ Response
+
+4. لا تحذف أو تكسر أي functionality موجودة.
+
+5. أنشئ document:
+
+docs/ai-performance-baseline.md
+
+وسجل فيه:
+
+* Current architecture
+* Current AI model
+* Ollama configuration
+* CPU/RAM configuration
+* Current RAG flow
+* Current Memory flow
+* Current request flow
+* Current streaming implementation
+* Current latency bottlenecks
+* Current dependencies
+* Current external providers, إن وجدت
+
+---
+
+# PHASE 1 — PERFORMANCE ENGINE
+
+المشكلة الحالية أن بعض الردود قد تنتظر حوالي 8 ثوانٍ قبل ظهور الرد.
+
+أريد تحسين تجربة الاستجابة من خلال البرمجة فقط.
+
+## 1. LATENCY TELEMETRY
+
+أضف request-level performance tracing بدون أي external paid service.
+
+لكل AI request سجل داخليًا:
+
+* requestId
+* routerMs
+* memoryMs
+* retrievalMs
+* embeddingMs
+* promptBuildMs
+* ollamaQueueMs
+* modelLoadMs إن أمكن
+* timeToFirstTokenMs
+* generationMs
+* totalMs
+* inputTokens إن أمكن
+* outputTokens إن أمكن
+* model
+* route
+* cacheHit
+
+لا تسجل بيانات حساسة للمريض في logs.
+
+أريد أن نعرف بالضبط أين تذهب الـ8 ثواني.
+
+---
+
+# 2. TRUE STREAMING
+
+افحص الـstreaming الحالي.
+
+إذا كان النظام يولد الرد كاملًا ثم يرسله للواجهة، أصلح ذلك.
+
+المطلوب:
+
+User sends message
+→ request starts
+→ first token/chunk يتم إرساله فور توفره
+→ باقي الرد يصل تدريجيًا
+
+لا تنتظر اكتمال generation لإرسال أول جزء.
+
+استخدم الـstreaming الموجود في Ollama إن كان متاحًا، وحافظ على SSE أو الآلية الحالية المناسبة للمشروع.
+
+لا تضف WebSocket إلا إذا كان ضروريًا فعلًا.
+
+---
+
+# 3. OLLAMA WARM MODEL
+
+تأكد أن Qwen لا يتم تحميله من جديد لكل request.
+
+اعمل model warm-up عند تشغيل AI service.
+
+تحقق من:
+
+* model availability
+* model loaded state إن أمكن
+* connection reuse
+
+الهدف تقليل cold-start latency.
+
+---
+
+# 4. PROMPT OPTIMIZATION
+
+افحص الـprompt الحالي.
+
+لا ترسل conversation history بالكامل مع كل request.
+
+طبق context management:
+
+* Recent messages
+* Conversation summary
+* Relevant memory
+* Relevant retrieved knowledge
+
+بدل إرسال تاريخ المحادثة بالكامل.
+
+لكن لا تكسر conversational context.
+
+أضف limits واضحة للـcontext.
+
+---
+
+# 5. PARALLEL RETRIEVAL
+
+إذا كان Memory retrieval وKnowledge retrieval مستقلين، شغلهما بالتوازي بدل تنفيذ:
+
+Memory
+ثم
+Knowledge
+
+استخدم async/concurrent execution حيث يكون آمنًا.
+
+نفس الفكرة لأي عمليات مستقلة أخرى.
+
+لا تستخدم parallelism إذا كان سيؤدي إلى race conditions أو data leakage بين tenants.
+
+---
+
+# 6. RESPONSE CACHE FOUNDATION
+
+أضف caching layer داخلية بدون أي خدمة مدفوعة.
+
+ابدأ بـ exact-request cache فقط.
+
+لا تستخدم semantic cache الآن قبل أن نفهم الـbaseline.
+
+Cache key يجب أن يأخذ في الاعتبار على الأقل:
+
+* tenantId
+* relevant configuration
+* normalized user query
+* model
+* knowledge version إن كان السؤال يعتمد على knowledge
+
+ولا تسمح أبدًا بتسريب response من Tenant إلى Tenant آخر.
+
+أضف cacheHit وcacheMiss إلى telemetry.
+
+---
+
+# 7. CPU / MEMORY OPTIMIZATION
+
+افحص إعدادات Ollama الحالية.
+
+لدينا 12 CPU و24 GB RAM.
+
+لا تغير model بشكل عشوائي.
+
+أريد أولًا benchmark للـQwen الحالي.
+
+اختبر إعدادات مناسبة للـCPU مثل:
+
+* threads
+* context size
+* batch size
+* parallel requests
+
+لكن لا ترفع القيم لمجرد رفعها.
+
+نريد قياس:
+
+* TTFT
+* tokens/sec
+* total latency
+* RAM
+* CPU
+
+ولا تستخدم GPU لأن البيئة الحالية CPU-based.
+
+---
+
+# 8. BENCHMARK SUITE
+
+أنشئ:
+
+tests/ai/performance/
+
+واعمل benchmark ثابت لا يقل عن 20 test cases.
+
+قسمها إلى:
+
+1. Simple chat
+2. Arabic question
+3. English question
+4. Long question
+5. Knowledge/RAG question
+6. Memory question
+7. No-context question
+8. Multi-turn conversation
+9. Cached question
+10. Streaming response
+
+كرر الحالات بما يكفي للحصول على measurements مستقرة.
+
+لا نحتاج جودة AI مثالية في هذه المرحلة؛ نحتاج baseline للسرعة والاستقرار.
+
+---
+
+# 9. GOLDEN TESTS
+
+لا تعدل behavior الحالي بدون اختبار.
+
+أنشئ مجموعة اختبارات تمنع regressions في:
+
+* authentication
+* tenant isolation
+* conversations
+* memory
+* RAG
+* streaming
+* API responses
+
+أي تغيير يجب ألا يكسر functionality الحالية.
+
+---
+
+# 10. HEALTH / DIAGNOSTICS
+
+أضف أو حسّن internal diagnostics endpoint، مثل:
+
+GET /api/ai/health
+
+ليعرض بشكل آمن:
+
+* AI service status
+* Ollama status
+* configured model
+* model availability
+* MongoDB status
+* cache status
+* uptime
+
+لا تعرض secrets أو tokens أو credentials.
+
+---
+
+# IMPORTANT ARCHITECTURE RULES
+
+لا تفعل الآن:
+
+* لا تضف OpenAI
+* لا تضف Anthropic
+* لا تضف Gemini
+* لا تضف Groq
+* لا تضف OpenRouter
+* لا تضف أي paid AI API
+* لا تستبدل Qwen بدون benchmark
+* لا تحذف MongoDB
+* لا تستبدل NestJS
+* لا تستبدل FastAPI
+* لا تعيد بناء المشروع
+* لا تغير authentication
+* لا تغير tenant isolation
+* لا تضف خدمات مدفوعة
+
+Qdrant وSearXNG وReranker وWeb Intelligence ستكون مراحل لاحقة.
+
+---
+
+# DEFINITION OF DONE
+
+لا تعتبر Phase 1 مكتملة إلا إذا:
+
+1. جميع الاختبارات الحالية تنجح.
+2. Build frontend ينجح.
+3. Build/backend ينجح.
+4. AI service يعمل.
+5. Ollama يعمل.
+6. Qwen يعمل.
+7. Streaming يعمل فعليًا.
+8. TTFT أصبح measurable.
+9. Total latency أصبح measurable.
+10. Cache يعمل مع tenant isolation.
+11. Performance telemetry تعمل.
+12. لا توجد secrets في logs.
+13. لا توجد regression في authentication أو conversations أو RAG.
+14. يتم إنشاء:
+
+docs/ai-performance-baseline.md
+
+و:
+
+docs/ai-performance-phase-1.md
+
+ويحتوي التقرير الثاني على:
+
+* ما الذي تم تغييره
+* الملفات التي تم تعديلها
+* الملفات الجديدة
+* قبل/بعد latency
+* TTFT قبل/بعد
+* tokens/sec
+* CPU usage
+* RAM usage
+* cache hit/miss
+* المشاكل المتبقية
+* الخطوة التالية المقترحة
+
+---
+
+## مهم جدًا
+
+لا تبدأ Phase 2 الآن.
+
+أريدك تنفذ Phase 0 وPhase 1 فقط، ثم تشغل الاختبارات والـbuild والـbenchmark وتخبرني بالنتائج الرقمية قبل أن نقرر المرحلة التالية.
+
+إذا وجدت مشكلة في architecture الحالية تمنع تنفيذ أي نقطة، **لا تخترع workaround كبير ولا تعيد كتابة المشروع**؛ سجل المشكلة في التقرير ووضح لي السبب والحل المقترح.

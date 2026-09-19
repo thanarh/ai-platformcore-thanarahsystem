@@ -6,7 +6,7 @@
 
 ```
 apps/
-  web/          — Next.js 15.2.9 frontend (port 5000)
+  web/          — Next.js 15.5.25 frontend (port 5000)
   api/          — NestJS backend API (port 3001)
 services/
   ai-engine/    — Python FastAPI AI engine (port 8000)
@@ -56,7 +56,7 @@ Key variables:
 ## Build Notes
 
 - **Production build**: always run with `NODE_ENV=production`. Replit sets `NODE_ENV=development` by default, which causes Next.js to use its dev RSC runtime during `npm run build`, producing false `undefined.env` prerender errors.
-- **Next.js version**: pinned to 15.2.9. Next.js 16.3.0 has a confirmed build bug where `/_global-error` prerendering fails with `Cannot read properties of null (reading 'useContext')` for ALL apps — even minimal ones. Upgrade when fixed upstream.
+- **Next.js version**: pinned to the latest safe 15.x release. Next.js 16.3.0 previously caused `/_global-error` prerendering failures in this app, so major upgrades require a clean production build check before adoption.
 - **MongoDB**: not yet connected; Atlas IP whitelist must include the Replit container IP. NestJS starts fine without it via `lazyConnection: true`.
 
 ## User Preferences

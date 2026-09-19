@@ -9,6 +9,7 @@ import { useChatStore, Message } from '@/store/chat';
 import { useAuthStore } from '@/store/auth';
 import { messagesApi } from '@/lib/api';
 import { streamChat, cn, isRTL } from '@/lib/utils';
+import { ThanarahIcon } from '@/components/ThanarahLogo';
 
 export default function ChatPage() {
   const params = useParams();
@@ -246,12 +247,7 @@ function MessageBubble({ message, onCopy, onPin, onFeedback, feedback }: { messa
           </div>
         ) : (
           <div
-            className={cn(
-              'group',
-              message.isStreaming && !message.content
-                ? 'bg-transparent px-1 py-2'
-                : 'bg-white border border-gray-200 rounded-2xl rounded-tr-md px-4 py-3 shadow-sm',
-            )}
+            className="group bg-transparent px-1 py-2"
             dir={isArabic ? 'rtl' : 'ltr'}
           >
             {message.isStreaming && !message.content ? (
@@ -260,7 +256,10 @@ function MessageBubble({ message, onCopy, onPin, onFeedback, feedback }: { messa
                 role="status"
                 aria-label="جارٍ تجهيز الرد"
               >
-                <div className="h-5 w-5 animate-spin rounded-full border-2 border-thanarah-600 border-t-transparent" />
+                <ThanarahIcon
+                  size={24}
+                  className="animate-thanarah-loading"
+                />
               </div>
             ) : (
               <>

@@ -31,18 +31,24 @@ class OllamaBackend(AIBackend):
         self._queued = 0
 
     @asynccontextmanager
-    async def _generation_slot(self):
+    async def _generation_slot(self, telemetry=None):
         async with self._queue_lock:
             if self._queued >= max(1, settings.local_ai_max_queue):
                 raise RuntimeError("Thanarah local queue is full")
             self._queued += 1
         acquired = False
+        queue_started = time.perf_counter()
         try:
             await asyncio.wait_for(
                 self._slots.acquire(),
                 timeout=max(1.0, settings.local_ai_queue_timeout_seconds),
             )
             acquired = True
+            if telemetry is not None:
+                telemetry.set_ms(
+                    "ollamaQueueMs",
+                    (time.perf_counter() - queue_started) * 1000,
+                )
             yield
         finally:
             if acquired:
@@ -106,7 +112,7 @@ class OllamaBackend(AIBackend):
         start = time.time()
         model = self._model(request)
         try:
-            async with self._generation_slot():
+            async with self._generation_slot(request.telemetry):
                 response = await self._get_client().post(
                     "/api/chat",
                     json={
@@ -139,7 +145,7 @@ class OllamaBackend(AIBackend):
         start = time.time()
         model = self._model(request)
         try:
-            async with self._generation_slot():
+            async with self._generation_slot(request.telemetry):
                 async with self._get_client().stream(
                     "POST",
                     "/api/chat",
@@ -161,6 +167,19 @@ class OllamaBackend(AIBackend):
                         if content:
                             yield content
                         if data.get("done"):
+                            if request.telemetry is not None:
+                                request.telemetry.set_ms(
+                                    "modelLoadMs",
+                                    float(data.get("load_duration", 0)) / 1_000_000,
+                                )
+                                request.telemetry.set(
+                                    "inputTokens",
+                                    int(data.get("prompt_eval_count", 0) or 0),
+                                )
+                                request.telemetry.set(
+                                    "outputTokens",
+                                    int(data.get("eval_count", 0) or 0),
+                                )
                             break
             self.record_success((time.time() - start) * 1000)
         except Exception as error:
@@ -171,7 +190,7 @@ class OllamaBackend(AIBackend):
     async def health_check(self) -> HealthStatus:
         start = time.time()
         try:
-            response = await self._get_client().get("/api/tags", timeout=5)
+            response = await self._get_client().get("/api/ps", timeout=5)
             response.raise_for_status()
             models = response.json().get("models", [])
             names = {
@@ -183,7 +202,7 @@ class OllamaBackend(AIBackend):
                 return HealthStatus(
                     available=False,
                     latency_ms=latency,
-                    error=f"Model {self.default_model} is not installed",
+                    error=f"Model {self.default_model} is not loaded",
                 )
             active_model = self.default_model or next(iter(names), None)
             return HealthStatus(

@@ -7,6 +7,7 @@ import asyncio
 import logging
 import io
 import re
+import time
 from typing import List, Optional
 import numpy as np
 from app.database import get_db
@@ -160,13 +161,17 @@ class RAGPipeline:
         query: str,
         limit: int = 5,
         threshold: float = 0.1,
+        telemetry=None,
     ) -> List[dict]:
         """Retrieve the most relevant chunks for a query."""
         db = get_db()
         if db is None:
             return []
 
-        query_embedding = self.embedder.encode(query)
+        embedding_started = time.perf_counter()
+        query_embedding = await asyncio.to_thread(self.embedder.encode, query)
+        if telemetry is not None:
+            telemetry.add_ms("embeddingMs", embedding_started)
 
         # Bounded scan keeps CPU/RAM predictable until a native vector index is enabled.
         try:
@@ -184,22 +189,22 @@ class RAGPipeline:
         if not chunks:
             return []
 
-        # Rank by cosine similarity
-        scored = []
-        for chunk in chunks:
-            embedding = chunk.get("embedding", [])
-            if embedding:
+        def rank_chunks() -> list[dict]:
+            scored = []
+            query_terms = set(re.findall(r"[\w\u0600-\u06ff]{2,}", query.lower()))
+            identifier_terms = {
+                term for term in query_terms
+                if len(term) >= 6 or any(char.isdigit() for char in term)
+            }
+            for chunk in chunks:
+                embedding = chunk.get("embedding", [])
+                if not embedding:
+                    continue
                 vector_score = cosine_similarity(query_embedding, embedding)
-                query_terms = set(re.findall(r"[\w\u0600-\u06ff]{2,}", query.lower()))
-                content_terms = set(re.findall(r"[\w\u0600-\u06ff]{2,}", chunk.get("content", "").lower()))
-                shared_terms = query_terms & content_terms
-                lexical_score = len(shared_terms) / max(1, len(query_terms))
-                # Long identifiers, ticket numbers, and mixed alpha-numeric codes are
-                # highly discriminative and must outrank older, generally similar text.
-                identifier_terms = {
-                    term for term in query_terms
-                    if len(term) >= 6 or any(char.isdigit() for char in term)
-                }
+                content_terms = set(
+                    re.findall(r"[\w\u0600-\u06ff]{2,}", chunk.get("content", "").lower())
+                )
+                lexical_score = len(query_terms & content_terms) / max(1, len(query_terms))
                 identifier_score = len(identifier_terms & content_terms) / max(1, len(identifier_terms))
                 score = (vector_score * 0.55) + (lexical_score * 0.30) + (identifier_score * 0.15)
                 if score >= threshold:
@@ -209,9 +214,10 @@ class RAGPipeline:
                         "score": score,
                         "chunkIndex": chunk.get("chunkIndex", 0),
                     })
+            scored.sort(key=lambda item: item["score"], reverse=True)
+            return scored
 
-        # Sort by score descending
-        scored.sort(key=lambda x: x["score"], reverse=True)
+        scored = await asyncio.to_thread(rank_chunks)
         return scored[: min(limit, settings.rag_default_limit)]
 
     async def ingest_text(self, source_id: str, tenant_id: str, text: str) -> int:

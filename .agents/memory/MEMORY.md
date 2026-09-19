@@ -1,3 +1,4 @@
 - [Thanarah AI project overview](thanarah-overview.md) — monorepo: Next.js/5000, NestJS/3001, FastAPI/8000; Arabic-first RTL
 - [MongoDB Atlas connection](mongodb-atlas.md) — lazyConnection:true required; IP whitelist needed for Replit container
 - [Local-first AI architecture](local-ai-architecture.md) — llama.cpp is PRIMARY; external providers are BYOK-only, disabled by default
+- [AI response cache safety](ai-response-cache-safety.md) — cache only context-free requests until mutable RAG and memory expose reliable tenant versions

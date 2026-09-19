@@ -46,12 +46,18 @@ export class HealthController {
       const advanced = backends.some(
         (backend: any) => backend?.id !== 'fallback' && backend?.enabled && backend?.healthy,
       );
+      const status = res.data?.status === 'ok' ? 'ok' : 'degraded';
       return {
-        status: 'ok',
+        status,
         aiEngine: {
-          status: 'ok',
+          status,
           service: 'Thanarah Intelligence',
           generation: { advanced },
+          uptimeSeconds: res.data?.uptimeSeconds ?? null,
+          ollama: res.data?.ollama ?? { status: 'unknown', available: false },
+          mongodb: res.data?.mongodb ?? { status: 'unknown', connected: false },
+          cache: res.data?.cache ?? { enabled: false, mode: 'exact' },
+          telemetry: res.data?.telemetry ?? { bufferedRecords: 0 },
         },
         timestamp: new Date().toISOString(),
       };

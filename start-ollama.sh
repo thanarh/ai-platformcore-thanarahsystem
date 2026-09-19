@@ -14,6 +14,8 @@ mkdir -p "$OLLAMA_MODELS"
 
 OLLAMA_BIN="${OLLAMA_BIN:-$SCRIPT_DIR/.ollama-lib/bin/ollama}"
 DEFAULT_MODEL="${LOCAL_AI_MODEL:-qwen2.5:0.5b}"
+READY_FILE="${OLLAMA_READY_FILE:-/tmp/thanarah-ollama-ready}"
+rm -f "$READY_FILE"
 
 echo "🤖 Starting Ollama (model: $DEFAULT_MODEL)..."
 
@@ -33,5 +35,14 @@ if ! curl -fsS http://127.0.0.1:11434/api/tags | grep -Fq "\"name\":\"$DEFAULT_M
   "$OLLAMA_BIN" pull "$DEFAULT_MODEL"
 fi
 
+echo "Warming local model into memory..."
+if ! curl -fsS --max-time 60 http://127.0.0.1:11434/api/generate \
+  -H "Content-Type: application/json" \
+  --data-binary "{\"model\":\"$DEFAULT_MODEL\",\"prompt\":\"جاهز\",\"stream\":false,\"keep_alive\":-1,\"options\":{\"num_predict\":1}}" \
+  >/dev/null; then
+  echo "Warning: local model warm-up failed; the first request may be slower."
+fi
+
+touch "$READY_FILE"
 echo "✅ Ollama model ready: $DEFAULT_MODEL"
 wait "$OLLAMA_PID"

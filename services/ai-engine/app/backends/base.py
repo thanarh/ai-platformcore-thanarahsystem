@@ -24,6 +24,7 @@ class AIRequest:
     stream: bool = False
     system_prompt: Optional[str] = None
     context: Optional[str] = None
+    telemetry: Optional[object] = None
 
 
 @dataclass

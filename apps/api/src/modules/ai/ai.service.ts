@@ -411,6 +411,11 @@ export class AiService {
         status: response.data?.status === 'ok' ? 'ok' : 'degraded',
         service: 'Thanarah Intelligence',
         generation: { advanced },
+        uptimeSeconds: response.data?.uptimeSeconds ?? null,
+        ollama: response.data?.ollama ?? { status: 'unknown', available: false },
+        mongodb: response.data?.mongodb ?? { status: 'unknown', connected: false },
+        cache: response.data?.cache ?? { enabled: false, mode: 'exact' },
+        telemetry: response.data?.telemetry ?? { bufferedRecords: 0 },
       };
     } catch {
       return {
