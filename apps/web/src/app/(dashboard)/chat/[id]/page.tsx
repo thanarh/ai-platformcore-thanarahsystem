@@ -9,13 +9,6 @@ import { useChatStore, Message } from '@/store/chat';
 import { useAuthStore } from '@/store/auth';
 import { messagesApi } from '@/lib/api';
 import { streamChat, cn, isRTL } from '@/lib/utils';
-import { ThanarahIcon } from '@/components/ThanarahLogo';
-
-const THINKING_MESSAGES = [
-  'نحلّل سياق طلبك بدقة',
-  'نرتّب المعلومات الأكثر صلة',
-  'نصوغ لك إجابة واضحة ومتكاملة',
-];
 
 export default function ChatPage() {
   const params = useParams();
@@ -227,52 +220,6 @@ export default function ChatPage() {
 function MessageBubble({ message, onCopy, onPin, onFeedback, feedback }: { message: Message; onCopy: () => void; onPin: () => void; onFeedback: (rating: 'up' | 'down') => void; feedback?: 'up' | 'down' }) {
   const isUser = message.role === 'user';
   const isArabic = isRTL(message.content);
-  const [thinkingStep, setThinkingStep] = useState(0);
-  const [thinkingText, setThinkingText] = useState('');
-  const [showThinkingIcon, setShowThinkingIcon] = useState(false);
-
-  useEffect(() => {
-    if (!message.isStreaming || message.content) {
-      setThinkingText('');
-      setShowThinkingIcon(false);
-      return;
-    }
-
-    let cancelled = false;
-    let timer: number;
-
-    const typeSentence = (step: number) => {
-      const sentence = THINKING_MESSAGES[step];
-      let character = 0;
-      setThinkingStep(step);
-      setThinkingText('');
-      setShowThinkingIcon(false);
-
-      const typeNext = () => {
-        if (cancelled) return;
-        character += 1;
-        setThinkingText(sentence.slice(0, character));
-        if (character >= Math.min(7, sentence.length)) setShowThinkingIcon(true);
-
-        if (character < sentence.length) {
-          timer = window.setTimeout(typeNext, 78);
-        } else {
-          timer = window.setTimeout(
-            () => typeSentence((step + 1) % THINKING_MESSAGES.length),
-            2600,
-          );
-        }
-      };
-
-      timer = window.setTimeout(typeNext, step === 0 ? 320 : 500);
-    };
-
-    typeSentence(0);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [message.isStreaming, message.content]);
 
   return (
     <div className="flex justify-start animate-message-in">
@@ -308,19 +255,12 @@ function MessageBubble({ message, onCopy, onPin, onFeedback, feedback }: { messa
             dir={isArabic ? 'rtl' : 'ltr'}
           >
             {message.isStreaming && !message.content ? (
-              <div className="min-w-[240px] min-h-10 flex items-center gap-2.5 text-thanarah-800" dir="rtl">
-                <p key={thinkingStep} className="min-w-0 text-[13px] font-medium font-arabic leading-7 tracking-[0.01em]">
-                  {thinkingText}
-                </p>
-                <div
-                  className={cn(
-                    'thanarah-thinking-logo flex h-7 w-7 flex-shrink-0 items-center justify-center transition-opacity duration-700',
-                    showThinkingIcon ? 'opacity-100' : 'opacity-0',
-                  )}
-                  aria-hidden="true"
-                >
-                  <ThanarahIcon className="h-5 w-5" />
-                </div>
+              <div
+                className="flex min-h-10 min-w-10 items-center justify-center"
+                role="status"
+                aria-label="جارٍ تجهيز الرد"
+              >
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-thanarah-600 border-t-transparent" />
               </div>
             ) : (
               <>

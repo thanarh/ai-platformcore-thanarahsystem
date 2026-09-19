@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     local_ai_num_batch: int = 64
     local_ai_max_concurrency: int = 1
     local_ai_max_queue: int = 32
-    local_ai_queue_timeout_seconds: float = 180.0
+    local_ai_queue_timeout_seconds: float = 5.0
     local_ai_max_tokens_fast: int = 96
     local_ai_max_tokens_balanced: int = 256
     local_ai_max_tokens_deep: int = 512
@@ -46,6 +46,7 @@ class Settings(BaseSettings):
     rag_max_scan: int = 2000
     rag_default_limit: int = 5
     rag_query_timeout_seconds: float = 15.0
+    context_source_timeout_seconds: float = 1.5
 
     # Local embeddings for semantic RAG. Sentence Transformers is optional;
     # the service falls back to deterministic hashing embeddings automatically.

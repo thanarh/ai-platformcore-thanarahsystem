@@ -200,10 +200,22 @@ class IntelligenceRouter:
                 logger.debug("RAG skipped: %s", error)
                 return []
 
+        async def within_deadline(coro, fallback):
+            try:
+                return await asyncio.wait_for(
+                    coro,
+                    timeout=max(0.1, settings.context_source_timeout_seconds),
+                )
+            except Exception:
+                return fallback
+
         memories, rag_sources, user_profile = await asyncio.gather(
-            load_memories(),
-            load_rag(),
-            daily_learning_service.profile(chat_request.tenantId, chat_request.userId),
+            within_deadline(load_memories(), []),
+            within_deadline(load_rag(), []),
+            within_deadline(
+                daily_learning_service.profile(chat_request.tenantId, chat_request.userId),
+                {},
+            ),
         )
         return memories, rag_sources, user_profile
 

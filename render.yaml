@@ -47,9 +47,11 @@ services:
       - key: LOCAL_AI_MAX_CONCURRENCY
         value: 1
       - key: LOCAL_AI_MAX_QUEUE
-        value: 32
+        value: 8
       - key: LOCAL_AI_QUEUE_TIMEOUT_SECONDS
-        value: 180
+        value: 5
+      - key: CONTEXT_SOURCE_TIMEOUT_SECONDS
+        value: 1.5
       - key: LOCAL_AI_MAX_TOKENS_FAST
         value: 128
       - key: LOCAL_AI_MAX_TOKENS_BALANCED

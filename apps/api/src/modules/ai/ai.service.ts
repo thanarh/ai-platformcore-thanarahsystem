@@ -253,9 +253,12 @@ export class AiService {
 
     // Set SSE headers
     data.res.setHeader('Content-Type', 'text/event-stream');
-    data.res.setHeader('Cache-Control', 'no-cache');
+    data.res.setHeader('Cache-Control', 'no-cache, no-transform');
     data.res.setHeader('Connection', 'keep-alive');
     data.res.setHeader('Access-Control-Allow-Origin', '*');
+    data.res.setHeader('X-Accel-Buffering', 'no');
+    data.res.flushHeaders?.();
+    data.res.write(': connected\n\n');
 
     let fullContent = '';
     let aiMeta: any = {};
@@ -306,7 +309,6 @@ export class AiService {
         },
       );
 
-      data.res.flushHeaders?.();
       data.res.once('close', () => {
         if (responseEnded) return;
         responseEnded = true;

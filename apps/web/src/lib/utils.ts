@@ -31,6 +31,13 @@ export function truncate(str: string, maxLength: number): string {
   return str.substring(0, maxLength - 3) + '...';
 }
 
+function sanitizeStreamText(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  return value
+    .replace(/\uFFFD/g, '')
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '');
+}
+
 export async function streamChat(
   conversationId: string,
   content: string,
@@ -70,27 +77,30 @@ export async function streamChat(
     let completed = false;
 
     const processEvent = (event: string) => {
-      for (const line of event.split(/\r?\n/)) {
-        if (!line.startsWith('data:')) continue;
-        const raw = line.slice(5).trim();
-        if (!raw) continue;
-        if (raw === '[DONE]') {
+      const raw = event
+        .split(/\r?\n/)
+        .filter((line) => line.startsWith('data:'))
+        .map((line) => line.slice(5).trimStart())
+        .join('\n')
+        .trim();
+      if (!raw) return;
+      if (raw === '[DONE]') {
+        completed = true;
+        onDone(meta);
+        return;
+      }
+      try {
+        const parsed = JSON.parse(raw);
+        if (parsed.error) {
           completed = true;
-          onDone(meta);
+          onError(sanitizeStreamText(parsed.content) || 'تعذر إكمال الطلب حالياً.');
           return;
         }
-        try {
-          const parsed = JSON.parse(raw);
-          if (parsed.error) {
-            completed = true;
-            onError(parsed.content || 'تعذر إكمال الطلب حالياً.');
-            return;
-          }
-          if (parsed.delta) onDelta(parsed.delta);
-          if (parsed.meta) meta = { ...(meta || {}), ...parsed.meta };
-        } catch {
-          // Keep buffering future events; malformed server frames must not freeze the UI.
-        }
+        const delta = sanitizeStreamText(parsed.delta);
+        if (delta) onDelta(delta);
+        if (parsed.meta) meta = { ...(meta || {}), ...parsed.meta };
+      } catch {
+        // Ignore malformed frames without exposing transport bytes to the user.
       }
     };
 
@@ -107,6 +117,7 @@ export async function streamChat(
       }
     }
 
+    buffer += decoder.decode();
     if (!completed && buffer.trim()) processEvent(buffer);
     if (!completed) onDone(meta);
   } catch (error) {
