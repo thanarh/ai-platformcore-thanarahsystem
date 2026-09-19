@@ -29,11 +29,17 @@ async function proxyRequest(
           : undefined,
       // @ts-ignore — duplex required for streaming bodies
       duplex: 'half',
+      cache: 'no-store',
     });
+
+    const responseHeaders = new Headers(response.headers);
+    responseHeaders.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+    responseHeaders.set('Pragma', 'no-cache');
+    responseHeaders.set('Expires', '0');
 
     return new Response(response.body, {
       status: response.status,
-      headers: response.headers,
+      headers: responseHeaders,
     });
   } catch {
     return new Response(
