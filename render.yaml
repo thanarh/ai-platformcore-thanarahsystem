@@ -2,11 +2,17 @@ services:
   - type: web
     name: thanarah-ai
     runtime: node
-    plan: free
+    plan: 12c-24g
     buildCommand: bash render-build.sh
     startCommand: bash render-start.sh
     healthCheckPath: /
     autoDeploy: true
+    # Optional persistent model storage (currently billed separately by Render).
+    # Enable this after approving the additional storage charge:
+    # disk:
+    #   name: thanarah-models
+    #   mountPath: /var/data
+    #   sizeGB: 10
     envVars:
       - key: NODE_ENV
         value: production
@@ -22,8 +28,32 @@ services:
         value: http://127.0.0.1:3001
       - key: AI_ENGINE_URL
         value: http://127.0.0.1:8000
-      - key: LOCAL_AI_ENABLED
-        value: false
+      - key: LOCAL_AI_MODE
+        value: auto
+      - key: LOCAL_AI_MIN_MEMORY_GB
+        value: 12
+      - key: LOCAL_AI_REQUIRED
+        value: true
+      - key: LOCAL_AI_MODEL
+        value: qwen2.5:7b
+      - key: LOCAL_AI_KEEP_ALIVE
+        value: "-1"
+      - key: LOCAL_AI_NUM_CTX
+        value: 4096
+      - key: LOCAL_AI_NUM_THREAD
+        value: 6
+      - key: LOCAL_AI_NUM_BATCH
+        value: 128
+      - key: LOCAL_AI_MAX_TOKENS_FAST
+        value: 128
+      - key: LOCAL_AI_MAX_TOKENS_BALANCED
+        value: 384
+      - key: LOCAL_AI_MAX_TOKENS_DEEP
+        value: 768
+      - key: OLLAMA_NUM_PARALLEL
+        value: 1
+      - key: OLLAMA_MAX_QUEUE
+        value: 128
       - key: FREE_PROVIDER_ONLY
         value: true
       - key: FREE_PROVIDERS_ENABLED

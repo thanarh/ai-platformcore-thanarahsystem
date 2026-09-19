@@ -30,18 +30,22 @@ class OllamaBackend(AIBackend):
             self._client = httpx.AsyncClient(
                 base_url=self.base_url,
                 timeout=httpx.Timeout(
-                    connect=3.0,
-                    read=180.0,
-                    write=10.0,
-                    pool=5.0,
+                    connect=5.0,
+                    read=600.0,
+                    write=30.0,
+                    pool=10.0,
                 ),
             )
         return self._client
 
     def _build_messages(self, request: AIRequest) -> list:
         system = request.system_prompt or THANARAH_SYSTEM_PROMPT
+        system += (
+            "\nأجب مباشرةً وبوضوح، ولا تعرض سلسلة التفكير أو التحليل الداخلي. "
+            "إذا احتوى السياق على معلومات مؤسسية فاستخدمها بدقة ولا تخترع حقائق غير موجودة."
+        )
         if request.context:
-            system += f"\n\n--- Context ---\n{request.context}"
+            system += f"\n\n--- Thanarah Context ---\n{request.context}"
         return [{"role": "system", "content": system}, *request.messages]
 
     def _options(self, request: AIRequest) -> dict:
@@ -51,7 +55,9 @@ class OllamaBackend(AIBackend):
             "num_ctx": settings.local_ai_num_ctx,
             "num_thread": settings.local_ai_num_thread,
             "num_batch": settings.local_ai_num_batch,
-            "keep_alive": settings.local_ai_keep_alive,
+            "top_p": 0.9,
+            "top_k": 40,
+            "repeat_penalty": 1.1,
         }
 
     def _model(self, request: AIRequest) -> str:
@@ -59,6 +65,14 @@ class OllamaBackend(AIBackend):
         if not model:
             raise RuntimeError("LOCAL_AI_MODEL is not configured")
         return model
+
+    def _keep_alive(self) -> str | int:
+        """Return duration strings as-is and numeric values as JSON numbers."""
+        value = settings.local_ai_keep_alive.strip()
+        try:
+            return int(value)
+        except ValueError:
+            return value
 
     async def is_available(self) -> bool:
         return (await self.health_check()).available
@@ -73,6 +87,8 @@ class OllamaBackend(AIBackend):
                     "model": model,
                     "messages": self._build_messages(request),
                     "stream": False,
+                    "think": False,
+                    "keep_alive": self._keep_alive(),
                     "options": self._options(request),
                 },
             )
@@ -104,6 +120,8 @@ class OllamaBackend(AIBackend):
                     "model": model,
                     "messages": self._build_messages(request),
                     "stream": True,
+                    "think": False,
+                    "keep_alive": self._keep_alive(),
                     "options": self._options(request),
                 },
             ) as response:
