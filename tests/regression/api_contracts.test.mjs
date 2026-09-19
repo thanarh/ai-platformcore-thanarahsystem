@@ -64,3 +64,14 @@ test('global owner user listing is role-protected and credential-safe', () => {
   assert.match(usersService, /-passwordHash/);
   assert.match(usersService, /-refreshToken/);
 });
+
+test('customer administration is role-protected and uses allowlisted updates', () => {
+  const adminController = read('apps/api/src/modules/admin/admin.controller.ts');
+  const adminService = read('apps/api/src/modules/admin/admin.service.ts');
+  assert.match(adminController, /@Get\('users\/:id\/customer'\)/);
+  assert.match(adminController, /@Patch\('users\/:id\/customer'\)/);
+  assert.match(adminController, /@Roles\(Role\.ADMIN, Role\.OWNER\)/);
+  assert.match(adminService, /You cannot deactivate your own account/);
+  assert.match(adminService, /organization\.usagePolicy =/);
+  assert.doesNotMatch(adminService, /updateCustomer[\s\S]*this\.tenantsService\.update\([^,]+,\s*data\)/);
+});

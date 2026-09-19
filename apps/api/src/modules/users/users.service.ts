@@ -45,6 +45,10 @@ export class UsersService {
     return this.userModel.findById(id);
   }
 
+  async setActive(id: string, isActive: boolean): Promise<UserDocument | null> {
+    return this.userModel.findByIdAndUpdate(id, { isActive }, { new: true });
+  }
+
   async findByTenant(tenantId: string): Promise<UserDocument[]> {
     return this.userModel.find({ tenantId: new Types.ObjectId(tenantId), isActive: true });
   }

@@ -5,6 +5,8 @@ import api from '@/lib/api';
 import { Users, Shield } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/store/auth';
+import Link from 'next/link';
+import { ChevronLeft } from 'lucide-react';
 
 const ROLE_LABELS: Record<string, { label: string; color: string }> = {
   OWNER: { label: 'مالك', color: 'bg-purple-50 text-purple-700' },
@@ -81,7 +83,7 @@ export default function UsersPage() {
             </div>
           ) : (
             users.map((u) => (
-              <div key={u._id} className="flex items-center gap-3 px-4 py-3 border-b border-gray-100 last:border-0">
+              <Link key={u._id} href={`/admin/users/${u._id}`} className="flex items-center gap-3 px-4 py-3 border-b border-gray-100 last:border-0 hover:bg-gray-50 transition">
                 <div className="w-8 h-8 rounded-full bg-thanarah-100 flex items-center justify-center flex-shrink-0">
                   <span className="text-xs font-semibold text-thanarah-700">
                     {u.firstName?.[0]}{u.lastName?.[0]}
@@ -99,7 +101,8 @@ export default function UsersPage() {
                 )}>
                   {ROLE_LABELS[u.role]?.label || u.role}
                 </span>
-              </div>
+                <ChevronLeft className="w-4 h-4 text-gray-300" />
+              </Link>
             ))
           )}
         </div>
