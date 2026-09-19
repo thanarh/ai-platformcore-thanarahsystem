@@ -1,0 +1,149 @@
+توقف عن إضافة أي Features جديدة في لوحة الإدارة أو إدارة العملاء.
+
+ميزة إدارة العميل التي نفذتها ليست هي المهمة الحالية، لذلك لا تعتبرها تنفيذًا لـAI Performance Phase 0/1.
+
+من الآن فصاعدًا أريد العمل على **AI ENGINE ONLY**.
+
+لا تعدل:
+
+* Users
+* Organizations
+* Subscriptions
+* Plans
+* Customer profiles
+* Admin UI
+* User management UI
+
+إلا إذا كان تعديلًا ضروريًا جدًا لتشغيل الـAI pipeline، وفي هذه الحالة اذكر السبب أولًا.
+
+## المهمة الحالية فقط
+
+نفّذ AI Performance Phase 0 + Phase 1:
+
+### 1. Audit
+
+افحص مسار AI الحالي بالكامل:
+
+Frontend
+→ NestJS
+→ Python/FastAPI
+→ Memory
+→ RAG
+→ Ollama
+→ Qwen
+→ Streaming
+→ Frontend
+
+حدد بالضبط أين يحدث التأخير.
+
+### 2. Baseline
+
+قبل أي optimization، قِس النظام الحالي.
+
+أريد أرقامًا حقيقية لـ:
+
+* Time to First Token
+* Total response latency
+* Tokens/sec
+* Ollama latency
+* RAG latency
+* Memory latency
+* Prompt construction latency
+* CPU usage
+* RAM usage
+
+### 3. Telemetry
+
+أضف internal performance telemetry لكل AI request.
+
+### 4. Streaming
+
+تأكد أن response يبدأ بالظهور فور وصول أول token ولا ينتظر اكتمال generation.
+
+### 5. Ollama
+
+تأكد أن Qwen لا يتم تحميله من جديد لكل request.
+
+### 6. Context
+
+قلل الـconversation history غير الضروري، مع الحفاظ على جودة السياق.
+
+### 7. Parallelization
+
+نفذ العمليات المستقلة بالتوازي عندما يكون ذلك آمنًا.
+
+### 8. Exact cache
+
+أضف cache داخلي للطلبات المتطابقة فقط، مع tenant isolation كامل.
+
+### 9. Benchmark
+
+أنشئ benchmark لا يقل عن 20 حالة.
+
+### 10. Tests
+
+بعد التعديل شغّل:
+
+* existing tests
+* AI tests
+* frontend build
+* backend build
+* health checks
+* benchmark
+
+## ممنوع الآن
+
+لا تضف:
+
+* Qdrant
+* SearXNG
+* Web Search
+* Reranker
+* Agent
+* Tool Calling
+* موديل جديد
+* OpenAI
+* Anthropic
+* Gemini
+* Groq
+* OpenRouter
+* أي API مدفوع
+
+هذه مراحل لاحقة.
+
+## المطلوب في النهاية
+
+أنشئ:
+
+docs/ai-performance-baseline.md
+
+و:
+
+docs/ai-performance-phase-1.md
+
+وفي التقرير اكتب الأرقام الفعلية:
+
+BEFORE:
+TTFT:
+Total:
+Tokens/sec:
+RAG:
+Memory:
+Ollama:
+
+AFTER:
+TTFT:
+Total:
+Tokens/sec:
+RAG:
+Memory:
+Ollama:
+
+وأيضًا:
+CPU:
+RAM:
+Cache hit rate:
+
+إذا لم تتمكن من قياس أي رقم، لا تخترع رقمًا. اذكر لماذا لا يمكن قياسه.
+
+**مهم جدًا: لا تبدأ أي مرحلة أخرى بعد Phase 1. توقف وأرسل لي التقرير والنتائج الرقمية فقط.**
