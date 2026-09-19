@@ -50,6 +50,22 @@ export class MessagesService {
     );
   }
 
+  async setPinned(messageId: string, pinned: boolean): Promise<MessageDocument | null> {
+    return this.messageModel.findByIdAndUpdate(
+      new Types.ObjectId(messageId),
+      { $set: { isPinned: pinned } },
+      { new: true },
+    );
+  }
+
+  async findPreviousUserMessage(message: MessageDocument): Promise<MessageDocument | null> {
+    return this.messageModel.findOne({
+      conversationId: message.conversationId,
+      role: 'user',
+      createdAt: { $lt: message.createdAt },
+    }).sort({ createdAt: -1 });
+  }
+
   async findByConversation(conversationId: string, limit = 50): Promise<MessageDocument[]> {
     return this.messageModel
       .find({ conversationId: new Types.ObjectId(conversationId) })

@@ -6,6 +6,26 @@ const api = axios.create({
   withCredentials: true,
 });
 
+let refreshPromise: Promise<string> | null = null;
+
+async function refreshAccessToken(): Promise<string> {
+  if (!refreshPromise) {
+    const currentRefreshToken = useAuthStore.getState().refreshToken;
+    if (!currentRefreshToken) throw new Error('No refresh token');
+    refreshPromise = axios
+      .post('/api/auth/refresh', { refreshToken: currentRefreshToken })
+      .then((response) => {
+        const data = response.data;
+        useAuthStore.getState().setAuth(data.user, data.accessToken, data.refreshToken);
+        return data.accessToken as string;
+      })
+      .finally(() => {
+        refreshPromise = null;
+      });
+  }
+  return refreshPromise;
+}
+
 // Attach auth token to every request
 api.interceptors.request.use((config) => {
   const token = useAuthStore.getState().token;
@@ -18,7 +38,25 @@ api.interceptors.request.use((config) => {
 // Handle 401 — clear auth and redirect to login
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
+  async (error) => {
+    const original = error.config as (typeof error.config & { _thanarahRetried?: boolean });
+    if (
+      error.response?.status === 401
+      && original
+      && !original._thanarahRetried
+      && useAuthStore.getState().refreshToken
+      && !String(original.url || '').includes('/auth/refresh')
+    ) {
+      original._thanarahRetried = true;
+      try {
+        const token = await refreshAccessToken();
+        original.headers = original.headers || {};
+        original.headers.Authorization = `Bearer ${token}`;
+        return api(original);
+      } catch {
+        // Fall through to the final logout path below.
+      }
+    }
     if (error.response?.status === 401) {
       useAuthStore.getState().clearAuth();
       if (typeof window !== 'undefined') {
@@ -40,8 +78,11 @@ export const authApi = {
     password: string;
     firstName: string;
     lastName: string;
+    industry?: string;
   }) => api.post('/auth/register', data).then((r) => r.data),
   logout: () => api.post('/auth/logout').then((r) => r.data),
+  refresh: (refreshToken: string) =>
+    axios.post('/api/auth/refresh', { refreshToken }).then((r) => r.data),
   me: () => api.get('/auth/me').then((r) => r.data),
 };
 
@@ -64,6 +105,8 @@ export const messagesApi = {
     api.get(`/messages/${conversationId}`).then((r) => r.data),
   feedback: (messageId: string, rating: 'up' | 'down', correction?: string) =>
     api.post(`/messages/${messageId}/feedback`, { rating, correction }).then((r) => r.data),
+  pin: (messageId: string, pinned: boolean) =>
+    api.post(`/messages/${messageId}/pin`, { pinned }).then((r) => r.data),
 };
 
 // ──── AI ───────────────────────────────────────────────────────────────────
@@ -109,6 +152,7 @@ export const adminApi = {
 export const tenantsApi = {
   list: () => api.get('/tenants').then((r) => r.data),
   myTenant: () => api.get('/tenants/my').then((r) => r.data),
+  usage: () => api.get('/tenants/my/usage').then((r) => r.data),
   update: (id: string, data: any) =>
     api.put(`/tenants/${id}`, data).then((r) => r.data),
   updateAiConfig: (id: string, data: any) =>

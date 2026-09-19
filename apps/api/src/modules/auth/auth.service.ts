@@ -10,6 +10,7 @@ import { UsersService } from '../users/users.service';
 import { TenantsService } from '../tenants/tenants.service';
 import { EmailService } from '../email/email.service';
 import { Role } from '../../common/decorators/roles.decorator';
+import { createHash } from 'crypto';
 
 @Injectable()
 export class AuthService {
@@ -26,6 +27,7 @@ export class AuthService {
     password: string;
     firstName: string;
     lastName: string;
+    industry?: string;
     tenantSlug?: string;
   }) {
     if (data.password.length < 8) {
@@ -43,8 +45,29 @@ export class AuthService {
       const tenant = await this.tenantsService.create({
         slug,
         name: `${data.firstName}'s Workspace`,
-        type: 'organization',
+        type: data.industry === 'healthcare' ? 'clinic' : 'organization',
+        industry: data.industry || 'general',
         status: 'active',
+        subscription: {
+          plan: 'free',
+          status: 'free',
+          dailyPriceSar: 0,
+          activatedByAdmin: false,
+        },
+        usagePolicy: {
+          appDailyCoins: 500,
+          appMessageCost: 50,
+          apiDailyRequests: 50,
+        },
+        usageBalance: {
+          day: new Date().toISOString().slice(0, 10),
+          appCoinsUsed: 0,
+          apiRequestsUsed: 0,
+        },
+        medicalMode: {
+          enabled: false,
+          configuredByAdmin: false,
+        },
       });
       tenantId = tenant._id.toString();
     }
@@ -105,6 +128,29 @@ export class AuthService {
   async logout(userId: string) {
     await this.usersService.updateRefreshToken(userId, null);
     return { success: true };
+  }
+
+  async refresh(refreshToken: string) {
+    if (!refreshToken) throw new UnauthorizedException('Refresh token is required');
+    try {
+      const payload = this.jwtService.verify(refreshToken, {
+        secret: this.configService.get('jwt.refreshSecret'),
+      });
+      const user = await this.usersService.findById(payload.sub);
+      const tokenHash = createHash('sha256').update(refreshToken).digest('hex');
+      const storedTokenMatches = user?.refreshToken === tokenHash || user?.refreshToken === refreshToken;
+      if (!user || !user.isActive || !user.refreshToken || !storedTokenMatches) {
+        throw new UnauthorizedException('Session is no longer valid');
+      }
+      const tokens = await this.generateTokens(user);
+      await this.usersService.updateRefreshToken(user._id.toString(), tokens.refreshToken);
+      return {
+        user: this.usersService.toPublic(user),
+        ...tokens,
+      };
+    } catch {
+      throw new UnauthorizedException('Session expired. Please sign in again');
+    }
   }
 
   async getMe(userId: string) {

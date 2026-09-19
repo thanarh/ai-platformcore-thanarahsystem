@@ -57,7 +57,20 @@ async def capabilities(request: Request):
 async def list_backends(request: Request):
     registry: BackendRegistry = request.app.state.registry
     health = await registry.get_health()
-    return {"backends": health}
+    branded = []
+    for item in health:
+        safe = dict(item)
+        safe.pop("engine", None)
+        safe.pop("baseUrl", None)
+        safe["model"] = "thanarah-intelligence"
+        if safe.get("id") == "thanarah-advanced":
+            safe["name"] = "ذكاء ثنارة المتقدم"
+        elif safe.get("id") == "fallback":
+            safe["name"] = "ذكاء ثنارة الأساسي"
+        else:
+            safe["name"] = "ذكاء ثنارة المحلي"
+        branded.append(safe)
+    return {"backends": branded}
 
 
 @router.put("/{backend_id}")
@@ -89,7 +102,7 @@ async def test_backend(backend_id: str, request: Request):
             "success": True,
             "backendId": backend_id,
             "response": response.content[:100],
-            "model": response.model,
+            "model": "thanarah-intelligence",
         }
     except Exception as e:
         return {"success": False, "backendId": backend_id, "error": str(e)}

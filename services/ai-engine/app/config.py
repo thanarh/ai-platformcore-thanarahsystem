@@ -4,6 +4,7 @@ from typing import Optional
 
 class Settings(BaseSettings):
     mongodb_uri: str = "mongodb://localhost:27017"
+    jwt_secret: str = ""
     ai_engine_port: int = 8000
     node_env: str = "development"
 
@@ -16,6 +17,9 @@ class Settings(BaseSettings):
     local_ai_num_ctx: int = 2048
     local_ai_num_thread: int = 4
     local_ai_num_batch: int = 64
+    local_ai_max_concurrency: int = 1
+    local_ai_max_queue: int = 32
+    local_ai_queue_timeout_seconds: float = 180.0
     local_ai_max_tokens_fast: int = 96
     local_ai_max_tokens_balanced: int = 256
     local_ai_max_tokens_deep: int = 512
@@ -33,6 +37,11 @@ class Settings(BaseSettings):
     response_cache_enabled: bool = True
     response_cache_size: int = 512
     response_cache_ttl_seconds: int = 900
+    persistent_response_cache_enabled: bool = True
+    persistent_response_cache_ttl_seconds: int = 21600
+    response_cache_db_timeout_seconds: float = 1.0
+    response_cache_semantic_scan_limit: int = 250
+    response_cache_semantic_min_score: float = 0.92
     rag_max_scan: int = 2000
     rag_default_limit: int = 5
     rag_query_timeout_seconds: float = 15.0
@@ -58,6 +67,25 @@ class Settings(BaseSettings):
     openrouter_rpm_limit: int = 10
     openai_api_key: Optional[str] = None
     anthropic_api_key: Optional[str] = None
+
+    # Provider-neutral, OpenAI-compatible primary backend. This enables a
+    # quality-first hosted model while preserving local inference as fallback.
+    external_ai_enabled: bool = False
+    external_ai_api_key: Optional[str] = None
+    external_ai_base_url: str = "https://api.openai.com/v1"
+    external_ai_model: str = ""
+    external_ai_max_tokens_field: str = "max_tokens"
+    external_ai_timeout_seconds: float = 90.0
+    external_ai_max_retries: int = 2
+    external_ai_max_concurrency: int = 16
+    external_ai_daily_limit: int = 50000
+    external_ai_rpm_limit: int = 300
+    external_ai_daily_budget_usd: float = 10.0
+    external_ai_input_price_per_million: float = 0.0
+    external_ai_output_price_per_million: float = 0.0
+    external_ai_max_tokens_fast: int = 256
+    external_ai_max_tokens_balanced: int = 768
+    external_ai_max_tokens_deep: int = 1600
 
     model_config = SettingsConfigDict(
         env_file=".env",

@@ -36,6 +36,9 @@ export class Message {
   @Prop({ default: false })
   isEdited: boolean;
 
+  @Prop({ default: false })
+  isPinned: boolean;
+
   @Prop()
   editedAt: Date;
 

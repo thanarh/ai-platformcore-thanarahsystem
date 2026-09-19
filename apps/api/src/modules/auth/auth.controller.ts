@@ -28,6 +28,7 @@ export class AuthController {
       password: string;
       firstName: string;
       lastName: string;
+      industry?: string;
       tenantSlug?: string;
     },
   ) {
@@ -39,6 +40,13 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   login(@Body() body: { email: string; password: string }) {
     return this.authService.login(body.email, body.password);
+  }
+
+  @Post('refresh')
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  refresh(@Body() body: { refreshToken: string }) {
+    return this.authService.refresh(body.refreshToken);
   }
 
   @Post('logout')

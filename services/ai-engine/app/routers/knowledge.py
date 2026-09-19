@@ -59,7 +59,7 @@ async def search_knowledge(req: SearchRequest):
 
 
 @router.delete("/{source_id}")
-async def delete_knowledge(source_id: str):
+async def delete_knowledge(source_id: str, tenantId: str | None = None):
     """Remove all chunks for a knowledge source."""
-    await rag.delete_source(source_id)
+    await rag.delete_source(source_id, tenantId)
     return {"success": True, "sourceId": source_id}

@@ -1,13 +1,45 @@
 import asyncio
 import json
 import logging
-from fastapi import APIRouter, Request, HTTPException
+import secrets
+from fastapi import APIRouter, Request, HTTPException, Header
 from fastapi.responses import StreamingResponse
 from app.models.chat import ChatRequest, ChatResponse
 from app.memory import memory_service
+from app.response_cache import response_cache_service
+from app.config import settings
+from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+class LearnCorrectionRequest(BaseModel):
+    tenantId: str
+    userId: str | None = None
+    query: str
+    correctedAnswer: str
+
+
+@router.post("/learn")
+async def learn_correction(
+    payload: LearnCorrectionRequest,
+    x_thanarah_internal: str | None = Header(default=None),
+):
+    """Store an explicit user correction as retrieval memory, never silent retraining."""
+    if not settings.jwt_secret or not x_thanarah_internal or not secrets.compare_digest(
+        x_thanarah_internal,
+        settings.jwt_secret,
+    ):
+        raise HTTPException(status_code=403, detail="Internal access required")
+    await response_cache_service.invalidate_tenant(payload.tenantId)
+    await memory_service.remember(
+        payload.tenantId,
+        payload.userId,
+        payload.query.strip(),
+        payload.correctedAnswer.strip(),
+    )
+    return {"success": True, "learningMode": "feedback-memory"}
 
 
 @router.post("", response_model=ChatResponse)

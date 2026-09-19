@@ -149,6 +149,9 @@ class RAGPipeline:
             stored += 1
 
         logger.info(f"Ingested {stored} chunks for source {source_id}")
+        from app.response_cache import response_cache_service
+
+        await response_cache_service.invalidate_tenant(tenant_id)
         return stored
 
     async def retrieve(
@@ -217,8 +220,15 @@ class RAGPipeline:
             source_id, tenant_id, text.encode("utf-8"), "text/plain"
         )
 
-    async def delete_source(self, source_id: str):
+    async def delete_source(self, source_id: str, tenant_id: str | None = None):
         """Remove all chunks for a source."""
         db = get_db()
         if db is not None:
-            await db.knowledge_chunks.delete_many({"sourceId": source_id})
+            query = {"sourceId": source_id}
+            if tenant_id:
+                query["tenantId"] = tenant_id
+            await db.knowledge_chunks.delete_many(query)
+            if tenant_id:
+                from app.response_cache import response_cache_service
+
+                await response_cache_service.invalidate_tenant(tenant_id)

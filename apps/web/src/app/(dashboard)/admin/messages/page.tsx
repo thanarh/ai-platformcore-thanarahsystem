@@ -128,10 +128,10 @@ export default function AdminMessagesPage() {
                     {getTenantName(log.tenantId)}
                   </span>
 
-                  {/* Backend + model */}
+                  {/* Thanarah intelligence status */}
                   <span className="flex items-center gap-1 text-xs text-gray-500 flex-shrink-0">
                     <Cpu className="w-3.5 h-3.5" />
-                    {log.backend || '—'} {log.model ? `/ ${log.model}` : ''}
+                    ذكاء ثنارة
                   </span>
 
                   {/* Tokens */}

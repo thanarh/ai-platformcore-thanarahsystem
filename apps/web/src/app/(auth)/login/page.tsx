@@ -32,7 +32,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#f5f5f3] flex items-center justify-center p-4">
+    <div className="app-viewport min-h-[100dvh] bg-[#f5f5f3] flex items-start sm:items-center justify-center px-4 py-6 safe-area-y overflow-y-auto">
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="flex justify-center mb-8">
@@ -40,7 +40,7 @@ export default function LoginPage() {
         </div>
 
         {/* Card */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5 sm:p-8 animate-message-in">
           <div className="mb-6 text-center">
             <h1 className="text-2xl font-semibold text-gray-900 mb-1 font-arabic" dir="rtl">
               تسجيل الدخول

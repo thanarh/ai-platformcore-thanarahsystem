@@ -120,7 +120,10 @@ export class KnowledgeService {
       tenantId: new Types.ObjectId(tenantId),
     });
     // Notify AI engine to clean up vectors
-    axios.delete(`${this.aiEngineUrl}/knowledge/${id}`, { timeout: 10000 }).catch(() => {});
+    axios.delete(`${this.aiEngineUrl}/knowledge/${id}`, {
+      params: { tenantId },
+      timeout: 10000,
+    }).catch(() => {});
   }
 
   async getCount(tenantId?: string): Promise<number> {

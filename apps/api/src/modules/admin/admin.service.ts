@@ -52,7 +52,14 @@ export class AdminService {
   }
 
   async getRecentLogs() {
-    return this.usageService.getRecentLogs(100);
+    const logs = await this.usageService.getRecentLogs(100);
+    return logs.map((record: any) => {
+      const item = record.toObject ? record.toObject() : { ...record };
+      item.backend = 'ذكاء ثنارة';
+      item.model = 'thanarah-intelligence';
+      item.routeDecision = item.status === 'success' ? 'Thanarah intelligent routing' : undefined;
+      return item;
+    });
   }
 
   async getAllTenants() {

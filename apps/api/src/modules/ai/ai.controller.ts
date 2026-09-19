@@ -15,11 +15,15 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles, Role } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { AiService } from './ai.service';
+import { TenantsService } from '../tenants/tenants.service';
 
 @Controller('ai')
 @UseGuards(JwtAuthGuard)
 export class AiController {
-  constructor(private readonly aiService: AiService) {}
+  constructor(
+    private readonly aiService: AiService,
+    private readonly tenantsService: TenantsService,
+  ) {}
 
   @Post('chat')
   async chat(
@@ -30,12 +34,23 @@ export class AiController {
       content: string;
     },
   ) {
-    return this.aiService.chat({
-      conversationId: body.conversationId,
-      content: body.content,
-      userId: user._id.toString(),
-      tenantId: user.tenantId?.toString(),
-    });
+    const tenantId = user.tenantId?.toString();
+    const apiRequest = user.isApiKeyAuth === true;
+    const platformAdmin = !apiRequest && ['OWNER', 'ADMIN', 'AI_ADMIN'].includes(user.role);
+    if (!platformAdmin) await this.tenantsService.consumeChatUsage(tenantId, apiRequest);
+    try {
+      return await this.aiService.chat({
+        conversationId: body.conversationId,
+        content: body.content,
+        userId: user._id.toString(),
+        tenantId,
+      });
+    } catch (error) {
+      if (!platformAdmin) {
+        await this.tenantsService.refundChatUsage(tenantId, apiRequest).catch(() => {});
+      }
+      throw error;
+    }
   }
 
   @Post('chat/stream')
@@ -44,11 +59,15 @@ export class AiController {
     @Body() body: { conversationId: string; content: string },
     @Res() res: Response,
   ) {
+    const tenantId = user.tenantId?.toString();
+    const apiRequest = user.isApiKeyAuth === true;
+    const platformAdmin = !apiRequest && ['OWNER', 'ADMIN', 'AI_ADMIN'].includes(user.role);
+    if (!platformAdmin) await this.tenantsService.consumeChatUsage(tenantId, apiRequest);
     return this.aiService.streamChat({
       conversationId: body.conversationId,
       content: body.content,
       userId: user._id.toString(),
-      tenantId: user.tenantId?.toString(),
+      tenantId,
       res,
     });
   }

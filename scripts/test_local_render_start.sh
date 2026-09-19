@@ -57,7 +57,7 @@ curl -fsS --max-time 180 \
   --data-binary '{"tenantId":"smoke-test","messages":[{"role":"user","content":"من أنت وماذا تقدم؟"}],"tenantConfig":{"responseProfile":"fast","memoryEnabled":false,"ragEnabled":false}}' \
   "http://127.0.0.1:${AI_ENGINE_PORT}/chat" > "$CHAT_FILE"
 
-grep -Fq '"backend":"local-llamacpp"' "$CHAT_FILE"
+grep -Fq '"backend":"thanarah-local"' "$CHAT_FILE"
 grep -Pq '[\x{0600}-\x{06FF}]' "$CHAT_FILE"
 if grep -Fq 'قيد الاستعادة' "$CHAT_FILE"; then
   echo 'Fallback response detected unexpectedly' >&2

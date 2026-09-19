@@ -30,7 +30,7 @@ export class HealthController {
     const isConnected = this.connection.readyState === 1;
     return {
       status: isConnected ? 'ok' : 'error',
-      database: 'MongoDB',
+      database: 'Thanarah Data',
       connected: isConnected,
       timestamp: new Date().toISOString(),
     };
@@ -42,7 +42,19 @@ export class HealthController {
     const aiUrl = this.configService.get('aiEngine.url');
     try {
       const res = await axios.get(`${aiUrl}/health`, { timeout: 5000 });
-      return { status: 'ok', aiEngine: res.data, timestamp: new Date().toISOString() };
+      const backends = Array.isArray(res.data?.backends) ? res.data.backends : [];
+      const advanced = backends.some(
+        (backend: any) => backend?.id !== 'fallback' && backend?.enabled && backend?.healthy,
+      );
+      return {
+        status: 'ok',
+        aiEngine: {
+          status: 'ok',
+          service: 'Thanarah Intelligence',
+          generation: { advanced },
+        },
+        timestamp: new Date().toISOString(),
+      };
     } catch {
       return { status: 'error', aiEngine: 'unavailable', timestamp: new Date().toISOString() };
     }
@@ -59,7 +71,15 @@ export class HealthController {
     try {
       const res = await axios.get(`${aiUrl}/health`, { timeout: 5000 });
       aiStatus = 'ok';
-      aiData = res.data;
+      const backends = Array.isArray(res.data?.backends) ? res.data.backends : [];
+      aiData = {
+        service: 'Thanarah Intelligence',
+        generation: {
+          advanced: backends.some(
+            (backend: any) => backend?.id !== 'fallback' && backend?.enabled && backend?.healthy,
+          ),
+        },
+      };
     } catch {
       aiStatus = 'unavailable';
     }

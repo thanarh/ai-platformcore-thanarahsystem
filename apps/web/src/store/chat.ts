@@ -6,6 +6,7 @@ export interface Message {
   role: 'user' | 'assistant' | 'system';
   content: string;
   isStreaming?: boolean;
+  isPinned?: boolean;
   feedback?: {
     rating?: 'up' | 'down';
     correction?: string;
@@ -46,6 +47,8 @@ interface ChatState {
   setMessages: (convId: string, msgs: Message[]) => void;
   addMessage: (convId: string, msg: Message) => void;
   updateLastMessage: (convId: string, content: string, done?: boolean) => void;
+  finalizeLastMessage: (convId: string, content: string, meta?: any) => void;
+  updateMessage: (convId: string, messageId: string, data: Partial<Message>) => void;
   
   setLoading: (v: boolean) => void;
   setStreaming: (v: boolean) => void;
@@ -59,7 +62,7 @@ export const useChatStore = create<ChatState>((set) => ({
   messages: {},
   isLoading: false,
   isStreaming: false,
-  sidebarOpen: true,
+  sidebarOpen: false,
 
   setConversations: (convs) => set({ conversations: convs }),
   addConversation: (conv) =>
@@ -96,6 +99,35 @@ export const useChatStore = create<ChatState>((set) => ({
       msgs[msgs.length - 1] = last;
       return { messages: { ...s.messages, [convId]: msgs } };
     }),
+  finalizeLastMessage: (convId, content, meta = {}) =>
+    set((s) => {
+      const msgs = [...(s.messages[convId] || [])];
+      if (msgs.length === 0) return s;
+      const last = { ...msgs[msgs.length - 1] };
+      last.content = content;
+      last.isStreaming = false;
+      if (meta.messageId) last._id = String(meta.messageId);
+      last.aiMetadata = { ...(last.aiMetadata || {}), ...meta };
+      msgs[msgs.length - 1] = last;
+      if (meta.userMessageId) {
+        for (let index = msgs.length - 2; index >= 0; index -= 1) {
+          if (msgs[index].role === 'user' && !msgs[index]._id) {
+            msgs[index] = { ...msgs[index], _id: String(meta.userMessageId) };
+            break;
+          }
+        }
+      }
+      return { messages: { ...s.messages, [convId]: msgs } };
+    }),
+  updateMessage: (convId, messageId, data) =>
+    set((s) => ({
+      messages: {
+        ...s.messages,
+        [convId]: (s.messages[convId] || []).map((message) =>
+          message._id === messageId ? { ...message, ...data } : message
+        ),
+      },
+    })),
 
   setLoading: (v) => set({ isLoading: v }),
   setStreaming: (v) => set({ isStreaming: v }),

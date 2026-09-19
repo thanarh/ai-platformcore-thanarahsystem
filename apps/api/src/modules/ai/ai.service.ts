@@ -43,7 +43,11 @@ export class AiService {
     let tenantConfig: any = {};
     try {
       const tenant = await this.tenantsService.findById(data.tenantId);
-      tenantConfig = tenant.aiConfig || {};
+      tenantConfig = {
+        ...(tenant.aiConfig || {}),
+        industry: tenant.industry || tenant.type || 'general',
+        medicalMode: tenant.medicalMode || {},
+      };
     } catch {}
 
     // Save user message
@@ -144,9 +148,9 @@ export class AiService {
       return {
         messageId: assistantMessage._id,
         content: aiResponse.content,
-        model: aiResponse.model,
-        backend: aiResponse.backend,
-        routeDecision: aiResponse.routeDecision,
+        model: 'thanarah-intelligence',
+        backend: 'thanarah-intelligence',
+        routeDecision: 'Thanarah intelligent routing',
         ragSources: aiResponse.ragSources || [],
         toolCalls: aiResponse.toolCalls || [],
         requestId,
@@ -202,10 +206,14 @@ export class AiService {
       this.conversationsService.findById(data.conversationId, data.userId),
       this.tenantsService.findById(data.tenantId).catch(() => null),
     ]);
-    const tenantConfig: any = tenantResult?.aiConfig || {};
+    const tenantConfig: any = {
+      ...(tenantResult?.aiConfig || {}),
+      industry: tenantResult?.industry || tenantResult?.type || 'general',
+      medicalMode: tenantResult?.medicalMode || {},
+    };
 
     // Parallel: save user message + fetch recent history simultaneously
-    const [, recentMessages] = await Promise.all([
+    const [userMessage, recentMessages] = await Promise.all([
       this.messagesService.create({
         tenantId: data.tenantId,
         userId: data.userId,
@@ -257,9 +265,9 @@ export class AiService {
     const continuityContent = 'خدمة ثنارة الذكية قيد الاستعادة حالياً. تم حفظ رسالتك ويمكنك متابعة استخدام المحادثة وقاعدة المعرفة.';
 
     const persistAssistant = async (content: string, metadata: any = {}) => {
-      if (!content) return;
+      if (!content) return null;
       const latencyMs = Date.now() - startTime;
-      await this.messagesService.create({
+      const message = await this.messagesService.create({
         tenantId: data.tenantId,
         userId: data.userId,
         conversationId: data.conversationId,
@@ -268,6 +276,7 @@ export class AiService {
         aiMetadata: { ...metadata, requestId, latency: latencyMs },
       });
       await this.conversationsService.incrementMessageCount(data.conversationId);
+      return message;
     };
 
     const finishWithContinuity = async () => {
@@ -276,9 +285,14 @@ export class AiService {
       if (!fullContent) {
         fullContent = continuityContent;
         data.res.write(`data: ${JSON.stringify({ delta: continuityContent })}\n\n`);
-        await persistAssistant(continuityContent, { backend: 'thanarah-core' }).catch(() => {});
       }
-      if (!doneSent) data.res.write('data: [DONE]\n\n');
+      const message = await persistAssistant(
+        fullContent,
+        Object.keys(aiMeta).length ? aiMeta : { backend: 'thanarah-core' },
+      ).catch(() => null);
+      data.res.write(`data: ${JSON.stringify({ meta: { service: 'Thanarah Intelligence', userMessageId: userMessage._id, messageId: message?._id } })}\n\n`);
+      data.res.write('data: [DONE]\n\n');
+      doneSent = true;
       data.res.end();
     };
 
@@ -288,11 +302,29 @@ export class AiService {
         aiRequest,
         {
           responseType: 'stream',
-          timeout: 120000,
+          timeout: 300000,
         },
       );
 
       data.res.flushHeaders?.();
+      data.res.once('close', () => {
+        if (responseEnded) return;
+        responseEnded = true;
+        response.data.destroy();
+        if (fullContent) {
+          void persistAssistant(fullContent, { ...aiMeta, stoppedByUser: true }).catch(() => {});
+        }
+        void this.usageService.record({
+          tenantId: data.tenantId,
+          userId: data.userId,
+          conversationId: data.conversationId,
+          requestId,
+          backend: aiMeta.backend || 'thanarah-core',
+          model: aiMeta.model,
+          latencyMs: Date.now() - startTime,
+          status: 'cancelled',
+        }).catch(() => {});
+      });
 
       response.data.on('data', (chunk: Buffer) => {
         sseBuffer += chunk.toString('utf8');
@@ -305,15 +337,17 @@ export class AiService {
             const raw = line.slice(5).trim();
             if (!raw) continue;
             if (raw === '[DONE]') {
-              doneSent = true;
-              data.res.write('data: [DONE]\n\n');
+              // Persist first, then emit our own final metadata and DONE event.
               continue;
             }
             try {
               const parsed = JSON.parse(raw);
               if (parsed.delta) fullContent += parsed.delta;
               if (parsed.meta) aiMeta = parsed.meta;
-              data.res.write(`data: ${JSON.stringify(parsed)}\n\n`);
+              const publicEvent = parsed.meta
+                ? { ...parsed, meta: { service: 'Thanarah Intelligence' } }
+                : parsed;
+              data.res.write(`data: ${JSON.stringify(publicEvent)}\n\n`);
             } catch (error) {
               this.logger.warn(`Ignored malformed AI stream event: ${error.message}`);
             }
@@ -331,9 +365,10 @@ export class AiService {
           data.res.write(`data: ${JSON.stringify({ delta: continuityContent })}\n\n`);
         }
 
-        await persistAssistant(fullContent, aiMeta).catch((error) =>
-          this.logger.warn(`Assistant message persistence failed: ${error.message}`),
-        );
+        const savedMessage = await persistAssistant(fullContent, aiMeta).catch((error) => {
+          this.logger.warn(`Assistant message persistence failed: ${error.message}`);
+          return null;
+        });
         await this.usageService.record({
           tenantId: data.tenantId,
           userId: data.userId,
@@ -345,7 +380,11 @@ export class AiService {
           status: 'success',
         }).catch(() => {});
 
-        if (!doneSent) data.res.write('data: [DONE]\n\n');
+        data.res.write(`data: ${JSON.stringify({ meta: { service: 'Thanarah Intelligence', userMessageId: userMessage._id, messageId: savedMessage?._id } })}\n\n`);
+        if (!doneSent) {
+          data.res.write('data: [DONE]\n\n');
+          doneSent = true;
+        }
         data.res.end();
       });
 
@@ -362,9 +401,21 @@ export class AiService {
   async getAiHealth() {
     try {
       const response = await axios.get(`${this.aiEngineUrl}/health`, { timeout: 5000 });
-      return response.data;
+      const backends = Array.isArray(response.data?.backends) ? response.data.backends : [];
+      const advanced = backends.some(
+        (backend: any) => backend?.id !== 'fallback' && backend?.enabled && backend?.healthy,
+      );
+      return {
+        status: response.data?.status === 'ok' ? 'ok' : 'degraded',
+        service: 'Thanarah Intelligence',
+        generation: { advanced },
+      };
     } catch {
-      return { status: 'unavailable', backends: [] };
+      return {
+        status: 'unavailable',
+        service: 'Thanarah Intelligence',
+        generation: { advanced: false },
+      };
     }
   }
 

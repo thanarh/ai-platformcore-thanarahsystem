@@ -8,10 +8,10 @@ import {
 } from 'lucide-react';
 import { useAuthStore } from '@/store/auth';
 import { useChatStore } from '@/store/chat';
-import { conversationsApi } from '@/lib/api';
+import { authApi, conversationsApi, tenantsApi } from '@/lib/api';
 import { ThanarahLogoFull, ThanarahIcon } from './ThanarahLogo';
 import { cn, formatDate, truncate } from '@/lib/utils';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 export default function Sidebar() {
   const router = useRouter();
@@ -20,11 +20,23 @@ export default function Sidebar() {
   const {
     conversations, activeConversationId, sidebarOpen,
     setActiveConversation, removeConversation, updateConversation,
-    toggleSidebar, addConversation,
+    toggleSidebar, addConversation, setSidebar,
   } = useChatStore();
 
   const [renaming, setRenaming] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
+  const [usage, setUsage] = useState<any>(null);
+
+  useEffect(() => {
+    const loadUsage = () => tenantsApi.usage().then(setUsage).catch(() => {});
+    loadUsage();
+    window.addEventListener('thanarah-usage-changed', loadUsage);
+    return () => window.removeEventListener('thanarah-usage-changed', loadUsage);
+  }, []);
+
+  useEffect(() => {
+    if (window.innerWidth < 1024) setSidebar(false);
+  }, [pathname, setSidebar]);
 
   const handleNewChat = async () => {
     try {
@@ -55,6 +67,7 @@ export default function Sidebar() {
   };
 
   const handleLogout = async () => {
+    await authApi.logout().catch(() => {});
     clearAuth();
     router.replace('/login');
   };
@@ -73,7 +86,7 @@ export default function Sidebar() {
       {!sidebarOpen && (
         <button
           onClick={toggleSidebar}
-          className="fixed top-3 right-3 z-40 p-2 bg-white shadow-sm border border-gray-200 rounded-lg text-gray-500 hover:bg-gray-100 transition lg:hidden"
+          className="fixed top-[max(0.75rem,env(safe-area-inset-top))] right-[max(0.75rem,env(safe-area-inset-right))] z-40 p-2 bg-white shadow-sm border border-gray-200 rounded-lg text-gray-500 hover:bg-gray-100 transition lg:hidden"
           aria-label="فتح القائمة"
         >
           <Menu className="w-4 h-4" />
@@ -83,9 +96,9 @@ export default function Sidebar() {
       {/* Sidebar */}
       <aside
         className={cn(
-          'fixed lg:relative inset-y-0 right-0 z-30 flex flex-col',
+          'fixed lg:relative top-0 bottom-0 right-0 z-30 flex flex-col h-[100dvh]',
           'bg-white border-l border-gray-200 sidebar-transition',
-          sidebarOpen ? 'w-64' : 'w-0 lg:w-14 overflow-hidden'
+          sidebarOpen ? 'w-[min(20rem,88vw)] lg:w-64' : 'w-0 lg:w-14 overflow-hidden'
         )}
         dir="rtl"
       >
@@ -258,6 +271,24 @@ export default function Sidebar() {
                 <BookOpen className="w-4 h-4 flex-shrink-0" />
                 قاعدة المعرفة
               </Link>
+
+              {!isAdmin() && usage && (
+                <div className="mx-1 my-2 rounded-xl border border-thanarah-100 bg-thanarah-50 p-3 font-arabic">
+                  <div className="flex items-center justify-between text-xs text-thanarah-800">
+                    <span className="flex items-center gap-1.5"><Zap className="w-3.5 h-3.5" />الرصيد اليومي</span>
+                    <strong>{usage.appCoinsRemaining} كوين</strong>
+                  </div>
+                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-thanarah-100">
+                    <div
+                      className="h-full rounded-full bg-thanarah-600 transition-[width] duration-300"
+                      style={{ width: `${Math.max(0, Math.min(100, (usage.appCoinsRemaining / Math.max(1, usage.appDailyCoins)) * 100))}%` }}
+                    />
+                  </div>
+                  <p className="mt-1.5 text-[10px] text-thanarah-700">
+                    {Math.floor(usage.appCoinsRemaining / Math.max(1, usage.appMessageCost))} رسائل متبقية · API: {usage.apiRequestsRemaining}
+                  </p>
+                </div>
+              )}
 
               {/* User row */}
               <div className="flex items-center gap-2 px-2.5 py-2 mt-1">

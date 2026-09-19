@@ -44,6 +44,12 @@ services:
         value: 6
       - key: LOCAL_AI_NUM_BATCH
         value: 128
+      - key: LOCAL_AI_MAX_CONCURRENCY
+        value: 1
+      - key: LOCAL_AI_MAX_QUEUE
+        value: 32
+      - key: LOCAL_AI_QUEUE_TIMEOUT_SECONDS
+        value: 180
       - key: LOCAL_AI_MAX_TOKENS_FAST
         value: 128
       - key: LOCAL_AI_MAX_TOKENS_BALANCED
@@ -54,6 +60,42 @@ services:
         value: 1
       - key: OLLAMA_MAX_QUEUE
         value: 128
+      - key: PERSISTENT_RESPONSE_CACHE_ENABLED
+        value: true
+      - key: PERSISTENT_RESPONSE_CACHE_TTL_SECONDS
+        value: 21600
+      - key: RESPONSE_CACHE_SEMANTIC_MIN_SCORE
+        value: 0.92
+      - key: EXTERNAL_AI_ENABLED
+        value: false
+      - key: EXTERNAL_AI_API_KEY
+        sync: false
+      - key: EXTERNAL_AI_BASE_URL
+        value: https://api.openai.com/v1
+      - key: EXTERNAL_AI_MODEL
+        value: ""
+      - key: EXTERNAL_AI_MAX_TOKENS_FIELD
+        value: max_tokens
+      - key: EXTERNAL_AI_MAX_RETRIES
+        value: 2
+      - key: EXTERNAL_AI_MAX_CONCURRENCY
+        value: 16
+      - key: EXTERNAL_AI_DAILY_LIMIT
+        value: 50000
+      - key: EXTERNAL_AI_RPM_LIMIT
+        value: 300
+      - key: EXTERNAL_AI_DAILY_BUDGET_USD
+        value: 10
+      - key: EXTERNAL_AI_INPUT_PRICE_PER_MILLION
+        value: 0
+      - key: EXTERNAL_AI_OUTPUT_PRICE_PER_MILLION
+        value: 0
+      - key: EXTERNAL_AI_MAX_TOKENS_FAST
+        value: 256
+      - key: EXTERNAL_AI_MAX_TOKENS_BALANCED
+        value: 768
+      - key: EXTERNAL_AI_MAX_TOKENS_DEEP
+        value: 1600
       - key: FREE_PROVIDER_ONLY
         value: true
       - key: FREE_PROVIDERS_ENABLED

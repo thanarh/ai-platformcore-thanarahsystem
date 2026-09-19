@@ -4,6 +4,7 @@ The Thanarah Intelligence Router (TIR) lives here.
 """
 import logging
 import os
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,6 +15,7 @@ from app.routers import chat, knowledge, backends, health
 from app.router.intelligence_router import IntelligenceRouter
 from app.backends.registry import BackendRegistry
 from app.database import init_db
+from app.memory.daily_learning import daily_learning_service
 
 logging.basicConfig(
     level=logging.INFO,
@@ -38,6 +40,7 @@ async def lifespan(app: FastAPI):
     # Initialize intelligence router
     router = IntelligenceRouter(registry)
     app.state.intelligence_router = router
+    learning_task = asyncio.create_task(daily_learning_service.worker())
 
     logger.info("✅ Thanarah AI Engine ready")
     logger.info(f"   Backends: {registry.count()} configured")
@@ -45,6 +48,11 @@ async def lifespan(app: FastAPI):
     yield
 
     logger.info("🛑 Thanarah AI Engine shutting down...")
+    learning_task.cancel()
+    try:
+        await learning_task
+    except asyncio.CancelledError:
+        pass
 
 
 app = FastAPI(

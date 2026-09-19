@@ -17,6 +17,17 @@ export class Tenant {
   @Prop({ default: 'clinic' })
   type: string; // clinic | company | organization
 
+  @Prop({ default: 'general' })
+  industry: string; // selected by the customer during registration
+
+  @Prop({ type: Object, default: {} })
+  medicalMode: {
+    enabled?: boolean;
+    systemPrompt?: string;
+    disclaimer?: string;
+    configuredByAdmin?: boolean;
+  };
+
   @Prop({ default: 'active' })
   status: string; // active | suspended | trial
 
@@ -49,6 +60,30 @@ export class Tenant {
     historyWindow?: number;
     maxHistoryChars?: number;
     memoryEnabled?: boolean;
+  };
+
+  @Prop({ type: Object, default: {} })
+  subscription: {
+    plan?: 'free' | 'pro_daily';
+    status?: 'free' | 'active' | 'paused' | 'expired';
+    dailyPriceSar?: number;
+    startedAt?: Date;
+    endsAt?: Date;
+    activatedByAdmin?: boolean;
+  };
+
+  @Prop({ type: Object, default: {} })
+  usagePolicy: {
+    appDailyCoins?: number;
+    appMessageCost?: number;
+    apiDailyRequests?: number;
+  };
+
+  @Prop({ type: Object, default: {} })
+  usageBalance: {
+    day?: string;
+    appCoinsUsed?: number;
+    apiRequestsUsed?: number;
   };
 
   @Prop({ type: Object, default: {} })

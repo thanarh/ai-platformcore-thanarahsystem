@@ -38,6 +38,7 @@ export async function streamChat(
   onDelta: (delta: string) => void,
   onDone: (meta?: any) => void,
   onError: (err: string) => void,
+  signal?: AbortSignal,
 ) {
   try {
     const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
@@ -48,11 +49,17 @@ export async function streamChat(
         Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({ conversationId, content }),
+      signal,
     });
 
     if (!res.ok || !res.body) {
       const detail = await res.text().catch(() => '');
-      onError(detail || 'تعذر الاتصال بخدمة ثنارة الذكية.');
+      let message = detail;
+      try {
+        const parsed = JSON.parse(detail);
+        message = Array.isArray(parsed.message) ? parsed.message.join('، ') : (parsed.message || parsed.detail || detail);
+      } catch {}
+      onError(message || 'تعذر الاتصال بخدمة ثنارة الذكية.');
       return;
     }
 
@@ -80,7 +87,7 @@ export async function streamChat(
             return;
           }
           if (parsed.delta) onDelta(parsed.delta);
-          if (parsed.meta) meta = parsed.meta;
+          if (parsed.meta) meta = { ...(meta || {}), ...parsed.meta };
         } catch {
           // Keep buffering future events; malformed server frames must not freeze the UI.
         }
@@ -103,6 +110,10 @@ export async function streamChat(
     if (!completed && buffer.trim()) processEvent(buffer);
     if (!completed) onDone(meta);
   } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      onDone({ stopped: true });
+      return;
+    }
     const message = error instanceof Error ? error.message : 'تعذر الاتصال بخدمة ثنارة الذكية.';
     onError(message);
   }

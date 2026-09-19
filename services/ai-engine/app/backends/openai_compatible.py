@@ -38,12 +38,16 @@ class OpenAICompatibleBackend(AIBackend):
         api_key: Optional[str] = None,
         model: Optional[str] = None,
         timeout=90,  # int seconds OR httpx.Timeout object
+        max_tokens_field: str = "max_tokens",
+        max_connections: int = 20,
     ):
         super().__init__(backend_id, name)
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key or "not-required"
         self.default_model = model
         self.timeout = timeout  # passed directly to httpx — supports Timeout objects
+        self.max_tokens_field = max_tokens_field
+        self.max_connections = max(4, max_connections)
         self._client = None
 
     def _get_client(self) -> httpx.AsyncClient:
@@ -55,8 +59,22 @@ class OpenAICompatibleBackend(AIBackend):
                     "Content-Type": "application/json",
                 },
                 timeout=self.timeout,
+                limits=httpx.Limits(
+                    max_connections=self.max_connections,
+                    max_keepalive_connections=self.max_connections,
+                ),
             )
         return self._client
+
+    def _payload(self, request: AIRequest, *, stream: bool) -> dict:
+        payload = {
+            "model": request.model or self.default_model or "default",
+            "messages": self._build_messages(request),
+            "temperature": request.temperature,
+            "stream": stream,
+        }
+        payload[self.max_tokens_field] = request.max_tokens
+        return payload
 
     def _build_messages(self, request: AIRequest) -> list:
         messages = []
@@ -78,19 +96,12 @@ class OpenAICompatibleBackend(AIBackend):
     async def chat(self, request: AIRequest) -> AIResponse:
         start = time.time()
         model = request.model or self.default_model or "default"
-        messages = self._build_messages(request)
 
         try:
             client = self._get_client()
             response = await client.post(
                 "/chat/completions",
-                json={
-                    "model": model,
-                    "messages": messages,
-                    "max_tokens": request.max_tokens,
-                    "temperature": request.temperature,
-                    "stream": False,
-                },
+                json=self._payload(request, stream=False),
             )
             response.raise_for_status()
             data = response.json()
@@ -114,21 +125,12 @@ class OpenAICompatibleBackend(AIBackend):
             raise
 
     async def stream_chat(self, request: AIRequest) -> AsyncGenerator[str, None]:
-        model = request.model or self.default_model or "default"
-        messages = self._build_messages(request)
-
         try:
             client = self._get_client()
             async with client.stream(
                 "POST",
                 "/chat/completions",
-                json={
-                    "model": model,
-                    "messages": messages,
-                    "max_tokens": request.max_tokens,
-                    "temperature": request.temperature,
-                    "stream": True,
-                },
+                json=self._payload(request, stream=True),
             ) as response:
                 response.raise_for_status()
                 async for line in response.aiter_lines():

@@ -61,7 +61,32 @@ class BackendRegistry:
                 "Set LOCAL_AI_ENABLED=true to enable the primary backend."
             )
 
-        # ── 3. Optional free providers — explicit opt-in and quota protected ─
+        # ── 3. Managed high-quality provider — PRIMARY when configured ─────
+        if (
+            settings.external_ai_enabled
+            and settings.external_ai_api_key
+            and settings.external_ai_model
+        ):
+            from app.backends.managed_provider import ManagedProviderBackend
+
+            managed = ManagedProviderBackend(
+                base_url=settings.external_ai_base_url,
+                api_key=settings.external_ai_api_key,
+                model=settings.external_ai_model,
+                daily_limit=settings.external_ai_daily_limit,
+                rpm_limit=settings.external_ai_rpm_limit,
+                max_concurrency=settings.external_ai_max_concurrency,
+                max_retries=settings.external_ai_max_retries,
+                timeout_seconds=settings.external_ai_timeout_seconds,
+                max_tokens_field=settings.external_ai_max_tokens_field,
+                daily_budget_usd=settings.external_ai_daily_budget_usd,
+                input_price_per_million=settings.external_ai_input_price_per_million,
+                output_price_per_million=settings.external_ai_output_price_per_million,
+            )
+            self._register(managed)
+            logger.info("✓ Thanarah Advanced backend registered with quota and concurrency guards")
+
+        # ── 4. Optional free providers — explicit opt-in and quota protected ─
         if settings.free_providers_enabled:
             from app.backends.free_provider import QuotaOpenAIBackend
             if settings.groq_api_key:
@@ -91,7 +116,7 @@ class BackendRegistry:
                 self._register(openrouter)
                 logger.info("✓ OpenRouter free backend registered with local quota guard")
 
-        # ── 4. Paid/BYOK providers — never register in free-only mode ───────
+        # ── 5. Legacy BYOK providers — never register in free-only mode ─────
         if settings.allow_external_providers and not settings.free_provider_only and settings.openai_api_key:
             from app.backends.openai_compatible import OpenAICompatibleBackend
             openai_backend = OpenAICompatibleBackend(
@@ -114,9 +139,10 @@ class BackendRegistry:
 
         # ── Summary ───────────────────────────────────────────────────────
         active = [b for b in self._backends.values() if b.backend_id != "fallback"]
+        primary = max(active, key=lambda backend: backend.priority).backend_id if active else "fallback"
         logger.info(
             f"Backend registry initialized: {list(self._backends.keys())} "
-            f"| Primary: {'local-llamacpp' if 'local-llamacpp' in self._backends else 'fallback'}"
+            f"| Primary: {primary}"
         )
 
     def _register(self, backend: AIBackend):

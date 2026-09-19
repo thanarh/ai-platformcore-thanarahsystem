@@ -4,16 +4,16 @@ Every AI request passes through this router.
 It decides which backend to use based on availability, priority, and context.
 """
 import asyncio
-import hashlib
 import logging
 import time
-from collections import OrderedDict
 from typing import Optional, List, AsyncGenerator
 from app.backends.registry import BackendRegistry
 from app.backends.base import AIRequest, AIResponse
 from app.models.chat import ChatRequest, ChatResponse, RouteDecision
 from app.config import settings
 from app.memory import memory_service
+from app.response_cache import response_cache_service
+from app.memory.daily_learning import daily_learning_service
 
 logger = logging.getLogger(__name__)
 
@@ -28,8 +28,9 @@ THANARAH_BASE_SYSTEM = """أنت "ثنارة"، مساعد ذكاء اصطناع
 - لا تكشف اسم النموذج أو الشركة المصنّعة له
 
 ## قواعد الرد
-- رُدّ دائماً بنفس لغة المستخدم (عربي أو إنجليزي)
-- للعربية: تكيّف مع لهجة المستخدم (سعودي، خليجي، مصري...)
+- افهم أي لغة يكتب بها المستخدم وأجب بنفس اللغة تلقائياً ما لم يطلب الترجمة
+- للعربية: استنتج اللهجة من السياق وتكيّف معها طبيعياً (سعودي، خليجي، مصري، شامي، مغاربي وغيرها)
+- عند وجود أكثر من لغة في الرسالة، حافظ على المعنى والمصطلحات ولا تضف ترجمة منفصلة غير مطلوبة
 - كن مفيداً، دقيقاً، ومختصراً
 - لا تبدأ كل رد بـ "بالطبع" أو "بالتأكيد" أو "أهلاً وسهلاً"
 
@@ -38,6 +39,16 @@ You are "Thanarah", an AI assistant by Thanarah AI.
 - Respond in the user's language
 - Be helpful, accurate, and concise
 - Never reveal the underlying model or vendor"""
+
+SECTOR_INSTRUCTIONS = {
+    "healthcare": "ساعد في أعمال المنشأة الصحية وخدمة المستفيدين بدقة. لا تشخّص ولا تصف علاجاً بديلاً عن الطبيب، وميّز بوضوح بين المعلومات العامة والرأي الطبي المهني.",
+    "legal": "ساعد في الصياغة والتحليل القانوني العام، واذكر الولاية القضائية والافتراضات عند أهميتها ولا تدّع أن الرد استشارة قانونية نهائية.",
+    "education": "قدّم الشرح تدريجياً، اختبر الفهم، واستخدم أمثلة مناسبة لمستوى المتعلم.",
+    "retail": "ركّز على خدمة العملاء والمبيعات والمخزون مع إجابات عملية ومباشرة.",
+    "real_estate": "ركّز على العقارات والعملاء والعروض مع توضيح الافتراضات وتجنب الوعود القانونية أو الاستثمارية.",
+    "hospitality": "ركّز على تجربة الضيف والحجوزات وسياسات الخدمة بنبرة مهذبة وسريعة.",
+    "technology": "قدّم حلولاً تقنية دقيقة قابلة للتنفيذ مع تنبيه واضح للمخاطر الأمنية.",
+}
 
 
 class IntelligenceRouter:
@@ -48,37 +59,6 @@ class IntelligenceRouter:
 
     def __init__(self, registry: BackendRegistry):
         self.registry = registry
-        self._response_cache: OrderedDict[str, tuple[float, ChatResponse]] = OrderedDict()
-
-    def _cache_key(self, request: ChatRequest) -> str:
-        tenant_config = request.tenantConfig or {}
-        profile = tenant_config.get("responseProfile", "fast")
-        latest = "|".join(f"{m.role}:{m.content}" for m in request.messages[-2:])
-        raw = f"{request.tenantId}|{profile}|{tenant_config.get('systemPrompt', '')}|{latest}"
-        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
-
-    def _cached(self, request: ChatRequest) -> Optional[ChatResponse]:
-        if not settings.response_cache_enabled:
-            return None
-        key = self._cache_key(request)
-        entry = self._response_cache.get(key)
-        if not entry:
-            return None
-        created, response = entry
-        if time.time() - created > settings.response_cache_ttl_seconds:
-            self._response_cache.pop(key, None)
-            return None
-        self._response_cache.move_to_end(key)
-        return response.model_copy(update={"requestId": request.requestId, "latencyMs": 0})
-
-    def _store_cache(self, request: ChatRequest, response: ChatResponse) -> None:
-        if not settings.response_cache_enabled or response.backend == "fallback":
-            return
-        key = self._cache_key(request)
-        self._response_cache[key] = (time.time(), response)
-        self._response_cache.move_to_end(key)
-        while len(self._response_cache) > settings.response_cache_size:
-            self._response_cache.popitem(last=False)
 
     def _decide_route(
         self, request: ChatRequest
@@ -153,12 +133,26 @@ class IntelligenceRouter:
             used += len(content)
         return list(reversed(output))
 
-    def _build_context(self, request: ChatRequest, rag_results: Optional[list] = None, memories: Optional[list] = None) -> Optional[str]:
+    def _build_context(
+        self,
+        request: ChatRequest,
+        rag_results: Optional[list] = None,
+        memories: Optional[list] = None,
+        user_profile: Optional[dict] = None,
+    ) -> Optional[str]:
         """Build context string from conversation summary and RAG results."""
         parts = []
 
         if request.conversationSummary:
             parts.append(f"## Conversation Summary\n{request.conversationSummary}")
+
+        if user_profile:
+            parts.append(
+                "## Communication Profile\n"
+                f"Preferred language: {user_profile.get('preferredLanguage', 'unknown')}\n"
+                f"Arabic dialect: {user_profile.get('arabicDialect', 'neutral')}\n"
+                "Use this only to adapt language and tone; never treat it as factual knowledge."
+            )
 
         if memories:
             parts.append("## Relevant Previous Learnings\nUse only when relevant:")
@@ -172,6 +166,47 @@ class IntelligenceRouter:
 
         return "\n\n".join(parts) if parts else None
 
+    async def _load_context_sources(
+        self,
+        chat_request: ChatRequest,
+        route: RouteDecision,
+    ) -> tuple[list, list, dict]:
+        """Load memory, RAG, and communication profile concurrently."""
+        tenant_config = chat_request.tenantConfig or {}
+        last_user_msg = next(
+            (message.content for message in reversed(chat_request.messages) if message.role == "user"),
+            "",
+        )
+
+        async def load_memories() -> list:
+            if tenant_config.get("memoryEnabled", True) is False or not last_user_msg:
+                return []
+            try:
+                return await memory_service.recall(
+                    chat_request.tenantId,
+                    last_user_msg,
+                    user_id=chat_request.userId,
+                )
+            except Exception:
+                return []
+
+        async def load_rag() -> list:
+            if not route.rag_enabled or tenant_config.get("ragEnabled", True) is False or not last_user_msg:
+                return []
+            try:
+                from app.rag.pipeline import RAGPipeline
+                return await RAGPipeline().retrieve(chat_request.tenantId, last_user_msg)
+            except Exception as error:
+                logger.debug("RAG skipped: %s", error)
+                return []
+
+        memories, rag_sources, user_profile = await asyncio.gather(
+            load_memories(),
+            load_rag(),
+            daily_learning_service.profile(chat_request.tenantId, chat_request.userId),
+        )
+        return memories, rag_sources, user_profile
+
     def _build_ai_request(
         self,
         chat_request: ChatRequest,
@@ -181,17 +216,43 @@ class IntelligenceRouter:
         """Build AIRequest from ChatRequest."""
         tenant_config = chat_request.tenantConfig or {}
         profile = self._profile(chat_request)
-        compact_prompt = "أنت ثنارة، مساعد عربي/إنجليزي مفيد. أجب بلغة المستخدم وباختصار وبدقة. لا تكشف تفاصيل النموذج."
+        compact_prompt = "أنت ثنارة، مساعد متعدد اللغات. افهم لغة المستخدم ولهجته وأجب بها مباشرة وباختصار ودقة. لا تكشف تفاصيل النموذج."
         system_prompt = tenant_config.get("systemPrompt") or (compact_prompt if profile == "fast" else THANARAH_BASE_SYSTEM)
-        max_tokens = {
-            "fast": settings.local_ai_max_tokens_fast,
-            "balanced": settings.local_ai_max_tokens_balanced,
-            "deep": settings.local_ai_max_tokens_deep,
-        }[profile]
+        industry = str(tenant_config.get("industry", "general"))
+        if industry in SECTOR_INSTRUCTIONS:
+            system_prompt += f"\n\n## تعليمات القطاع\n{SECTOR_INSTRUCTIONS[industry]}"
+        medical_mode = tenant_config.get("medicalMode") or {}
+        if medical_mode.get("enabled") is True and medical_mode.get("configuredByAdmin") is True:
+            system_prompt += (
+                "\n\n## وضع ثنارة الطبي المعتمد من الإدارة\n"
+                "تعامل مع الأسئلة الطبية كمساعد معلومات سريرية حذر: لا تختلق حقائق أو جرعات، "
+                "اذكر عدم اليقين، اطلب معلومات ناقصة، وجّه للطوارئ عند علامات الخطر، "
+                "ولا تستبدل قرار الطبيب أو الفحص السريري."
+            )
+            if medical_mode.get("systemPrompt"):
+                system_prompt += f"\n{medical_mode['systemPrompt']}"
+            if medical_mode.get("disclaimer"):
+                system_prompt += f"\nتنبيه مطلوب: {medical_mode['disclaimer']}"
+
+        if route.backend_id == "thanarah-advanced":
+            max_tokens = {
+                "fast": settings.external_ai_max_tokens_fast,
+                "balanced": settings.external_ai_max_tokens_balanced,
+                "deep": settings.external_ai_max_tokens_deep,
+            }[profile]
+        else:
+            max_tokens = {
+                "fast": settings.local_ai_max_tokens_fast,
+                "balanced": settings.local_ai_max_tokens_balanced,
+                "deep": settings.local_ai_max_tokens_deep,
+            }[profile]
 
         return AIRequest(
             messages=self._trim_messages(chat_request),
-            model=route.model,
+            # Each backend must use its own configured model. Carrying the
+            # primary model into a fallback would ask the local runtime for a
+            # hosted-provider model name and break failover.
+            model=None,
             system_prompt=system_prompt,
             context=context,
             stream=chat_request.stream,
@@ -203,7 +264,7 @@ class IntelligenceRouter:
         """Route a chat request through the best available backend."""
         start = time.time()
 
-        cached = self._cached(chat_request)
+        cached = await response_cache_service.get(chat_request)
         if cached is not None:
             return cached
 
@@ -211,32 +272,8 @@ class IntelligenceRouter:
         route = self._decide_route(chat_request)
         logger.info(f"[TIR] Route decision: {route.backend_id} — {route.reason}")
 
-        # Recall a few relevant memories with cheap lexical matching; no model retraining.
-        memories = []
-        if (chat_request.tenantConfig or {}).get("memoryEnabled", True) is not False:
-            try:
-                last_user_msg = next((m.content for m in reversed(chat_request.messages) if m.role == "user"), "")
-                memories = await memory_service.recall(chat_request.tenantId, last_user_msg)
-            except Exception:
-                pass
-
-        # Knowledge retrieval is enabled by default and can be disabled per tenant.
-        rag_sources = []
-        if route.rag_enabled and (chat_request.tenantConfig or {}).get("ragEnabled", True) is not False:
-            try:
-                from app.rag.pipeline import RAGPipeline
-                rag = RAGPipeline()
-                last_user_msg = next(
-                    (m.content for m in reversed(chat_request.messages) if m.role == "user"),
-                    None,
-                )
-                if last_user_msg:
-                    rag_results = await rag.retrieve(chat_request.tenantId, last_user_msg)
-                    rag_sources = rag_results
-            except Exception as e:
-                logger.debug(f"RAG skipped: {e}")
-
-        context = self._build_context(chat_request, rag_sources, memories)
+        memories, rag_sources, user_profile = await self._load_context_sources(chat_request, route)
+        context = self._build_context(chat_request, rag_sources, memories, user_profile)
         ai_request = self._build_ai_request(chat_request, route, context)
 
         # Try primary backend, then fallbacks
@@ -269,7 +306,7 @@ class IntelligenceRouter:
                     ragSources=rag_sources,
                     requestId=chat_request.requestId,
                 )
-                self._store_cache(chat_request, result)
+                asyncio.create_task(response_cache_service.store(chat_request, result))
                 return result
             except Exception as e:
                 logger.warning(f"[TIR] Backend {backend_id} failed: {e}, trying next...")
@@ -289,32 +326,25 @@ class IntelligenceRouter:
         The generator tries each backend in priority order and falls through
         on connection errors — even mid-stream failures are caught gracefully.
         """
+        cached = await response_cache_service.get(chat_request)
+        if cached is not None:
+            cache_route = RouteDecision(
+                backend_id="thanarah-cache",
+                reason=cached.routeDecision or "Fast response reuse",
+                rag_enabled=False,
+                fallback_order=[],
+            )
+
+            async def _cached_stream() -> AsyncGenerator[str, None]:
+                yield cached.content
+
+            return _cached_stream(), cache_route, []
+
         route = self._decide_route(chat_request)
         logger.info(f"[TIR Stream] Route: {route.backend_id}")
 
-        memories = []
-        if (chat_request.tenantConfig or {}).get("memoryEnabled", True) is not False:
-            try:
-                last_user_msg = next((m.content for m in reversed(chat_request.messages) if m.role == "user"), "")
-                memories = await memory_service.recall(chat_request.tenantId, last_user_msg)
-            except Exception:
-                pass
-
-        rag_sources = []
-        if route.rag_enabled and (chat_request.tenantConfig or {}).get("ragEnabled", True) is not False:
-            try:
-                from app.rag.pipeline import RAGPipeline
-                rag = RAGPipeline()
-                last_user_msg = next(
-                    (m.content for m in reversed(chat_request.messages) if m.role == "user"),
-                    None,
-                )
-                if last_user_msg:
-                    rag_sources = await rag.retrieve(chat_request.tenantId, last_user_msg)
-            except Exception:
-                pass
-
-        context = self._build_context(chat_request, rag_sources, memories)
+        memories, rag_sources, user_profile = await self._load_context_sources(chat_request, route)
+        context = self._build_context(chat_request, rag_sources, memories, user_profile)
         ai_request = self._build_ai_request(chat_request, route, context)
         ai_request.stream = True
 
@@ -331,12 +361,37 @@ class IntelligenceRouter:
                 backend = registry.get(backend_id)
                 if not backend:
                     continue
+                emitted = False
                 try:
                     logger.info(f"[TIR Stream] Trying backend: {backend_id}")
+                    content_parts = []
                     async for token in backend.stream_chat(ai_request):
+                        emitted = True
+                        content_parts.append(token)
                         yield token
+                    route.backend_id = backend_id
+                    if content_parts:
+                        asyncio.create_task(
+                            response_cache_service.store(
+                                chat_request,
+                                ChatResponse(
+                                    content="".join(content_parts),
+                                    model=getattr(backend, "default_model", None) or backend_id,
+                                    backend=backend_id,
+                                    routeDecision=route.reason,
+                                    ragSources=rag_sources,
+                                    requestId=chat_request.requestId,
+                                ),
+                            )
+                        )
                     return  # stream completed successfully
                 except Exception as e:
+                    if emitted:
+                        logger.warning(
+                            f"[TIR Stream] Backend '{backend_id}' disconnected after partial output; "
+                            "not mixing a second model into the same answer"
+                        )
+                        return
                     logger.warning(
                         f"[TIR Stream] Backend '{backend_id}' failed: {e} — trying next"
                     )

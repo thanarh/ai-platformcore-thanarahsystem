@@ -54,7 +54,10 @@ export class UsersService {
   }
 
   async updateRefreshToken(userId: string, token: string | null): Promise<void> {
-    await this.userModel.findByIdAndUpdate(userId, { refreshToken: token });
+    const tokenHash = token
+      ? crypto.createHash('sha256').update(token).digest('hex')
+      : null;
+    await this.userModel.findByIdAndUpdate(userId, { refreshToken: tokenHash });
   }
 
   async validatePassword(password: string, hash: string): Promise<boolean> {

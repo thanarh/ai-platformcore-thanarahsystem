@@ -63,17 +63,29 @@ class MemoryService:
                 # Memory must never slow or break the chat response.
                 pass
 
-    async def recall(self, tenant_id: str, query: str, limit: int | None = None) -> List[dict]:
+    async def recall(
+        self,
+        tenant_id: str,
+        query: str,
+        limit: int | None = None,
+        user_id: str | None = None,
+    ) -> List[dict]:
         if not settings.memory_enabled:
             return []
         limit = limit or settings.memory_recall_limit
-        candidates: List[dict] = list(self._cache.get(tenant_id, []))
+        candidates: List[dict] = [
+            item for item in self._cache.get(tenant_id, [])
+            if item.get("userId") in {None, user_id}
+        ]
         db = get_db()
         if db is not None:
             try:
                 candidates = await asyncio.wait_for(
                     db.ai_memories.find(
-                        {"tenantId": tenant_id},
+                        {
+                            "tenantId": tenant_id,
+                            "userId": {"$in": [None, user_id]},
+                        },
                         {"query": 1, "answer": 1, "createdAt": 1},
                     ).sort("createdAt", -1).limit(settings.memory_scan_limit).to_list(None),
                     timeout=0.25,

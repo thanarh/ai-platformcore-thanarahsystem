@@ -22,6 +22,12 @@ export class TenantsController {
     return this.tenantsService.findById(user.tenantId.toString());
   }
 
+  @Get('my/usage')
+  getMyUsage(@CurrentUser() user: any) {
+    if (!user.tenantId) return null;
+    return this.tenantsService.getUsageStatus(user.tenantId.toString());
+  }
+
   @Get(':id')
   @Roles(Role.ADMIN, Role.OWNER)
   findOne(@Param('id') id: string) {
