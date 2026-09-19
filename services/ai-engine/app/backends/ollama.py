@@ -172,6 +172,14 @@ class OllamaBackend(AIBackend):
                                     "modelLoadMs",
                                     float(data.get("load_duration", 0)) / 1_000_000,
                                 )
+                                request.telemetry.set_ms(
+                                    "ollamaPromptEvalMs",
+                                    float(data.get("prompt_eval_duration", 0)) / 1_000_000,
+                                )
+                                request.telemetry.set_ms(
+                                    "ollamaEvalMs",
+                                    float(data.get("eval_duration", 0)) / 1_000_000,
+                                )
                                 request.telemetry.set(
                                     "inputTokens",
                                     int(data.get("prompt_eval_count", 0) or 0),

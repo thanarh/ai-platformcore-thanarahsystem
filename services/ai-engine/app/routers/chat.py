@@ -61,7 +61,7 @@ async def chat_stream(request: Request, chat_request: ChatRequest):
 
     async def event_generator():
         try:
-            stream_gen, route, rag_sources = await tir.stream_route(chat_request)
+            stream_gen, route, rag_sources, telemetry = await tir.stream_route(chat_request)
             full_content = []
             async for token in stream_gen:
                 full_content.append(token)
@@ -82,6 +82,12 @@ async def chat_stream(request: Request, chat_request: ChatRequest):
                     "backend": route.backend_id,
                     "routeDecision": route.reason,
                     "ragSources": rag_sources,
+                    "requestId": telemetry.request_id,
+                    "telemetry": telemetry.finish(
+                        route=route.backend_id,
+                        model=telemetry.values.get("model"),
+                        cache_hit=route.backend_id == "thanarah-cache",
+                    ),
                 }
             }
             yield f"data: {json.dumps(meta)}\n\n"

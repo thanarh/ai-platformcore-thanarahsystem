@@ -9,7 +9,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -23,6 +26,80 @@ from typing import Any
 DEFAULT_BASE_URL = "http://127.0.0.1:8000"
 DEFAULT_TIMEOUT = 45.0
 APPROX_CHARS_PER_TOKEN = 4.0
+TELEMETRY_METRICS = (
+    "routerMs",
+    "cacheLookupMs",
+    "memoryMs",
+    "retrievalMs",
+    "embeddingMs",
+    "contextMs",
+    "promptBuildMs",
+    "ollamaQueueMs",
+    "ollamaToFirstTokenMs",
+    "modelLoadMs",
+    "ollamaPromptEvalMs",
+    "ollamaEvalMs",
+    "timeToFirstTokenMs",
+    "generationMs",
+    "totalMs",
+    "inputTokens",
+    "outputTokens",
+)
+
+
+class ResourceSampler:
+    """Sample aggregate CPU/RSS for the local Ollama and AI-engine processes."""
+
+    def __init__(self, interval: float = 0.5):
+        self.interval = interval
+        self.samples: list[dict[str, float]] = []
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def _sample(self) -> None:
+        try:
+            output = subprocess.check_output(
+                ["ps", "-eo", "comm=,%cpu=,rss="],
+                text=True,
+                stderr=subprocess.DEVNULL,
+            )
+            cpu = 0.0
+            rss_kb = 0
+            for line in output.splitlines():
+                parts = line.split()
+                if len(parts) < 3:
+                    continue
+                command = parts[0].lower()
+                if not any(name in command for name in ("ollama", "llama-server", "python", "uvicorn")):
+                    continue
+                cpu += float(parts[-2])
+                rss_kb += int(parts[-1])
+            self.samples.append({"cpuPercent": round(cpu, 2), "rssMb": round(rss_kb / 1024, 2)})
+        except Exception:
+            pass
+
+    def _run(self) -> None:
+        while not self._stop.wait(self.interval):
+            self._sample()
+
+    def start(self) -> None:
+        self._sample()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def stop(self) -> dict[str, Any]:
+        self._stop.set()
+        if self._thread:
+            self._thread.join(timeout=self.interval * 2)
+        self._sample()
+        cpus = [sample["cpuPercent"] for sample in self.samples]
+        rss = [sample["rssMb"] for sample in self.samples]
+        return {
+            "sampleCount": len(self.samples),
+            "cpuPercent": summarize_values(cpus),
+            "rssMb": summarize_values(rss),
+            "scope": "aggregate local Ollama, llama-server, Python, and Uvicorn processes",
+        }
 
 
 @dataclass(frozen=True)
@@ -215,6 +292,7 @@ def run_case(
     malformed_frames = 0
     status_code: int | None = None
     backend: str | None = None
+    telemetry: dict[str, Any] | None = None
 
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
@@ -243,6 +321,8 @@ def run_case(
                     meta = value.get("meta")
                     if isinstance(meta, dict) and isinstance(meta.get("backend"), str):
                         backend = meta["backend"]
+                        if isinstance(meta.get("telemetry"), dict):
+                            telemetry = meta["telemetry"]
             else:
                 data = json.load(response)
                 if isinstance(data, dict):
@@ -268,6 +348,7 @@ def run_case(
             "malformed_frames": malformed_frames,
             "backend": backend,
             "cache_hit": backend == "thanarah-cache",
+            "telemetry": telemetry,
             "error": _safe_error(exc),
         }
 
@@ -276,6 +357,18 @@ def run_case(
     ttft_ms = (first_token_at - started) * 1000 if first_token_at else None
     output_tokens = _approx_tokens(output_text)
     generation_seconds = max((finished - (first_token_at or started)), 0.001)
+    if telemetry:
+        actual_output_tokens = int(telemetry.get("outputTokens") or 0)
+        generation_ms = float(telemetry.get("generationMs") or 0)
+        if actual_output_tokens > 0:
+            output_tokens = actual_output_tokens
+        tokens_per_second = (
+            output_tokens / (generation_ms / 1000)
+            if output_tokens > 0 and generation_ms > 0
+            else 0.0
+        )
+    else:
+        tokens_per_second = output_tokens / generation_seconds
     return {
         "case_id": case.case_id,
         "category": case.category,
@@ -286,11 +379,30 @@ def run_case(
         "total_ms": round(total_ms, 2),
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
-        "tokens_per_second": round(output_tokens / generation_seconds, 2),
+        "tokens_per_second": round(tokens_per_second, 2),
         "malformed_frames": malformed_frames,
         "backend": backend,
         "cache_hit": backend == "thanarah-cache",
+        "telemetry": telemetry,
         "error": None if status_code == 200 and output_text else "empty_response",
+    }
+
+
+def percentile(values: list[float], fraction: float) -> float | None:
+    if not values:
+        return None
+    ordered = sorted(values)
+    index = min(len(ordered) - 1, round((len(ordered) - 1) * fraction))
+    return round(ordered[index], 2)
+
+
+def summarize_values(values: list[float]) -> dict[str, float | None]:
+    if not values:
+        return {"p50": None, "p95": None, "max": None}
+    return {
+        "p50": percentile(values, 0.50),
+        "p95": percentile(values, 0.95),
+        "max": round(max(values), 2),
     }
 
 
@@ -299,12 +411,21 @@ def summarize(results: list[dict[str, Any]]) -> dict[str, Any]:
     ttfts = sorted(result["ttft_ms"] for result in successful if result["ttft_ms"] is not None)
     totals = sorted(result["total_ms"] for result in successful)
 
-    def percentile(values: list[float], fraction: float) -> float | None:
-        if not values:
-            return None
-        index = min(len(values) - 1, round((len(values) - 1) * fraction))
-        return round(values[index], 2)
-
+    telemetry_summary = {}
+    for metric in TELEMETRY_METRICS:
+        values = [
+            float(result["telemetry"][metric])
+            for result in successful
+            if isinstance(result.get("telemetry"), dict)
+            and isinstance(result["telemetry"].get(metric), (int, float))
+        ]
+        telemetry_summary[metric] = summarize_values(values)
+    throughput = [
+        float(result["tokens_per_second"])
+        for result in successful
+        if result.get("tokens_per_second", 0) > 0
+        and not result.get("cache_hit")
+    ]
     return {
         "cases": len(results),
         "successful": len(successful),
@@ -323,6 +444,9 @@ def summarize(results: list[dict[str, Any]]) -> dict[str, Any]:
             "max": round(max(totals), 2) if totals else None,
         },
         "malformed_frames": sum(result["malformed_frames"] for result in results),
+        "tokens_per_second": summarize_values(throughput),
+        "telemetry": telemetry_summary,
+        "telemetry_records": sum(isinstance(result.get("telemetry"), dict) for result in successful),
     }
 
 
@@ -346,10 +470,15 @@ def main() -> int:
         ]
 
     started = datetime.now(timezone.utc)
-    results = [
-        run_case(case, args.base_url, args.timeout, args.tenant_id, args.user_id)
-        for case in cases
-    ]
+    sampler = ResourceSampler()
+    sampler.start()
+    try:
+        results = [
+            run_case(case, args.base_url, args.timeout, args.tenant_id, args.user_id)
+            for case in cases
+        ]
+    finally:
+        resources = sampler.stop()
     report = {
         "benchmark": "thanarah-local-ai",
         "started_at": started.isoformat(),
@@ -362,6 +491,7 @@ def main() -> int:
             "server_error_bodies_recorded": False,
         },
         "summary": summarize(results),
+        "resources": resources,
         "results": results,
     }
     encoded = json.dumps(report, ensure_ascii=False, indent=2)

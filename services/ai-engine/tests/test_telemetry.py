@@ -38,8 +38,9 @@ class TelemetryTests(unittest.TestCase):
         self.assertEqual(record["outputTokens"], 7)
         self.assertFalse(record["cacheHit"])
         for field in (
-            "routerMs", "memoryMs", "retrievalMs", "embeddingMs",
-            "promptBuildMs", "ollamaQueueMs", "modelLoadMs",
+            "routerMs", "cacheLookupMs", "memoryMs", "retrievalMs", "embeddingMs",
+            "contextMs", "promptBuildMs", "ollamaQueueMs",
+            "ollamaToFirstTokenMs", "modelLoadMs", "ollamaPromptEvalMs", "ollamaEvalMs",
             "timeToFirstTokenMs", "generationMs", "totalMs",
             "model", "route", "cacheHit",
         ):

@@ -1,0 +1,168 @@
+ممتاز. Phase 0 وPhase 1 مكتملان، والأرقام أصبحت واضحة.
+
+لا تبدأ Phase 2 بعد.
+
+أريد تنفيذ **Phase 1.5 فقط: Bottleneck Profiling**.
+
+الهدف هو معرفة بالضبط أين تذهب الـ4.6s median و7.8s p95.
+
+لا تضف Qdrant أو SearXNG أو Web Search أو Reranker أو Agent أو Tool Calling الآن.
+
+## المطلوب
+
+استخدم الـtelemetry الموجودة حاليًا واستخرج أرقامًا مجمعة من benchmark حقيقي.
+
+لكل request قِس:
+
+* routerMs
+* memoryMs
+* retrievalMs
+* embeddingMs
+* promptBuildMs
+* ollamaQueueMs
+* modelLoadMs
+* timeToFirstTokenMs
+* generationMs
+* totalMs
+
+وأيضًا:
+
+* inputTokens
+* outputTokens
+* tokensPerSecond
+* CPU
+* RAM
+
+## مهم
+
+أريد إظهار:
+
+### P50
+
+### P95
+
+### Max
+
+لكل metric.
+
+مثال:
+
+router:
+P50 12ms
+P95 30ms
+Max 50ms
+
+memory:
+P50 ...
+P95 ...
+Max ...
+
+RAG:
+P50 ...
+P95 ...
+Max ...
+
+Ollama:
+P50 ...
+P95 ...
+Max ...
+
+Generation:
+P50 ...
+P95 ...
+Max ...
+
+Total:
+P50 ...
+P95 ...
+Max ...
+
+## أريد أيضًا تفكيك TTFT
+
+قسّم Time To First Token إلى:
+
+request overhead
++
+context/retrieval
++
+prompt construction
++
+Ollama/model processing
++
+first token
+
+إذا كان هذا غير ممكن بدقة بسبب architecture الحالية، لا تخترع أرقامًا؛ اذكر الجزء الذي لا يمكن قياسه.
+
+## CPU experiment
+
+لدينا 12 CPU و24GB RAM.
+
+اعمل benchmark صغيرًا وآمنًا على إعدادات Ollama الحالية، ثم جرّب إعدادات threads مناسبة فقط.
+
+لا ترفع threads عشوائيًا.
+
+قارن مثلًا إعداد current configuration مع 2 أو 3 configurations إضافية مناسبة للـ12 CPU.
+
+لكل configuration سجل:
+
+* TTFT P50
+* TTFT P95
+* Total P50
+* Total P95
+* tokens/sec
+* CPU
+* RAM
+
+لا تختار configuration بناءً على التخمين؛ اخترها بناءً على benchmark.
+
+## Context experiment
+
+اختبر تأثير طول الـcontext على latency باستخدام حالات قصيرة ومتوسطة وطويلة.
+
+لا تغير جودة المحادثة في production بناءً على benchmark فقط.
+
+## Cache
+
+لا تغير cache architecture الحالية الآن.
+
+فقط أظهر:
+
+* cold request
+* warm request
+* exact cache hit
+
+## Output
+
+أنشئ:
+
+docs/ai-performance-phase-1.5.md
+
+ويجب أن يحتوي على:
+
+1. Bottleneck breakdown
+2. P50/P95/Max لكل مرحلة
+3. CPU benchmark comparison
+4. Context-size benchmark
+5. Cache benchmark
+6. الاستنتاج التقني: أين bottleneck الحقيقي؟
+7. ما التغيير المقترح بناءً على البيانات؟
+
+## Definition of Done
+
+* Existing tests pass
+* Frontend build passes
+* Backend build passes
+* AI tests pass
+* No external paid provider
+* No new Phase 2 dependencies
+* No UI changes
+* No customer/admin feature changes
+* No Qdrant
+* No SearXNG
+* No new AI model
+
+ثم توقف تمامًا وأرسل التقرير.
+
+لا تقل "performance improved" بدون أرقام.
+
+أريد الأرقام الفعلية لكل مرحلة.

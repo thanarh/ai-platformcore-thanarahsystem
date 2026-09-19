@@ -329,7 +329,9 @@ class IntelligenceRouter:
         telemetry.add_ms("routerMs", router_started)
         logger.info(f"[TIR] Route decision: {route.backend_id} — {route.reason}")
 
+        context_started = time.perf_counter()
         memories, rag_sources, user_profile = await self._load_context_sources(chat_request, route, telemetry)
+        telemetry.add_ms("contextMs", context_started)
         prompt_started = time.perf_counter()
         context = self._build_context(chat_request, rag_sources, memories, user_profile)
         ai_request = self._build_ai_request(chat_request, route, context)
@@ -390,12 +392,14 @@ class IntelligenceRouter:
     async def stream_route(self, chat_request: ChatRequest):
         """Route and stream a chat request with resilient fallback.
 
-        Returns (async_generator, route, rag_sources).
+        Returns (async_generator, route, rag_sources, telemetry).
         The generator tries each backend in priority order and falls through
         on connection errors — even mid-stream failures are caught gracefully.
         """
         telemetry = RequestTelemetry(request_id=chat_request.requestId) if chat_request.requestId else RequestTelemetry()
+        cache_started = time.perf_counter()
         cached = await response_cache_service.get(chat_request)
+        telemetry.add_ms("cacheLookupMs", cache_started)
         if cached is not None:
             cache_route = RouteDecision(
                 backend_id="thanarah-cache",
@@ -417,14 +421,16 @@ class IntelligenceRouter:
                 )
                 yield cached.content
 
-            return _cached_stream(), cache_route, []
+            return _cached_stream(), cache_route, [], telemetry
 
         router_started = time.perf_counter()
         route = self._decide_route(chat_request)
         telemetry.add_ms("routerMs", router_started)
         logger.info(f"[TIR Stream] Route: {route.backend_id}")
 
+        context_started = time.perf_counter()
         memories, rag_sources, user_profile = await self._load_context_sources(chat_request, route, telemetry)
+        telemetry.add_ms("contextMs", context_started)
         prompt_started = time.perf_counter()
         context = self._build_context(chat_request, rag_sources, memories, user_profile)
         ai_request = self._build_ai_request(chat_request, route, context)
@@ -454,6 +460,7 @@ class IntelligenceRouter:
                         emitted = True
                         if "timeToFirstTokenMs" not in telemetry.values:
                             telemetry.add_ms("timeToFirstTokenMs", telemetry.started_at)
+                            telemetry.add_ms("ollamaToFirstTokenMs", generation_started)
                         content_parts.append(token)
                         yield token
                     route.backend_id = backend_id
@@ -495,4 +502,4 @@ class IntelligenceRouter:
             telemetry.finish(route="none")
             yield "تعذر إكمال الطلب. حاول مرة أخرى.\n\nUnable to complete the request."
 
-        return _resilient_stream(), route, rag_sources
+        return _resilient_stream(), route, rag_sources, telemetry
