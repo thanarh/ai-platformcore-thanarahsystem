@@ -22,7 +22,7 @@ export class ConversationsController {
   @Get()
   findAll(@CurrentUser() user: any) {
     return this.conversationsService.findByUser(
-      user.tenantId?.toString(),
+      user.tenantId.toString(),
       user._id.toString(),
     );
   }
@@ -30,7 +30,7 @@ export class ConversationsController {
   @Post()
   create(@CurrentUser() user: any, @Body() body: { title?: string }) {
     return this.conversationsService.create({
-      tenantId: user.tenantId?.toString(),
+      tenantId: user.tenantId.toString(),
       userId: user._id.toString(),
       title: body.title,
     });
@@ -38,7 +38,11 @@ export class ConversationsController {
 
   @Get(':id')
   findOne(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.conversationsService.findById(id, user._id.toString());
+    return this.conversationsService.findById(
+      id,
+      user._id.toString(),
+      user.tenantId.toString(),
+    );
   }
 
   @Put(':id/title')
@@ -47,12 +51,35 @@ export class ConversationsController {
     @CurrentUser() user: any,
     @Body() body: { title: string },
   ) {
-    return this.conversationsService.updateTitle(id, user._id.toString(), body.title);
+    return this.conversationsService.updateTitle(
+      id,
+      user._id.toString(),
+      user.tenantId.toString(),
+      body.title,
+    );
+  }
+
+  @Post(':id/pin')
+  togglePin(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+    @Body() body: { pinned: boolean },
+  ) {
+    return this.conversationsService.setPinned(
+      id,
+      user._id.toString(),
+      user.tenantId.toString(),
+      body.pinned === true,
+    );
   }
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   remove(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.conversationsService.softDelete(id, user._id.toString());
+    return this.conversationsService.softDelete(
+      id,
+      user._id.toString(),
+      user.tenantId.toString(),
+    );
   }
 }

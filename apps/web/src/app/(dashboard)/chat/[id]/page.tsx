@@ -21,6 +21,7 @@ export default function ChatPage() {
     messages, addMessage, setMessages, updateLastMessage,
     finalizeLastMessage, updateMessage,
     isStreaming, setStreaming, setLoading, isLoading, toggleSidebar,
+    updateConversation,
   } = useChatStore();
 
   const [input, setInput] = useState('');
@@ -91,6 +92,9 @@ export default function ChatPage() {
       },
       (meta) => {
         finalizeLastMessage(convId, accumulated, meta);
+        if (meta?.conversationTitle) {
+          updateConversation(convId, { title: meta.conversationTitle });
+        }
         setStreaming(false);
         setAbortController(null);
         window.dispatchEvent(new Event('thanarah-usage-changed'));
@@ -103,7 +107,7 @@ export default function ChatPage() {
       },
       controller.signal,
     );
-  }, [input, convId, token, isStreaming, addMessage, finalizeLastMessage, setStreaming, updateLastMessage]);
+  }, [input, convId, token, isStreaming, addMessage, finalizeLastMessage, setStreaming, updateLastMessage, updateConversation]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {

@@ -17,6 +17,7 @@ import { UsageModule } from './modules/usage/usage.module';
 import { HealthModule } from './modules/health/health.module';
 import { EmailModule } from './modules/email/email.module';
 import { ReportModule } from './modules/email/report.module';
+import { ContextProfileModule } from './modules/context-profile/context-profile.module';
 
 @Module({
   imports: [
@@ -58,6 +59,7 @@ import { ReportModule } from './modules/email/report.module';
     UsersModule,
     TenantsModule,
     ConversationsModule,
+    ContextProfileModule,
     MessagesModule,
     AiModule,
     ApiKeysModule,

@@ -2,7 +2,7 @@
 import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
 import {
-  MessageSquare, Plus, Trash2, Edit3, Settings,
+  MessageSquare, Plus, Trash2, Edit3, Settings, Pin, Sparkles,
   LayoutDashboard, Key, BookOpen, LogOut, ChevronLeft,
   Menu, Users, Zap, Bot, Building2
 } from 'lucide-react';
@@ -66,11 +66,85 @@ export default function Sidebar() {
     setRenaming(null);
   };
 
+  const handleTogglePin = async (e: React.MouseEvent, id: string, pinned: boolean) => {
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      await conversationsApi.pin(id, !pinned);
+      updateConversation(id, { isPinned: !pinned });
+    } catch {}
+  };
+
   const handleLogout = async () => {
     await authApi.logout().catch(() => {});
     clearAuth();
     router.replace('/login');
   };
+
+  const pinnedConversations = conversations.filter((conversation) => conversation.isPinned);
+  const recentConversations = conversations.filter((conversation) => !conversation.isPinned);
+  const renderConversation = (conv: (typeof conversations)[number]) => (
+    <div
+      key={conv._id}
+      className={cn(
+        'group relative flex items-center gap-2 rounded-xl px-2.5 py-2 text-sm cursor-pointer transition hover:bg-gray-100',
+        activeConversationId === conv._id && 'bg-gray-100'
+      )}
+      onClick={() => {
+        setActiveConversation(conv._id);
+        router.push(`/chat/${conv._id}`);
+      }}
+    >
+      {renaming === conv._id ? (
+        <input
+          autoFocus
+          value={renameValue}
+          onChange={(e) => setRenameValue(e.target.value)}
+          onBlur={() => handleRename(conv._id)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') handleRename(conv._id);
+            if (e.key === 'Escape') setRenaming(null);
+          }}
+          className="flex-1 bg-white border border-thanarah-300 rounded px-1 py-0.5 text-xs outline-none"
+          onClick={(e) => e.stopPropagation()}
+        />
+      ) : (
+        <>
+          {conv.isPinned && <Pin className="w-3 h-3 text-thanarah-600 fill-current flex-shrink-0" />}
+          <span className="flex-1 truncate text-gray-700 text-xs leading-5 font-arabic">
+            {conv.title || 'محادثة جديدة'}
+          </span>
+        </>
+      )}
+      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition absolute left-1">
+        <button
+          onClick={(e) => handleTogglePin(e, conv._id, !!conv.isPinned)}
+          className={cn('p-1 hover:bg-gray-200 rounded', conv.isPinned ? 'text-thanarah-600' : 'text-gray-400 hover:text-thanarah-600')}
+          title={conv.isPinned ? 'إلغاء تثبيت المحادثة' : 'تثبيت المحادثة'}
+        >
+          <Pin className={cn('w-3 h-3', conv.isPinned && 'fill-current')} />
+        </button>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            setRenaming(conv._id);
+            setRenameValue(conv.title);
+          }}
+          className="p-1 hover:bg-gray-200 rounded text-gray-400 hover:text-gray-600"
+          title="تعديل العنوان"
+        >
+          <Edit3 className="w-3 h-3" />
+        </button>
+        <button
+          onClick={(e) => handleDelete(e, conv._id)}
+          className="p-1 hover:bg-red-50 rounded text-gray-400 hover:text-red-500"
+          title="حذف المحادثة"
+        >
+          <Trash2 className="w-3 h-3" />
+        </button>
+      </div>
+    </div>
+  );
 
   return (
     <>
@@ -147,57 +221,19 @@ export default function Sidebar() {
                   <p className="text-xs font-arabic">لا توجد محادثات بعد</p>
                 </div>
               ) : (
-                <div className="space-y-0.5">
-                  {conversations.map((conv) => (
-                    <div
-                      key={conv._id}
-                      className={cn(
-                        'group relative flex items-center gap-2 rounded-xl px-2.5 py-2 text-sm cursor-pointer transition hover:bg-gray-100',
-                        activeConversationId === conv._id && 'bg-gray-100'
-                      )}
-                      onClick={() => {
-                        setActiveConversation(conv._id);
-                        router.push(`/chat/${conv._id}`);
-                      }}
-                    >
-                      {renaming === conv._id ? (
-                        <input
-                          autoFocus
-                          value={renameValue}
-                          onChange={(e) => setRenameValue(e.target.value)}
-                          onBlur={() => handleRename(conv._id)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') handleRename(conv._id);
-                            if (e.key === 'Escape') setRenaming(null);
-                          }}
-                          className="flex-1 bg-white border border-thanarah-300 rounded px-1 py-0.5 text-xs outline-none"
-                          onClick={(e) => e.stopPropagation()}
-                        />
-                      ) : (
-                        <span className="flex-1 truncate text-gray-700 text-xs leading-5 font-arabic">
-                          {conv.title || 'محادثة جديدة'}
-                        </span>
-                      )}
-                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition absolute left-1">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setRenaming(conv._id);
-                            setRenameValue(conv.title);
-                          }}
-                          className="p-1 hover:bg-gray-200 rounded text-gray-400 hover:text-gray-600"
-                        >
-                          <Edit3 className="w-3 h-3" />
-                        </button>
-                        <button
-                          onClick={(e) => handleDelete(e, conv._id)}
-                          className="p-1 hover:bg-red-50 rounded text-gray-400 hover:text-red-500"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
+                <div className="space-y-3">
+                  {pinnedConversations.length > 0 && (
+                    <section>
+                      <p className="px-2.5 pb-1 text-[10px] uppercase tracking-wide text-thanarah-600 font-medium">Pinned</p>
+                      <div className="space-y-0.5">{pinnedConversations.map(renderConversation)}</div>
+                    </section>
+                  )}
+                  {recentConversations.length > 0 && (
+                    <section>
+                      <p className="px-2.5 pb-1 text-[10px] uppercase tracking-wide text-gray-400 font-medium">Recent</p>
+                      <div className="space-y-0.5">{recentConversations.map(renderConversation)}</div>
+                    </section>
+                  )}
                 </div>
               )}
             </div>
@@ -250,6 +286,16 @@ export default function Sidebar() {
               >
                 <Bot className="w-4 h-4 flex-shrink-0" />
                 إعدادات AI
+              </Link>
+              <Link
+                href="/settings/intelligence"
+                className={cn(
+                  'flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-sm text-gray-600 hover:bg-gray-100 transition font-arabic',
+                  pathname === '/settings/intelligence' && 'bg-gray-100 text-thanarah-700'
+                )}
+              >
+                <Sparkles className="w-4 h-4 flex-shrink-0" />
+                تخصيص ذكاء ثنارة
               </Link>
               <Link
                 href="/settings/api-keys"

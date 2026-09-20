@@ -7,6 +7,7 @@ import { ConversationsService } from '../conversations/conversations.service';
 import { MessagesService } from '../messages/messages.service';
 import { UsageService } from '../usage/usage.service';
 import { TenantsService } from '../tenants/tenants.service';
+import { ContextProfileService } from '../context-profile/context-profile.service';
 
 @Injectable()
 export class AiService {
@@ -19,6 +20,7 @@ export class AiService {
     private messagesService: MessagesService,
     private usageService: UsageService,
     private tenantsService: TenantsService,
+    private contextProfileService: ContextProfileService,
   ) {
     this.aiEngineUrl = this.configService.get<string>('aiEngine.url');
   }
@@ -37,6 +39,7 @@ export class AiService {
     const conversation = await this.conversationsService.findById(
       data.conversationId,
       data.userId,
+      data.tenantId,
     );
 
     // Get tenant config for AI settings
@@ -47,6 +50,9 @@ export class AiService {
         ...(tenant.aiConfig || {}),
         industry: tenant.industry || tenant.type || 'general',
         medicalMode: tenant.medicalMode || {},
+        contextProfile: await this.contextProfileService
+          .getForAi(data.tenantId, data.userId)
+          .catch(() => ({})),
       };
     } catch {}
 
@@ -58,6 +64,11 @@ export class AiService {
       role: 'user',
       content: data.content,
     });
+    void this.contextProfileService.recordInteraction(
+      data.tenantId,
+      data.userId,
+      data.content,
+    ).catch(() => {});
 
     // Auto-title conversation after first message
     if (conversation.messageCount === 0) {
@@ -202,14 +213,16 @@ export class AiService {
     const startTime = Date.now();
 
     // Parallel: verify conversation + load tenant config simultaneously
-    const [conversation, tenantResult] = await Promise.all([
-      this.conversationsService.findById(data.conversationId, data.userId),
+    const [conversation, tenantResult, contextProfile] = await Promise.all([
+      this.conversationsService.findById(data.conversationId, data.userId, data.tenantId),
       this.tenantsService.findById(data.tenantId).catch(() => null),
+      this.contextProfileService.getForAi(data.tenantId, data.userId).catch(() => ({})),
     ]);
     const tenantConfig: any = {
       ...(tenantResult?.aiConfig || {}),
       industry: tenantResult?.industry || tenantResult?.type || 'general',
       medicalMode: tenantResult?.medicalMode || {},
+      contextProfile,
     };
 
     // Parallel: save user message + fetch recent history simultaneously
@@ -223,6 +236,11 @@ export class AiService {
       }),
       this.messagesService.getRecentMessages(data.conversationId, 8),
     ]);
+    void this.contextProfileService.recordInteraction(
+      data.tenantId,
+      data.userId,
+      data.content,
+    ).catch(() => {});
 
     // Auto-title non-blocking (don't await — fire and forget)
     if (conversation.messageCount === 0) {
@@ -263,6 +281,9 @@ export class AiService {
 
     let fullContent = '';
     let aiMeta: any = {};
+    const conversationTitle = conversation.messageCount === 0
+      ? this.conversationsService.createTitle(data.content)
+      : undefined;
     let sseBuffer = '';
     let doneSent = false;
     let responseEnded = false;
@@ -294,7 +315,7 @@ export class AiService {
         fullContent,
         Object.keys(aiMeta).length ? aiMeta : { backend: 'thanarah-core' },
       ).catch(() => null);
-      data.res.write(`data: ${JSON.stringify({ meta: { service: 'Thanarah Intelligence', userMessageId: userMessage._id, messageId: message?._id } })}\n\n`);
+       data.res.write(`data: ${JSON.stringify({ meta: { service: 'Thanarah Intelligence', userMessageId: userMessage._id, messageId: message?._id, conversationTitle } })}\n\n`);
       data.res.write('data: [DONE]\n\n');
       doneSent = true;
       data.res.end();
@@ -382,7 +403,7 @@ export class AiService {
           status: 'success',
         }).catch(() => {});
 
-        data.res.write(`data: ${JSON.stringify({ meta: { service: 'Thanarah Intelligence', userMessageId: userMessage._id, messageId: savedMessage?._id } })}\n\n`);
+        data.res.write(`data: ${JSON.stringify({ meta: { service: 'Thanarah Intelligence', userMessageId: userMessage._id, messageId: savedMessage?._id, conversationTitle } })}\n\n`);
         if (!doneSent) {
           data.res.write('data: [DONE]\n\n');
           doneSent = true;

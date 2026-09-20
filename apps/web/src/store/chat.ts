@@ -26,6 +26,7 @@ export interface Message {
 export interface Conversation {
   _id: string;
   title: string;
+  isPinned?: boolean;
   messageCount: number;
   lastMessageAt?: string;
   createdAt?: string;

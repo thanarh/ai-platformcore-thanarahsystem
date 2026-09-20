@@ -95,6 +95,8 @@ export const conversationsApi = {
     api.get(`/conversations/${id}/messages`).then((r) => r.data),
   rename: (id: string, title: string) =>
     api.put(`/conversations/${id}/title`, { title }).then((r) => r.data),
+  pin: (id: string, pinned: boolean) =>
+    api.post(`/conversations/${id}/pin`, { pinned }).then((r) => r.data),
   delete: (id: string) =>
     api.delete(`/conversations/${id}`).then((r) => r.data),
 };
@@ -159,6 +161,14 @@ export const tenantsApi = {
     api.put(`/tenants/${id}/ai-config`, data).then((r) => r.data),
   updateClinicBrain: (id: string, data: any) =>
     api.put(`/tenants/${id}/clinic-brain`, data).then((r) => r.data),
+};
+
+// ──── AI Context Profile ────────────────────────────────────────────────────
+export const contextProfilesApi = {
+  get: () => api.get('/context-profile/me').then((r) => r.data),
+  update: (data: any) => api.put('/context-profile/me', data).then((r) => r.data),
+  remove: () => api.delete('/context-profile/me').then((r) => r.data),
+  suggestions: () => api.get('/context-profile/suggestions').then((r) => r.data),
 };
 
 // ──── Health ───────────────────────────────────────────────────────────────

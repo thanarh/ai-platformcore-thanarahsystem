@@ -6,6 +6,7 @@ import { ConversationsModule } from '../conversations/conversations.module';
 import { MessagesModule } from '../messages/messages.module';
 import { UsageModule } from '../usage/usage.module';
 import { TenantsModule } from '../tenants/tenants.module';
+import { ContextProfileModule } from '../context-profile/context-profile.module';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { TenantsModule } from '../tenants/tenants.module';
     MessagesModule,
     UsageModule,
     TenantsModule,
+    ContextProfileModule,
   ],
   controllers: [AiController],
   providers: [AiService],

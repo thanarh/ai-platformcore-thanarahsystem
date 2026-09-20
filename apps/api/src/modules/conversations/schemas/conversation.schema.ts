@@ -11,7 +11,7 @@ export class Conversation {
   @Prop({ type: Types.ObjectId, ref: 'User', required: true })
   userId: Types.ObjectId;
 
-  @Prop({ required: true, default: 'New Conversation' })
+  @Prop({ required: true, default: 'محادثة جديدة' })
   title: string;
 
   @Prop({ default: 'active' })
@@ -49,5 +49,5 @@ export class Conversation {
 
 export const ConversationSchema = SchemaFactory.createForClass(Conversation);
 
-ConversationSchema.index({ tenantId: 1, userId: 1, createdAt: -1 });
+ConversationSchema.index({ tenantId: 1, userId: 1, isPinned: -1, lastMessageAt: -1 });
 ConversationSchema.index({ tenantId: 1, lastMessageAt: -1 });

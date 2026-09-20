@@ -1,22 +1,24 @@
 'use client';
 export const dynamic = 'force-dynamic';
-import { useEffect } from 'react';
-import { MessageSquare, Sparkles } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { MessageSquare, Sparkles, Sliders, X } from 'lucide-react';
 import { ThanarahIcon } from '@/components/ThanarahLogo';
 import { useChatStore } from '@/store/chat';
 import { useRouter } from 'next/navigation';
-import { conversationsApi } from '@/lib/api';
-
-const SUGGESTIONS = [
-  { ar: 'ما هي خدمات العيادة؟', en: 'What are the clinic services?' },
-  { ar: 'أحتاج مساعدة في صياغة عقد عمل', en: 'Help me draft an employment contract' },
-  { ar: 'اشرح لي كيف يعمل الذكاء الاصطناعي', en: 'Explain how AI works' },
-  { ar: 'احسب لي ١٥٪ من ٢٥٠٠٠ ريال', en: 'Calculate 15% of 25,000 SAR' },
-];
+import { contextProfilesApi, conversationsApi } from '@/lib/api';
 
 export default function ChatHomePage() {
   const router = useRouter();
   const { setActiveConversation, addConversation } = useChatStore();
+  const [personalization, setPersonalization] = useState<any>(null);
+  const [loadingProfile, setLoadingProfile] = useState(true);
+
+  useEffect(() => {
+    contextProfilesApi.suggestions()
+      .then(setPersonalization)
+      .catch(() => setPersonalization({ mode: 'welcome', isNewUser: true, suggestions: [] }))
+      .finally(() => setLoadingProfile(false));
+  }, []);
 
   const startChat = async (prompt?: string) => {
     const conv = await conversationsApi.create();
@@ -39,25 +41,84 @@ export default function ChatHomePage() {
 
         <div>
           <h1 className="text-2xl font-semibold text-gray-900 mb-2 font-arabic">
-            كيف يمكنني مساعدتك اليوم؟
+            {personalization?.mode === 'personalized'
+              ? 'ماذا تريد أن ننجز اليوم؟'
+              : 'مرحبًا بك في ذكاء Thanarah'}
           </h1>
-          <p className="text-sm text-gray-500 font-arabic">
-            مساعد ذكاء اصطناعي متقدم يفهم العربية والإنجليزية
+          <p className="text-sm text-gray-500 font-arabic leading-relaxed">
+            {personalization?.mode === 'personalized'
+              ? 'اقتراحات مبنية على سياق الاستخدام المحفوظ، ويمكنك تعديلها من التخصيص.'
+              : 'أنا هنا لمساعدتك في العمل، المعلومات، والتحليل داخل مؤسستك.'}
           </p>
         </div>
 
-        {/* Quick start suggestions */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {SUGGESTIONS.map((s, i) => (
-            <button
-              key={i}
-              onClick={() => startChat(s.ar)}
-              className="text-right bg-white hover:bg-gray-50 border border-gray-200 hover:border-thanarah-300 rounded-xl px-4 py-3 text-sm text-gray-700 transition font-arabic leading-relaxed"
-            >
-              {s.ar}
-            </button>
-          ))}
-        </div>
+        {personalization?.isNewUser && !personalization?.profile?.onboardingDismissed && (
+          <div className="text-right bg-thanarah-50 border border-thanarah-100 rounded-2xl p-4">
+            <div className="flex items-start gap-3">
+              <Sparkles className="w-5 h-5 text-thanarah-600 mt-0.5 flex-shrink-0" />
+              <div className="flex-1">
+                <p className="font-medium text-gray-800 font-arabic">خصّص ذكاء Thanarah لمؤسستك</p>
+                <p className="text-xs text-gray-600 mt-1 font-arabic leading-relaxed">
+                  اختر المجال، أسلوب الرد، والمهام التي تريد المساعدة فيها. يمكنك استخدام المحادثة الآن دون إكمال التخصيص.
+                </p>
+                <div className="flex items-center gap-2 mt-3">
+                  <button
+                    onClick={() => router.push('/settings/intelligence')}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-thanarah-700 px-3 py-1.5 text-xs text-white font-arabic"
+                  >
+                    <Sliders className="w-3.5 h-3.5" />
+                    تخصيص الآن
+                  </button>
+                  <button
+                    onClick={() => {
+                      contextProfilesApi.update({ onboardingDismissed: true }).catch(() => {});
+                      setPersonalization((current: any) => ({
+                        ...current,
+                        profile: { ...(current?.profile || {}), onboardingDismissed: true },
+                      }));
+                    }}
+                    className="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 font-arabic"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                    لاحقًا
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {!loadingProfile && personalization?.mode === 'personalized' && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {(personalization.suggestions || []).map((suggestion: string) => (
+              <button
+                key={suggestion}
+                onClick={() => startChat(suggestion)}
+                className="text-right bg-white hover:bg-gray-50 border border-gray-200 hover:border-thanarah-300 rounded-xl px-4 py-3 text-sm text-gray-700 transition font-arabic leading-relaxed"
+              >
+                {suggestion}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {!loadingProfile && personalization?.mode !== 'personalized' && (
+          <div className="bg-white border border-gray-200 rounded-2xl p-5 text-right space-y-3">
+            <p className="text-sm text-gray-700 font-arabic">يمكنك أن تسألني عن:</p>
+            <div className="flex flex-wrap gap-2">
+              {['المواعيد', 'العملاء', 'الخدمات', 'التقارير', 'إجراءات العمل', 'معلومات مؤسستك'].map((item) => (
+                <span key={item} className="rounded-full bg-gray-50 border border-gray-200 px-3 py-1.5 text-xs text-gray-600 font-arabic">
+                  {item}
+                </span>
+              ))}
+            </div>
+            <div className="border-t border-gray-100 pt-3 space-y-1.5">
+              <p className="text-xs text-gray-500 font-arabic">Tip: يمكنك سؤالي بطريقة طبيعية، بدون أوامر محددة.</p>
+              <p className="text-xs text-gray-500 font-arabic">Tip: كلما استخدمتني أكثر، أصبحت اقتراحاتي أكثر ارتباطًا بسياق عملك.</p>
+              <p className="text-xs text-gray-500 font-arabic">Tip: يمكنك تخصيص طريقة تعاملي معك من الإعدادات.</p>
+            </div>
+          </div>
+        )}
 
         <button
           onClick={() => startChat()}

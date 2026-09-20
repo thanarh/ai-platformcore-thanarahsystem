@@ -169,6 +169,29 @@ class IntelligenceRouter:
                 600,
             )
 
+        configured_profile = (request.tenantConfig or {}).get("contextProfile") or {}
+        if configured_profile:
+            organization = configured_profile.get("organizationContext") or {}
+            user_context = configured_profile.get("userContext") or {}
+            topics = configured_profile.get("frequentTopics") or []
+            tasks = configured_profile.get("frequentTasks") or []
+            preferences = configured_profile.get("knownPreferences") or []
+            profile_lines = [
+                "## Thanarah Context Profile",
+                "Use this configured context to adapt the response; do not invent facts beyond it.",
+                f"Organization industry: {organization.get('industry', '')}",
+                f"Organization specialization: {organization.get('specialization', '')}",
+                f"Preferred language: {user_context.get('preferredLanguage', '')}",
+                f"Preferred response style: {user_context.get('preferredResponseStyle', '')}",
+                f"Frequent topics: {', '.join(map(str, topics[:8]))}",
+                f"Frequent tasks: {', '.join(map(str, tasks[:8]))}",
+                f"Known preferences: {', '.join(map(str, preferences[:8]))}",
+            ]
+            additional = str(organization.get("additionalInstructions", "")).strip()
+            if additional:
+                profile_lines.append(f"Additional customer instructions: {additional[:800]}")
+            append_part("\n".join(profile_lines), 1400)
+
         if memories:
             append_part("## Relevant Previous Learnings\nUse only when relevant:", 100)
             for i, memory in enumerate(memories[:settings.memory_recall_limit], 1):

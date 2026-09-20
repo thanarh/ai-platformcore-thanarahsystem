@@ -19,8 +19,8 @@ test('conversation reads and mutations enforce tenant/user ownership', () => {
   const source = read('apps/api/src/modules/conversations/conversations.service.ts');
   assert.match(source, /tenantId: new Types\.ObjectId\(tenantId\)/);
   assert.match(source, /userId: new Types\.ObjectId\(userId\)/);
-  assert.match(source, /if \(tenantId && conversation\.tenantId\.toString\(\) !== tenantId\.toString\(\)\)/);
-  assert.match(source, /if \(userId && conversation\.userId\.toString\(\) !== userId\.toString\(\)\)/);
+  assert.match(source, /if \(conversation\.tenantId\.toString\(\) !== tenantId\.toString\(\)\)/);
+  assert.match(source, /if \(conversation\.userId\.toString\(\) !== userId\.toString\(\)\)/);
   assert.match(source, /status: \{ \$ne: 'deleted' \}/);
 });
 

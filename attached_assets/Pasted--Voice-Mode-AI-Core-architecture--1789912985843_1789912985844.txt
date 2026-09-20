@@ -1,0 +1,260 @@
+أضف أيضًا **Voice Mode** إلى نفس الـ AI Core architecture.
+
+أريد أن يكون للمستخدم خيار واضح داخل المحادثة:
+
+```text
+[ Text ] [ Voice ]
+```
+
+أو زر microphone واضح داخل composer.
+
+### Voice UX
+
+عندما يضغط المستخدم Voice:
+
+```text
+Listening...
+```
+
+ثم يتكلم.
+
+الصوت يتحول إلى:
+
+```text
+Speech
+ ↓
+Speech-to-Text
+ ↓
+Normal AI Pipeline
+```
+
+ثم نفس الـ AI Core يتعامل مع الطلب:
+
+```text
+Context
+→ Skills
+→ Tasks
+→ Tools
+→ RAG
+→ Web Search
+→ Thanarah Core
+```
+
+حسب الـ capabilities المتاحة.
+
+بعد ذلك:
+
+```text
+AI Response
+ ↓
+Text
+ ↓
+Text-to-Speech
+ ↓
+Voice Response
+```
+
+### مهم جدًا
+
+Voice ليس AI مختلفًا.
+
+لا تنشئ:
+
+```text
+Voice AI
+```
+
+منفصلًا عن:
+
+```text
+Text AI
+```
+
+بل:
+
+```text
+                 Thanarah Intelligence
+                         │
+              ┌──────────┴──────────┐
+              │                     │
+           Text Input           Voice Input
+              │                     │
+              │              Speech-to-Text
+              │                     │
+              └──────────┬──────────┘
+                         │
+                   Same AI Core
+                         │
+              ┌──────────┼──────────┐
+              │          │          │
+           Skills      Tools      Memory
+              │          │          │
+              └──────────┼──────────┘
+                         │
+                    AI Response
+                         │
+                 ┌───────┴───────┐
+                 │               │
+                Text          Text-to-Speech
+                                 │
+                              Voice
+```
+
+### Conversation History
+
+إذا تكلم المستخدم صوتيًا:
+
+```text
+User
+🎙️ Voice message
+```
+
+يتم حفظ:
+
+* transcription
+* audio metadata عند الحاجة
+* timestamp
+* conversationId
+* userId
+* tenantId
+
+لكن لا تجعل الـ audio file نفسه هو المصدر الأساسي للسياق.
+
+الـ transcription هو الذي يدخل إلى Conversation/Context pipeline.
+
+### Streaming Voice
+
+جهز الـ architecture بحيث يمكن مستقبلًا أن ندعم:
+
+```text
+User starts speaking
+        ↓
+Speech recognition
+        ↓
+AI starts generating
+        ↓
+AI text streams
+        ↓
+TTS starts
+        ↓
+User hears response
+```
+
+لكن **لا تحاول تنفيذ full real-time duplex voice الآن**.
+
+في هذه المرحلة نريد contract واضح فقط.
+
+### Voice States
+
+أريد حالات واضحة في الـ UI:
+
+```text
+IDLE
+LISTENING
+TRANSCRIBING
+THINKING
+GENERATING
+SPEAKING
+STOPPED
+ERROR
+```
+
+ولا تعرض Chain-of-Thought.
+
+يمكن فقط عرض:
+
+```text
+Listening...
+Processing...
+Speaking...
+```
+
+### Stop / Interrupt
+
+المستخدم يجب أن يستطيع إيقاف الرد الصوتي:
+
+```text
+[ Stop ]
+```
+
+ويجب أن يوقف:
+
+* TTS
+* generation عند الإمكان
+* أي task قابل للإلغاء
+
+بدون ترك request معلق.
+
+### Language
+
+Voice يجب أن يدعم على الأقل architecture لـ:
+
+```text
+ar
+en
+```
+
+ويتم اختيار اللغة بناءً على:
+
+```text
+user preference
+conversation language
+detected input language
+```
+
+ولا تفترض لغة واحدة عالميًا.
+
+### Provider Policy
+
+مهم:
+
+لا تضف أي paid external AI provider.
+
+إذا احتجنا Speech-to-Text أو Text-to-Speech الآن، ابحث أولًا عن local/open-source implementation متوافق مع architecture الحالية.
+
+لكن لا تضف dependency كبيرة أو تغير production بدون benchmark.
+
+في هذه المرحلة يمكن أن يكون Voice:
+
+**Foundation + interface + contracts**
+
+إذا كانت local STT/TTS غير جاهزة، وثّق ذلك بدل اختراع implementation.
+
+### Testing
+
+أضف tests لـ:
+
+* voice session lifecycle
+* STT → text pipeline
+* text → TTS pipeline contract
+* conversation persistence
+* user/tenant isolation
+* stop/abort
+* error handling
+* Arabic input
+* English input
+* switching Text ↔ Voice
+
+ولا تقيس جودة الصوت بمقياس وهمي.
+
+إذا لم يكن هناك STT/TTS engine فعلي مثبت في البيئة، اذكر ذلك بوضوح في التقرير.
+
+### مهم
+
+لا تجعل Voice يؤثر على:
+
+```text
+qwen2.5:1.5b
+num_thread=4
+num_ctx=2048
+num_batch=64
+keep_alive=10m
+```
+
+ولا تبدأ Web Search أو Thanarah Core Tools أو Agent implementation.
+
+Voice الآن جزء من:
+
+**Conversation + Skills + Task Orchestration + Streaming foundation**
+
+وتوقف بعد هذه المرحلة.

@@ -1,0 +1,918 @@
+نريد توسيع Phase 2D بدون كسر خطة الـ AI Core الأساسية.
+
+الهدف الآن هو بناء **foundation** تجعل Thanarah Intelligence قادرًا مستقبلًا على التعامل مع أكثر من مهمة وأكثر من أداة، مع الحفاظ على architecture الحالية.
+
+لا نريد تنفيذ كل الأدوات الآن.
+
+نريد بناء الـ contracts والـ orchestration layer التي ستسمح بإضافتها لاحقًا بشكل نظيف.
+
+---
+
+# 1. Date / Time / User Context
+
+هناك مشكلة أساسية يجب حلها:
+
+إذا سأل المستخدم:
+
+```text
+كم التاريخ اليوم؟
+```
+
+أو:
+
+```text
+كم الساعة؟
+```
+
+يجب ألا يعتمد النظام على وقت السيرفر أو تخمين الـ model.
+
+أنشئ:
+
+```text
+User Runtime Context
+```
+
+ويشمل عند توفره:
+
+```text
+userId
+tenantId
+timezone
+locale
+language
+```
+
+مثال:
+
+```text
+timezone = Asia/Riyadh
+locale = ar-SA
+language = ar
+```
+
+يجب أن تكون عمليات:
+
+* today
+* tomorrow
+* yesterday
+* current time
+* relative dates
+
+مبنية على timezone المستخدم.
+
+مهم:
+
+لا تستخدم location جغرافيًا دقيقًا لمجرد معرفة الوقت.
+
+الـ timezone يكفي في هذه الحالات.
+
+إذا احتاجت Skill مستقبلًا إلى موقع فعلي مثل:
+
+```text
+ما المطاعم القريبة مني؟
+ما الطقس عندي؟
+```
+
+فهذا يكون capability منفصل يعتمد على location permission / location context، ولا يجوز للموديل اختراع موقع المستخدم.
+
+---
+
+# 2. Multiple Messages / Concurrent User Input
+
+أريد أن يستطيع المستخدم إرسال أكثر من رسالة بسرعة بدون أن تصبح المحادثة في حالة فوضى.
+
+مثال:
+
+```text
+اعمل لي تقرير عن العيادة
+
+وأيضًا حلل المواعيد
+
+وأريد جدولًا بالملاحظات
+
+وابحث لي عن أفضل طريقة لتحسين الحجز
+```
+
+النظام يجب أن يفهم أن هذه قد تكون:
+
+```text
+Task 1 → Report
+Task 2 → Appointment analysis
+Task 3 → Table
+Task 4 → Web research
+```
+
+لكن لا نريد تنفيذ كل شيء عشوائيًا.
+
+أنشئ مفهوم:
+
+```text
+Task Group
+```
+
+ثم:
+
+```text
+Task
+```
+
+مثال:
+
+```text
+TaskGroup
+├── Task 1
+├── Task 2
+├── Task 3
+└── Task 4
+```
+
+كل Task لها lifecycle:
+
+```text
+PENDING
+PLANNING
+RUNNING
+WAITING
+COMPLETED
+FAILED
+CANCELLED
+```
+
+والواجهة تستطيع إظهار:
+
+```text
+Working on your request
+
+✓ تحليل المواعيد
+● البحث عن المعلومات
+○ إنشاء التقرير
+○ إنشاء الجدول
+```
+
+هذه ليست Chain-of-Thought.
+
+هذه **execution status** فقط.
+
+---
+
+# 3. Task Decomposition
+
+إذا كان الطلب مركبًا، يستطيع orchestration layer تقسيمه إلى tasks.
+
+مثال:
+
+```text
+أريد تقرير عن أداء العيادة هذا الشهر،
+مع جدول بالمواعيد،
+وأريد مقارنة النتائج بالشهر الماضي،
+ثم أرسله لي PDF.
+```
+
+يصبح داخليًا:
+
+```text
+Task 1
+Retrieve clinic statistics
+
+Task 2
+Retrieve previous month statistics
+
+Task 3
+Analyze differences
+
+Task 4
+Generate table
+
+Task 5
+Generate PDF
+```
+
+ثم يمكن تنفيذ المهام المستقلة بالتوازي عندما يكون ذلك آمنًا.
+
+لكن لا نريد الآن بناء Agent كامل.
+
+نريد فقط:
+
+```text
+Task Orchestrator
+```
+
+بـ contracts واضحة وقابلة للاختبار.
+
+---
+
+# 4. Skills System
+
+أريد إضافة مفهوم واضح داخل Chat اسمه:
+
+## Skills
+
+يظهر للمستخدم في واجهة المحادثة.
+
+مثال:
+
+```text
+Skills
+
+[ Web Search ]
+[ Analyze Data ]
+[ Create PDF ]
+[ Create Spreadsheet ]
+[ Summarize ]
+[ Write ]
+[ Research ]
+```
+
+لكن لا تنفذ كل هذه الـ skills الآن.
+
+أنشئ:
+
+```text
+Skill Registry
+```
+
+كل Skill يكون لها:
+
+```text
+id
+name
+description
+category
+inputSchema
+outputType
+requiredPermissions
+enabled
+```
+
+مثال:
+
+```text
+web_search
+create_pdf
+create_spreadsheet
+data_analysis
+summarize
+```
+
+ثم يكون الـ AI قادرًا مستقبلًا على اختيار Skill مناسبة أو المستخدم يختارها مباشرة.
+
+---
+
+# 5. Skills ليست مجرد Prompts
+
+مهم جدًا.
+
+لا تعمل:
+
+```text
+Skill = prompt string
+```
+
+بل:
+
+```text
+Skill
+ ↓
+Capability
+ ↓
+Tool
+ ↓
+Execution
+ ↓
+Result
+```
+
+مثال:
+
+```text
+Create PDF
+ ↓
+PDF generation tool
+ ↓
+file
+ ↓
+artifact reference
+```
+
+ومثال:
+
+```text
+Web Search
+ ↓
+Search provider
+ ↓
+search results
+ ↓
+sources
+```
+
+ومثال:
+
+```text
+Thanarah Appointments
+ ↓
+Thanarah Core API Tool
+ ↓
+structured data
+```
+
+---
+
+# 6. Artifacts
+
+أريد من البداية مفهوم:
+
+```text
+Artifact
+```
+
+لأن Thanarah Intelligence مستقبلًا يجب أن ينتج أشياء وليس مجرد نصوص.
+
+الـ Artifact يمكن أن يكون:
+
+```text
+PDF
+Spreadsheet
+Document
+CSV
+JSON
+Image
+Chart
+Report
+```
+
+كل artifact يجب أن يكون له:
+
+```text
+artifactId
+type
+name
+createdBy
+tenantId
+userId
+conversationId
+taskId
+createdAt
+status
+```
+
+ولا تحفظ binary files داخل conversation document نفسه.
+
+Conversation تشير إلى artifact.
+
+---
+
+# 7. Tables / Spreadsheets
+
+عندما يقول المستخدم:
+
+```text
+اعمل لي جدول للمواعيد
+```
+
+لا نريد فقط Markdown table.
+
+نريد architecture تسمح بإنتاج:
+
+```text
+Structured Table
+```
+
+ثم مستقبلًا:
+
+```text
+XLSX
+CSV
+PDF
+```
+
+مثال:
+
+```text
+Table
+columns
+rows
+metadata
+```
+
+بحيث يمكن للـ AI أن يقول:
+
+```text
+Created a table
+```
+
+ثم المستخدم يستطيع فتحه أو تصديره.
+
+---
+
+# 8. PDF / Document Generation
+
+أنشئ capability contract فقط الآن:
+
+```text
+create_pdf
+create_document
+```
+
+مع:
+
+```text
+input
+output
+status
+artifactId
+```
+
+لا نحتاج الآن بناء نظام تقارير كامل.
+
+نحتاج فقط architecture تسمح بإضافته بدون تعديل Conversation architecture.
+
+---
+
+# 9. Web Search
+
+لا تنفذ Web Search بالكامل في هذه المرحلة.
+
+لكن يجب أن يكون هناك Skill contract:
+
+```text
+web_search
+```
+
+والـ orchestrator يستطيع لاحقًا إرسال Task مثل:
+
+```text
+{
+  type: "skill",
+  skill: "web_search",
+  input: {...}
+}
+```
+
+Phase 3 لاحقًا ستقوم بتنفيذ:
+
+```text
+SearXNG
+fetch
+extract
+rerank
+source verification
+citations
+```
+
+لا تعمل ذلك الآن.
+
+---
+
+# 10. Thanarah Core Tools
+
+نفس الشيء بالنسبة لـ Thanarah.
+
+نحتاج contract:
+
+```text
+thanarah_tool
+```
+
+مثلاً مستقبلًا:
+
+```text
+get_appointments
+get_doctors
+get_services
+get_working_hours
+get_insurance
+get_patient_information
+```
+
+لكن لا تخترع APIs غير موجودة.
+
+لا تنفذ أي integration مع Thanarah Core الآن لأن الـ API contract النهائي لم يتم اعتماده بعد.
+
+فقط جهز:
+
+```text
+Tool Registry
+Tool Contract
+Permission Contract
+Execution Contract
+```
+
+---
+
+# 11. Permissions
+
+كل Skill / Tool يجب أن تعرف ما الذي تحتاجه.
+
+مثال:
+
+```text
+web_search
+→ internet_access
+
+create_pdf
+→ artifact_write
+
+get_appointments
+→ appointments.read
+```
+
+والـ user/role/tenant permissions يتم التحقق منها قبل التنفيذ.
+
+الموديل لا يستطيع إعطاء نفسه permission.
+
+ولا يستطيع:
+
+```text
+"أنا أحتاج بيانات المرضى"
+```
+
+ثم الوصول إليها.
+
+كل execution يجب أن يمر عبر authorization layer.
+
+---
+
+# 12. Execution Timeline
+
+أريد أن يكون للـ UI مفهوم:
+
+```text
+Execution Timeline
+```
+
+مثال:
+
+```text
+You
+أريد تقريرًا عن أداء العيادة مع PDF.
+
+Thanarah Intelligence
+
+✓ فهم الطلب
+✓ تحليل بيانات المواعيد
+✓ تحليل النتائج
+● إنشاء التقرير
+○ إنشاء PDF
+```
+
+بعد الانتهاء:
+
+```text
+✓ Report created
+✓ PDF created
+
+[Open PDF]
+```
+
+هذا هو الـ UX الذي نريده.
+
+مرة أخرى:
+
+لا تعرض Chain-of-Thought.
+
+نعرض فقط **execution events** التي حدثت فعليًا.
+
+---
+
+# 13. Streaming يجب أن يدعم Events وليس فقط Text
+
+الـ SSE الحالي يجب أن يتطور مستقبلًا ليقدر يرسل events مثل:
+
+```text
+status
+text
+task_started
+task_completed
+artifact_created
+source_found
+error
+done
+```
+
+مثال:
+
+```text
+event: status
+data: {"state":"planning"}
+
+event: task_started
+data: {"taskId":"1","name":"Analyze appointments"}
+
+event: text
+data: {"delta":"بناءً على..."}
+
+event: task_completed
+data: {"taskId":"1"}
+
+event: artifact_created
+data: {"artifactId":"..."}
+
+event: done
+```
+
+لا تكسر الـ existing text streaming.
+
+اجعل protocol backward-compatible.
+
+---
+
+# 14. Personalized Skills
+
+Skills نفسها يمكن أن تصبح personalized.
+
+مثلاً مؤسسة تستخدم Thanarah غالبًا في:
+
+```text
+Appointments
+Insurance
+Reports
+Operations
+```
+
+يمكن أن تظهر هذه skills أولًا.
+
+ومستخدم آخر:
+
+```text
+Marketing
+Analysis
+Documents
+Research
+```
+
+ترتيب الـ Skills يكون مختلفًا.
+
+لكن لا نريد ML معقد الآن.
+
+ابدأ بـ deterministic ranking يعتمد على:
+
+```text
+recent usage
+frequent topics
+organization context
+enabled capabilities
+```
+
+---
+
+# 15. Welcome Experience
+
+عند فتح Chat:
+
+إذا كان المستخدم جديدًا:
+
+```text
+مرحبًا بك في ذكاء Thanarah
+
+أقدر أساعدك في:
+المعلومات
+التحليل
+الكتابة
+المستندات
+والعمل داخل Thanarah
+```
+
+ثم:
+
+```text
+Try a skill
+
+[Research]
+[Analyze]
+[Create a document]
+```
+
+أما المستخدم الذي لديه history:
+
+يعرض:
+
+```text
+Recent topics
+
+Your frequent tasks
+
+Suggested skills
+```
+
+ولا تظهر نفس الـ suggestions للجميع.
+
+---
+
+# 16. "يتعلم العميل"
+
+أريد foundation حقيقية لذلك.
+
+لكن لا أريد ادعاء:
+
+"النظام يفهم تفكير العميل."
+
+التنفيذ الصحيح:
+
+```text
+Conversation history
++
+usage patterns
++
+explicit preferences
++
+organization context
++
+successful interactions
+        ↓
+AI Context Profile
+        ↓
+personalized suggestions
+        ↓
+personalized skill ordering
+        ↓
+better context
+```
+
+ولا تستنتج معلومات حساسة أو شخصية بدون evidence.
+
+ولا تستخدم memory من Tenant آخر.
+
+---
+
+# 17. Architecture المطلوبة
+
+أريد architecture بهذا الشكل:
+
+```text
+                    Thanarah Intelligence
+                             │
+                    ┌────────┴────────┐
+                    │                 │
+              Conversation       Task Orchestrator
+                    │                 │
+             Context Profile         │
+                    │                 │
+                    └────────┬────────┘
+                             │
+                       Skill Registry
+                             │
+                    ┌────────┼─────────┐
+                    │        │         │
+                 Tools    Artifacts   Search
+                    │
+             Thanarah Core
+```
+
+والـ Core responsibilities تكون واضحة:
+
+### Conversation Layer
+
+messages / titles / pins / history
+
+### Context Layer
+
+user context / tenant context / preferences / memory
+
+### Orchestration Layer
+
+tasks / dependencies / execution states
+
+### Skills Layer
+
+capability registry
+
+### Tool Layer
+
+actual external/internal actions
+
+### Artifact Layer
+
+files / tables / reports
+
+### Streaming Layer
+
+SSE events
+
+### Security Layer
+
+tenant / user / role / permissions
+
+---
+
+# 18. أهم قاعدة
+
+لا تجعل الـ AI يستطيع تنفيذ أي Tool مباشرة.
+
+الـ flow يجب أن يكون:
+
+```text
+Model
+ ↓
+Proposed action
+ ↓
+Orchestrator
+ ↓
+Permission check
+ ↓
+Tool execution
+ ↓
+Validated result
+ ↓
+Model
+ ↓
+User
+```
+
+هذا سيكون أساس Agent architecture لاحقًا.
+
+---
+
+# 19. Testing
+
+أريد tests للـ foundation:
+
+### Context
+
+* timezone
+* locale
+* user context
+* tenant isolation
+
+### Conversations
+
+* multiple messages
+* title
+* pin
+* persistence
+
+### Tasks
+
+* create
+* decomposition
+* dependencies
+* parallel tasks
+* sequential tasks
+* cancellation
+* failure
+
+### Skills
+
+* registry
+* discovery
+* permission requirements
+* disabled skill
+* personalized ordering
+
+### Artifacts
+
+* create
+* metadata
+* tenant isolation
+* conversation association
+* task association
+
+### Streaming
+
+* text event
+* status event
+* task event
+* artifact event
+* done
+* abort
+* error
+
+### Security
+
+* no cross-user access
+* no cross-tenant access
+* no unauthorized tool execution
+
+ثم:
+
+* regression
+* compile/typecheck
+* health
+* API tests
+
+---
+
+# 20. ممنوع في هذه المرحلة
+
+لا تبدأ:
+
+* Web Search implementation
+* SearXNG implementation
+* Thanarah Core API integration
+* real Agent loop
+* autonomous infinite execution
+* external AI
+* external paid APIs
+* Qdrant production activation
+
+هذه المرحلة فقط:
+
+**Context + Skills Registry + Task Orchestration + Artifact Contracts + Streaming Events**
+
+وبعدها توقف تمامًا.
+
+أريد التقرير النهائي بالأرقام والملفات التي تم تعديلها، وأريد معرفة أي جزء تم تنفيذه فعليًا وأي جزء مجرد contract/foundation.
+
+لا تقل "تم تنفيذ Agent" إذا لم يتم تنفيذ Agent فعليًا.
+
+ولا تغير production model أو runtime configuration الحالي.

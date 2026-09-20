@@ -48,6 +48,7 @@ class ResponseCacheService:
             "ragEnabled": tenant_config.get("ragEnabled", True),
             "memoryEnabled": tenant_config.get("memoryEnabled", True),
             "knowledgeVersion": tenant_config.get("knowledgeVersion", ""),
+            "contextProfile": tenant_config.get("contextProfile", {}),
             "model": (
                 settings.external_ai_model
                 if settings.external_ai_enabled

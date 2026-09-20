@@ -105,6 +105,49 @@ class AIEngineRegressionTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(request.stream)
         self.assertEqual(request.messages[0].role, "user")
 
+    def test_configured_context_profile_is_scoped_to_prompt_context(self):
+        router = IntelligenceRouter(_Registry())
+        request = ChatRequest(
+            messages=[ChatMessage(role="user", content="ساعدني")],
+            tenantId="tenant-a",
+            userId="user-a",
+            tenantConfig={
+                "contextProfile": {
+                    "organizationContext": {"industry": "healthcare"},
+                    "userContext": {"preferredResponseStyle": "concise"},
+                    "frequentTopics": ["appointments"],
+                }
+            },
+        )
+
+        context = router._build_context(request)
+
+        self.assertIn("Thanarah Context Profile", context)
+        self.assertIn("healthcare", context)
+        self.assertIn("appointments", context)
+
+    def test_context_profile_changes_cache_fingerprint(self):
+        base = ChatRequest(
+            messages=[ChatMessage(role="user", content="hello")],
+            tenantId="tenant-a",
+            userId="user-a",
+            tenantConfig={"ragEnabled": False, "memoryEnabled": False},
+        )
+        configured = base.model_copy(
+            update={
+                "tenantConfig": {
+                    "ragEnabled": False,
+                    "memoryEnabled": False,
+                    "contextProfile": {"frequentTopics": ["appointments"]},
+                }
+            }
+        )
+
+        self.assertNotEqual(
+            ResponseCacheService.context_fingerprint(base),
+            ResponseCacheService.context_fingerprint(configured),
+        )
+
     def test_history_is_bounded_and_keeps_latest_messages(self):
         router = IntelligenceRouter(_Registry())
         request = ChatRequest(
