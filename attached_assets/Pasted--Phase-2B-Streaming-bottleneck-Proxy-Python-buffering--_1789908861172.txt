@@ -1,0 +1,217 @@
+ممتاز. Phase 2B اكتملت.
+
+النتيجة أصبحت واضحة:
+
+* Streaming ليس bottleneck.
+* Proxy/Python buffering ليس bottleneck.
+* Queue wait ليس bottleneck.
+* Cold reload بسبب model unload مثبت.
+* Warm request يمكن أن يكون سريعًا.
+* 4 threads حاليًا أفضل من 6/8/10 في البيئة الاختبارية.
+* Generation نفسها ما زالت أكبر bottleneck.
+
+الآن نفّذ **Phase 2C فقط: Local Model & Inference Benchmark**.
+
+لا تبدأ Web Search أو Qdrant production activation أو Agent أو Tool Calling.
+
+---
+
+# الهدف
+
+نريد معرفة هل يمكن تحسين inference نفسه باستخدام موديل محلي أو quantization/runtime configuration أفضل، بدون أي API خارجي وبدون أي تكلفة.
+
+## 1. لا تغير production model
+
+احتفظ بـQwen الحالي كـproduction model.
+
+أي موديل آخر يجب أن يكون benchmark-only أولًا.
+
+---
+
+# 2. اكتشف الموديل الحالي بدقة
+
+سجل:
+
+* exact model name
+* exact model tag
+* parameter size
+* quantization
+* context configuration
+* Ollama configuration
+* threads
+* batch configuration
+* keep_alive
+
+لا تعتمد على اسم عام مثل "Qwen 7B".
+
+---
+
+# 3. Inventory للموديلات المحلية الممكنة
+
+ابحث داخل البيئة الحالية أولًا عن الموديلات الموجودة بالفعل.
+
+إذا كان هناك models أخرى مثبتة، يمكن benchmark لها.
+
+إذا لم تكن موجودة، لا تقم بتحميل عشرات الموديلات.
+
+اختر عددًا صغيرًا جدًا من النماذج المفتوحة المناسبة للـCPU و24GB RAM.
+
+الأولوية لموديلات:
+
+* صغيرة/متوسطة
+* جيدة في العربية والإنجليزية
+* instruction/chat capable
+* مناسبة لـOllama
+* يمكن تشغيلها محليًا
+
+أي model download يجب أن يكون ضروريًا للbenchmark فقط، ولا تغير production.
+
+---
+
+# 4. Quantization benchmark
+
+إذا كان بالإمكان استخدام quantized variants من نفس العائلة، اختبر variants مناسبة للـCPU/RAM.
+
+لا تختبر عددًا ضخمًا من combinations.
+
+نريد مجموعة صغيرة meaningful.
+
+---
+
+# 5. Standard benchmark dataset
+
+استخدم نفس مجموعة الأسئلة حتى تكون المقارنة عادلة.
+
+على الأقل:
+
+* 5 Arabic
+* 5 English
+* 5 technical
+* 5 conversational
+
+واجعل prompts متطابقة قدر الإمكان بين الموديلات.
+
+لا تستخدم web search أو RAG أثناء هذا benchmark.
+
+نريد قياس inference فقط.
+
+---
+
+# 6. Metrics
+
+لكل model/configuration:
+
+* model load time
+* TTFT P50
+* TTFT P95
+* total latency P50
+* total latency P95
+* tokens/sec P50
+* tokens/sec average
+* input tokens
+* output tokens
+* CPU
+* RAM
+
+---
+
+# 7. Quality check
+
+لا نريد اختيار أسرع model فقط.
+
+اعمل quality checklist بسيطة لنفس الإجابات:
+
+* Arabic coherence
+* instruction following
+* factual consistency
+* refusal behavior
+* formatting
+* technical answer quality
+
+لا تعطِ score عشوائيًا.
+
+إذا كان التقييم automated فقط، وضح limitations.
+
+---
+
+# 8. Context test
+
+لأفضل موديلين فقط، اختبر:
+
+Short context
+Medium context
+Long context
+
+وقارن:
+
+* TTFT
+* prompt evaluation
+* total latency
+* tokens/sec
+
+---
+
+# 9. Production recommendation
+
+في النهاية لا تغير production configuration تلقائيًا.
+
+أعطني جدول:
+
+| Model | Quantization | TTFT P50 | TTFT P95 | Tokens/sec | Total P50 | Total P95 | RAM | CPU | Quality notes |
+| ----- | ------------ | -------: | -------: | ---------: | --------: | --------: | --: | --: | ------------- |
+
+ثم قدم recommendation تقنية مبنية على البيانات، وليس على اسم الموديل.
+
+إذا كان Qwen الحالي أفضل tradeoff، قل ذلك.
+
+إذا كان موديل آخر أسرع لكن أسوأ في العربية، وضح ذلك.
+
+إذا لم توجد بيانات كافية، لا تخترع conclusion.
+
+---
+
+# 10. Important
+
+لا تستخدم:
+
+* OpenAI
+* Anthropic
+* Gemini
+* Groq
+* OpenRouter
+* أي external AI API
+* أي paid service
+
+ولا تبدأ:
+
+* SearXNG
+* Web Search
+* Agent
+* Tool Calling
+* Thanarah Core integration
+
+---
+
+# Deliverables
+
+أنشئ:
+
+docs/ai-model-benchmark-phase-2c.md
+
+و:
+
+docs/ai-model-benchmark-phase-2c.json
+
+والـJSON يجب أن يحتوي raw measurements.
+
+شغّل:
+
+* Python tests
+* regression
+* compile
+* existing AI tests
+* benchmark
+
+ثم توقف.
+
+لا تغير production model أو production thread configuration بناءً على benchmark بدون موافقة لاحقة.
