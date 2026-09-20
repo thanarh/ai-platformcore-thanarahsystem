@@ -1,0 +1,237 @@
+Phase 2A ناجحة، والـlegacy pipeline تحسن بالفعل.
+
+قبل الانتقال إلى Web Search، أريد تنفيذ **Phase 2B فقط**.
+
+الهدف: تحسين Local AI Runtime على Ollama/Qwen بدون أي خدمة خارجية وبدون إضافة تكلفة.
+
+## المشكلة الأساسية
+
+رغم وجود startup warm-up، ظهر cold model load وصل إلى حوالي **17.77s**.
+
+لا أريد workaround شكليًا.
+
+أريد تحديد سبب حدوث cold load بعد warm-up.
+
+---
+
+# 1. Diagnose model lifecycle
+
+افحص lifecycle الخاص بـOllama/Qwen:
+
+* startup
+* warm-up
+* keep-alive
+* unload
+* restart
+* health check
+* first request after idle
+* first request after service restart
+
+حدد هل:
+
+1. Ollama نفسه يعيد التشغيل
+2. Qwen يتم unload من الذاكرة
+3. keep_alive غير مضبوط
+4. warm-up لا ينتظر model readiness فعليًا
+5. Render يعيد تشغيل process
+6. هناك timeout أو connection reset
+7. أو سبب آخر
+
+لا تخمن.
+
+أضف telemetry يميز بين:
+
+COLD_MODEL_LOAD
+WARM_MODEL_REQUEST
+MODEL_RELOAD
+OLLAMA_RESTART
+
+---
+
+# 2. Ollama keep-alive
+
+إذا كانت نسخة Ollama الحالية تدعم ذلك، استخدم keep-alive مناسبًا بحيث يبقى Qwen محملًا أثناء الاستخدام الطبيعي.
+
+لا تجعل keep-alive يستهلك الموارد بشكل غير ضروري.
+
+اجعل configuration عبر environment variables.
+
+مثلاً:
+
+OLLAMA_KEEP_ALIVE
+
+لكن استخدم القيمة المناسبة بناءً على البيئة الحالية، ولا تفترض قيمة مثالية بدون قياس.
+
+---
+
+# 3. Real readiness
+
+لا تعتبر AI service جاهزًا لمجرد أن Ollama HTTP endpoint يستجيب.
+
+الـhealth يجب أن يميز بين:
+
+Ollama reachable
+Model available
+Model loaded
+Model warm
+Generation ready
+
+---
+
+# 4. Warm-up verification
+
+بعد startup warm-up:
+
+1. نفذ warm-up.
+2. قِس TTFT.
+3. نفذ request حقيقي صغير.
+4. قِس TTFT.
+5. انتظر فترة قصيرة.
+6. نفذ request آخر.
+7. قِس TTFT.
+
+الهدف معرفة هل model يبقى loaded فعلًا.
+
+---
+
+# 5. Model runtime benchmark
+
+على البيئة الحالية، اختبر فقط إعدادات آمنة:
+
+* current threads
+* 6 threads
+* 8 threads
+* 10 threads
+
+إذا كانت البيئة الحالية لا تحتوي 12 CPU، لا تدّعي أنها تمثل Render production.
+
+لكل إعداد:
+
+* TTFT P50
+* TTFT P95
+* total latency P50
+* total latency P95
+* tokens/sec
+* CPU
+* RAM
+
+لا تغير production configuration قبل benchmark.
+
+---
+
+# 6. Context benchmark
+
+لدينا بالفعل تحسن في context.
+
+أريد benchmark يوضح تأثير:
+
+Short context
+Medium context
+Long context
+
+على:
+
+* prompt evaluation
+* TTFT
+* total latency
+* input tokens
+
+لا تقلل context production عشوائيًا إذا كان سيؤثر على جودة المحادثة.
+
+---
+
+# 7. Streaming verification
+
+اختبر أن أول SSE chunk/token يصل فور توفره.
+
+قِس:
+
+request start
+→ first byte
+→ first token
+→ last token
+
+ويجب ألا يكون هناك buffering غير ضروري في:
+
+NestJS
+Python
+Ollama
+proxy
+frontend
+
+---
+
+# 8. Do NOT add new infrastructure
+
+ممنوع الآن:
+
+* Qdrant activation
+* SearXNG
+* Web Search
+* Playwright
+* Agent
+* Tool Calling
+* Thanarah Core integration
+* external AI APIs
+* paid services
+* new UI features
+
+---
+
+# 9. Deliverable
+
+أنشئ:
+
+docs/ai-runtime-phase-2b.md
+
+ويجب أن يحتوي على:
+
+### Model lifecycle
+
+سبب cold reload إن تم تحديده.
+
+### Warm-up
+
+قبل/بعد.
+
+### Keep-alive
+
+configuration + measured effect.
+
+### Threads
+
+comparison table.
+
+### Context
+
+comparison table.
+
+### Streaming
+
+first byte / first token / final token.
+
+### Final recommendation
+
+ما configuration الذي يجب استخدامه في production ولماذا.
+
+إذا لم يمكن إثبات سبب الـ17.77s، قل بوضوح:
+
+"Root cause not conclusively identified"
+
+ولا تخترع سببًا.
+
+---
+
+## Definition of Done
+
+* Existing tests pass
+* AI tests pass
+* Build passes
+* No UI changes
+* No customer/admin changes
+* No external providers
+* No paid services
+* No Phase 3
+* No Qdrant activation
+
+بعد التقرير توقف تمامًا.
