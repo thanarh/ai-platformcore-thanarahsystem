@@ -4,6 +4,7 @@ import json
 import logging
 import time
 import asyncio
+from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
@@ -29,6 +30,13 @@ class OllamaBackend(AIBackend):
         self._slots = asyncio.Semaphore(max(1, settings.local_ai_max_concurrency))
         self._queue_lock = asyncio.Lock()
         self._queued = 0
+        self._warmup_status = {
+            "ollamaAvailable": False,
+            "modelAvailable": False,
+            "modelWarm": False,
+            "warmupDuration": None,
+            "lastWarmupAt": None,
+        }
 
     @asynccontextmanager
     async def _generation_slot(self, telemetry=None):
@@ -107,6 +115,53 @@ class OllamaBackend(AIBackend):
 
     async def is_available(self) -> bool:
         return (await self.health_check()).available
+
+    async def warmup(self) -> dict:
+        """Perform a real minimal generation before declaring AI ready."""
+        started = time.perf_counter()
+        status = {
+            "ollamaAvailable": False,
+            "modelAvailable": False,
+            "modelWarm": False,
+            "warmupDuration": None,
+            "lastWarmupAt": None,
+        }
+        try:
+            tags = await self._get_client().get("/api/tags", timeout=5)
+            tags.raise_for_status()
+            status["ollamaAvailable"] = True
+            models = tags.json().get("models", [])
+            names = {item.get("name") or item.get("model") for item in models}
+            model = self._model(AIRequest(messages=[]))
+            status["modelAvailable"] = model in names
+            if not status["modelAvailable"]:
+                return status
+            response = await self._get_client().post(
+                "/api/chat",
+                json={
+                    "model": model,
+                    "messages": [{"role": "user", "content": "جاهز"}],
+                    "stream": False,
+                    "think": False,
+                    "keep_alive": self._keep_alive(),
+                    "options": {"num_predict": 1, "temperature": 0},
+                },
+                timeout=httpx.Timeout(connect=5, read=90, write=10, pool=10),
+            )
+            response.raise_for_status()
+            data = response.json()
+            status["modelWarm"] = bool(data.get("done"))
+            status["lastWarmupAt"] = datetime.now(timezone.utc).isoformat()
+        except Exception as exc:
+            logger.warning("Ollama warm-up failed: %s", str(exc)[:180])
+            status["error"] = type(exc).__name__
+        finally:
+            status["warmupDuration"] = round((time.perf_counter() - started) * 1000, 2)
+            self._warmup_status = status
+        return status
+
+    def warmup_status(self) -> dict:
+        return dict(self._warmup_status)
 
     async def chat(self, request: AIRequest) -> AIResponse:
         start = time.time()

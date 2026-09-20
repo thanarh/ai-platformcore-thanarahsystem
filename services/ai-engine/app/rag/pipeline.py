@@ -8,11 +8,14 @@ import logging
 import io
 import re
 import time
-from typing import List, Optional
+from datetime import datetime, timezone
+from typing import Any, List, Optional
 import numpy as np
 from app.database import get_db
 from app.embeddings import embedding_service
 from app.config import settings
+from app.rag.qdrant_store import QdrantUnavailable, qdrant_store
+from app.rag.reranker import local_reranker
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +112,7 @@ class RAGPipeline:
     def __init__(self):
         self.embedder = EmbeddingModel()
         self.parser = DocumentParser()
-        self.chunker = TextChunker()
+        self.chunker = TextChunker(settings.rag_chunk_size, settings.rag_chunk_overlap)
 
     async def ingest(
         self,
@@ -117,6 +120,12 @@ class RAGPipeline:
         tenant_id: str,
         content: bytes,
         mime_type: str = "text/plain",
+        *,
+        document_version: str = "v1",
+        clinic_id: str | None = None,
+        language: str = "unknown",
+        category: str = "general",
+        access_level: str = "tenant",
     ) -> int:
         """Parse, chunk, embed, and store a document. Returns chunk count."""
         db = get_db()
@@ -132,22 +141,64 @@ class RAGPipeline:
         # Chunk
         chunks = self.chunker.chunk(text)
 
-        # Replace previous chunks for the source so retries remain idempotent.
+        now = datetime.now(timezone.utc).isoformat()
+        metadata = {
+            "documentId": source_id,
+            "clinicId": clinic_id,
+            "language": language,
+            "category": category,
+            "accessLevel": access_level,
+            "status": "active",
+            "createdAt": now,
+            "updatedAt": now,
+        }
+
+        # Replace previous Mongo chunks for the source so retries remain
+        # compatible with the legacy path.
         await db.knowledge_chunks.delete_many({"sourceId": source_id, "tenantId": tenant_id})
 
         # Embed and store
         stored = 0
+        embeddings: list[list[float]] = []
         for i, chunk in enumerate(chunks):
             embedding = self.embedder.encode(chunk)
+            embeddings.append(embedding)
             await db.knowledge_chunks.insert_one({
                 "sourceId": source_id,
                 "tenantId": tenant_id,
+                "documentId": source_id,
+                "documentVersion": document_version,
+                "clinicId": clinic_id,
+                "language": language,
+                "category": category,
+                "accessLevel": access_level,
+                "status": "active",
                 "content": chunk,
                 "embedding": embedding,
+                "chunkId": f"{source_id}:{document_version}:{i}",
                 "chunkIndex": i,
                 "totalChunks": len(chunks),
+                "createdAt": now,
+                "updatedAt": now,
             })
             stored += 1
+
+        if qdrant_store.enabled:
+            try:
+                await qdrant_store.ensure_collection(len(embeddings[0]))
+                await qdrant_store.delete_source(tenant_id, source_id, document_version)
+                await qdrant_store.upsert_chunks(
+                    tenant_id=tenant_id,
+                    source_id=source_id,
+                    document_version=document_version,
+                    chunks=chunks,
+                    embeddings=embeddings,
+                    metadata=metadata,
+                )
+            except QdrantUnavailable as exc:
+                # Mongo remains the safe legacy source while Qdrant is
+                # starting, unavailable, or being rolled back.
+                logger.warning("Qdrant dual-write skipped; legacy data is intact: %s", exc)
 
         logger.info(f"Ingested {stored} chunks for source {source_id}")
         from app.response_cache import response_cache_service
@@ -165,7 +216,7 @@ class RAGPipeline:
     ) -> List[dict]:
         """Retrieve the most relevant chunks for a query."""
         db = get_db()
-        if db is None:
+        if db is None and not qdrant_store.enabled:
             return []
 
         embedding_started = time.perf_counter()
@@ -173,12 +224,38 @@ class RAGPipeline:
         if telemetry is not None:
             telemetry.add_ms("embeddingMs", embedding_started)
 
-        # Bounded scan keeps CPU/RAM predictable until a native vector index is enabled.
+        if qdrant_store.enabled:
+            try:
+                candidates = await qdrant_store.hybrid_search(
+                    tenant_id,
+                    query,
+                    query_embedding,
+                    max(settings.qdrant_candidate_limit, limit * 4),
+                )
+                return await local_reranker.rerank(query, candidates, min(limit, settings.rag_default_limit))
+            except QdrantUnavailable as exc:
+                logger.warning("Qdrant retrieval unavailable; falling back to legacy RAG: %s", exc)
+
+        # Bounded scan keeps CPU/RAM predictable in the legacy backend.
+        if db is None:
+            return []
         try:
             chunks = await asyncio.wait_for(
                 db.knowledge_chunks.find(
                     {"tenantId": tenant_id},
-                    {"content": 1, "embedding": 1, "sourceId": 1, "chunkIndex": 1},
+                    {
+                        "content": 1,
+                        "embedding": 1,
+                        "sourceId": 1,
+                        "documentId": 1,
+                        "documentVersion": 1,
+                        "chunkId": 1,
+                        "clinicId": 1,
+                        "language": 1,
+                        "category": 1,
+                        "accessLevel": 1,
+                        "chunkIndex": 1,
+                    },
                 ).sort("chunkIndex", 1).to_list(length=settings.rag_max_scan),
                 timeout=settings.rag_query_timeout_seconds,
             )
@@ -211,6 +288,13 @@ class RAGPipeline:
                     scored.append({
                         "content": chunk["content"],
                         "sourceId": chunk["sourceId"],
+                        "documentId": chunk.get("documentId", chunk["sourceId"]),
+                        "documentVersion": chunk.get("documentVersion", "v1"),
+                        "chunkId": chunk.get("chunkId"),
+                        "clinicId": chunk.get("clinicId"),
+                        "language": chunk.get("language", "unknown"),
+                        "category": chunk.get("category", "general"),
+                        "accessLevel": chunk.get("accessLevel", "tenant"),
                         "score": score,
                         "chunkIndex": chunk.get("chunkIndex", 0),
                     })
@@ -226,6 +310,37 @@ class RAGPipeline:
             source_id, tenant_id, text.encode("utf-8"), "text/plain"
         )
 
+    async def reindex_tenant(self, tenant_id: str, source_id: str | None = None) -> int:
+        """Idempotently project existing Mongo chunks into Qdrant."""
+        db = get_db()
+        if db is None or not qdrant_store.enabled:
+            return 0
+        query: dict[str, Any] = {"tenantId": tenant_id}
+        if source_id:
+            query["sourceId"] = source_id
+        documents = await db.knowledge_chunks.find(query).to_list(length=settings.rag_max_scan)
+        grouped: dict[tuple[str, str], list[dict[str, Any]]] = {}
+        for item in documents:
+            key = (item.get("sourceId", ""), item.get("documentVersion", "v1"))
+            grouped.setdefault(key, []).append(item)
+        projected = 0
+        for (source, version), items in grouped.items():
+            items.sort(key=lambda item: item.get("chunkIndex", 0))
+            if not items or not items[0].get("embedding"):
+                continue
+            await qdrant_store.ensure_collection(len(items[0]["embedding"]))
+            await qdrant_store.delete_source(tenant_id, source, version)
+            await qdrant_store.upsert_chunks(
+                tenant_id=tenant_id,
+                source_id=source,
+                document_version=version,
+                chunks=[item.get("content", "") for item in items],
+                embeddings=[item.get("embedding", []) for item in items],
+                metadata=items[0],
+            )
+            projected += len(items)
+        return projected
+
     async def delete_source(self, source_id: str, tenant_id: str | None = None):
         """Remove all chunks for a source."""
         db = get_db()
@@ -234,6 +349,11 @@ class RAGPipeline:
             if tenant_id:
                 query["tenantId"] = tenant_id
             await db.knowledge_chunks.delete_many(query)
+            if tenant_id and qdrant_store.enabled:
+                try:
+                    await qdrant_store.delete_source(tenant_id, source_id)
+                except QdrantUnavailable as exc:
+                    logger.warning("Qdrant delete skipped: %s", exc)
             if tenant_id:
                 from app.response_cache import response_cache_service
 

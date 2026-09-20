@@ -7,6 +7,7 @@ from app.config import settings
 from app.database import get_db
 from app.response_cache import response_cache_service
 from app.telemetry import recent_records
+from app.rag.qdrant_store import qdrant_store
 
 router = APIRouter()
 _STARTED_AT = time.monotonic()
@@ -30,6 +31,8 @@ async def health(request: Request):
         (backend for backend in backends if backend.get("id") == "thanarah-local"),
         None,
     )
+    warmup_status = getattr(request.app.state, "warmup_status", {})
+    qdrant_available = await qdrant_store.is_available() if qdrant_store.enabled else False
     return {
         "status": "ok" if mongo_connected and local_backend and local_backend.get("healthy") else "degraded",
         "service": "Thanarah AI Engine",
@@ -39,8 +42,15 @@ async def health(request: Request):
             "status": "ok" if local_backend and local_backend.get("healthy") else "error",
             "model": settings.local_ai_model,
             "available": bool(local_backend and local_backend.get("healthy")),
+            **warmup_status,
         },
         "mongodb": {"status": "ok" if mongo_connected else "error", "connected": mongo_connected},
+        "qdrant": {
+            "enabled": qdrant_store.enabled,
+            "available": qdrant_available,
+            "backend": settings.rag_backend,
+            "collection": settings.qdrant_collection,
+        },
         "cache": response_cache_service.stats(),
         "telemetry": {"bufferedRecords": len(recent_records(512))},
         "backends": backends,

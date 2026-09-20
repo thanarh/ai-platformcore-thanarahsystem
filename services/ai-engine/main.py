@@ -36,13 +36,24 @@ async def lifespan(app: FastAPI):
     registry = BackendRegistry()
     await registry.initialize()
     app.state.registry = registry
+    local_backend = registry.get("thanarah-local")
+    if local_backend and hasattr(local_backend, "warmup"):
+        app.state.warmup_status = await local_backend.warmup()
+    else:
+        app.state.warmup_status = {
+            "ollamaAvailable": False,
+            "modelAvailable": False,
+            "modelWarm": False,
+            "warmupDuration": None,
+            "lastWarmupAt": None,
+        }
 
     # Initialize intelligence router
     router = IntelligenceRouter(registry)
     app.state.intelligence_router = router
     learning_task = asyncio.create_task(daily_learning_service.worker())
 
-    logger.info("✅ Thanarah AI Engine ready")
+    logger.info("✅ Thanarah AI Engine ready (modelWarm=%s)", app.state.warmup_status["modelWarm"])
     logger.info(f"   Backends: {registry.count()} configured")
 
     yield

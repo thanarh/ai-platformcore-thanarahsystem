@@ -47,6 +47,20 @@ class Settings(BaseSettings):
     rag_default_limit: int = 5
     rag_query_timeout_seconds: float = 15.0
     context_source_timeout_seconds: float = 1.5
+    rag_backend: str = "legacy"
+    legacy_rag: bool = True
+    qdrant_rag: bool = False
+    qdrant_url: str = "http://127.0.0.1:6333"
+    qdrant_collection: str = "thanarah_knowledge"
+    qdrant_api_key: Optional[str] = None
+    qdrant_timeout_seconds: float = 3.0
+    qdrant_candidate_limit: int = 25
+    qdrant_enabled: bool = False
+    rag_reranker_enabled: bool = True
+    rag_reranker_model: str = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
+    rag_context_limit: int = 3
+    rag_chunk_size: int = 350
+    rag_chunk_overlap: int = 40
 
     # Local embeddings for semantic RAG. Sentence Transformers is optional;
     # the service falls back to deterministic hashing embeddings automatically.

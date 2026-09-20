@@ -180,8 +180,23 @@ class IntelligenceRouter:
 
         if rag_results:
             append_part("## Relevant Knowledge", 30)
-            for i, result in enumerate(rag_results[:3], 1):
-                append_part(f"{i}. {result.get('content', '')}", 1200)
+            seen_content: set[str] = set()
+            result_number = 0
+            for result in rag_results:
+                content = " ".join(str(result.get("content", "")).split())
+                fingerprint = content.casefold()
+                if not content or fingerprint in seen_content:
+                    continue
+                seen_content.add(fingerprint)
+                result_number += 1
+                if result_number > settings.rag_context_limit:
+                    break
+                reference = (
+                    f"[source={result.get('sourceId', 'unknown')}; "
+                    f"document={result.get('documentId', result.get('sourceId', 'unknown'))}; "
+                    f"version={result.get('documentVersion', 'v1')}]"
+                )
+                append_part(f"{result_number}. {reference}\n{content}", 1000)
 
         return "\n\n".join(parts) if parts else None
 
@@ -190,6 +205,7 @@ class IntelligenceRouter:
         chat_request: ChatRequest,
         route: RouteDecision,
         telemetry: Optional[RequestTelemetry] = None,
+        profile_task: Optional[asyncio.Task] = None,
     ) -> tuple[list, list, dict]:
         """Load memory, RAG, and communication profile concurrently."""
         tenant_config = chat_request.tenantConfig or {}
@@ -241,11 +257,21 @@ class IntelligenceRouter:
             except Exception:
                 return fallback
 
+        async def load_profile() -> dict:
+            if profile_task is not None:
+                try:
+                    return await profile_task
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    return {}
+            return await daily_learning_service.profile(chat_request.tenantId, chat_request.userId)
+
         memories, rag_sources, user_profile = await asyncio.gather(
             within_deadline(load_memories(), []),
             within_deadline(load_rag(), []),
             within_deadline(
-                daily_learning_service.profile(chat_request.tenantId, chat_request.userId),
+                load_profile(),
                 {},
             ),
         )
@@ -311,8 +337,15 @@ class IntelligenceRouter:
         """Route a chat request through the best available backend."""
         telemetry = RequestTelemetry(request_id=chat_request.requestId) if chat_request.requestId else RequestTelemetry()
 
-        cached = await response_cache_service.get(chat_request)
+        cache_started = time.perf_counter()
+        cache_task = asyncio.create_task(response_cache_service.get(chat_request))
+        profile_task = asyncio.create_task(
+            daily_learning_service.profile(chat_request.tenantId, chat_request.userId)
+        )
+        cached = await cache_task
+        telemetry.add_ms("cacheLookupMs", cache_started)
         if cached is not None:
+            profile_task.cancel()
             telemetry.set_ms("routerMs", (time.perf_counter() - telemetry.started_at) * 1000)
             telemetry.finish(
                 route=cached.backend or "thanarah-cache",
@@ -330,7 +363,9 @@ class IntelligenceRouter:
         logger.info(f"[TIR] Route decision: {route.backend_id} — {route.reason}")
 
         context_started = time.perf_counter()
-        memories, rag_sources, user_profile = await self._load_context_sources(chat_request, route, telemetry)
+        memories, rag_sources, user_profile = await self._load_context_sources(
+            chat_request, route, telemetry, profile_task
+        )
         telemetry.add_ms("contextMs", context_started)
         prompt_started = time.perf_counter()
         context = self._build_context(chat_request, rag_sources, memories, user_profile)
@@ -398,9 +433,14 @@ class IntelligenceRouter:
         """
         telemetry = RequestTelemetry(request_id=chat_request.requestId) if chat_request.requestId else RequestTelemetry()
         cache_started = time.perf_counter()
-        cached = await response_cache_service.get(chat_request)
+        cache_task = asyncio.create_task(response_cache_service.get(chat_request))
+        profile_task = asyncio.create_task(
+            daily_learning_service.profile(chat_request.tenantId, chat_request.userId)
+        )
+        cached = await cache_task
         telemetry.add_ms("cacheLookupMs", cache_started)
         if cached is not None:
+            profile_task.cancel()
             cache_route = RouteDecision(
                 backend_id="thanarah-cache",
                 reason=cached.routeDecision or "Fast response reuse",
@@ -429,7 +469,9 @@ class IntelligenceRouter:
         logger.info(f"[TIR Stream] Route: {route.backend_id}")
 
         context_started = time.perf_counter()
-        memories, rag_sources, user_profile = await self._load_context_sources(chat_request, route, telemetry)
+        memories, rag_sources, user_profile = await self._load_context_sources(
+            chat_request, route, telemetry, profile_task
+        )
         telemetry.add_ms("contextMs", context_started)
         prompt_started = time.perf_counter()
         context = self._build_context(chat_request, rag_sources, memories, user_profile)
