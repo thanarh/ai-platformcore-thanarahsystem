@@ -3,6 +3,7 @@ import { create } from 'zustand';
 
 export interface Message {
   _id?: string;
+  clientId?: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
   inputMode?: 'text' | 'voice';
@@ -62,7 +63,15 @@ interface ChatState {
     done?: boolean,
     streamStatus?: Message['streamStatus'],
   ) => void;
+  updateStreamingMessage: (
+    convId: string,
+    clientId: string,
+    content: string,
+    done?: boolean,
+    streamStatus?: Message['streamStatus'],
+  ) => void;
   finalizeLastMessage: (convId: string, content: string, meta?: any) => void;
+  finalizeMessage: (convId: string, clientId: string, content: string, meta?: any) => void;
   updateMessage: (convId: string, messageId: string, data: Partial<Message>) => void;
   
   setLoading: (v: boolean) => void;
@@ -116,6 +125,17 @@ export const useChatStore = create<ChatState>((set) => ({
       msgs[msgs.length - 1] = last;
       return { messages: { ...s.messages, [convId]: msgs } };
     }),
+  updateStreamingMessage: (convId, clientId, content, done = false, streamStatus) =>
+    set((s) => {
+      const messages = (s.messages[convId] || []).map((message) => {
+        if (message.clientId !== clientId) return message;
+        const next = { ...message, content, isStreaming: !done };
+        if (streamStatus) next.streamStatus = streamStatus;
+        if (done && !streamStatus) delete next.streamStatus;
+        return next;
+      });
+      return { messages: { ...s.messages, [convId]: messages } };
+    }),
   finalizeLastMessage: (convId, content, meta = {}) =>
     set((s) => {
       const msgs = [...(s.messages[convId] || [])];
@@ -140,6 +160,19 @@ export const useChatStore = create<ChatState>((set) => ({
         }
       }
       return { messages: { ...s.messages, [convId]: msgs } };
+    }),
+  finalizeMessage: (convId, clientId, content, meta = {}) =>
+    set((s) => {
+      const messages = (s.messages[convId] || []).map((message) => {
+        if (message.clientId !== clientId) return message;
+        const next = { ...message, content, isStreaming: false };
+        if (meta.stopped) next.streamStatus = 'stopped';
+        else delete next.streamStatus;
+        if (meta.messageId) next._id = String(meta.messageId);
+        next.aiMetadata = { ...(next.aiMetadata || {}), ...meta };
+        return next;
+      });
+      return { messages: { ...s.messages, [convId]: messages } };
     }),
   updateMessage: (convId, messageId, data) =>
     set((s) => ({
