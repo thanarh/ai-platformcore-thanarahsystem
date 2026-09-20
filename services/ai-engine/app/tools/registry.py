@@ -16,6 +16,7 @@ class ToolContext:
     user_id: str
     conversation_id: Optional[str] = None
     metadata: dict = field(default_factory=dict)
+    runtime_context: dict = field(default_factory=dict)
 
 
 class ThanarahTool(ABC):
@@ -38,6 +39,10 @@ class ThanarahTool(ABC):
     @abstractmethod
     def schema(self) -> dict:
         pass
+
+    @property
+    def required_permissions(self) -> tuple[str, ...]:
+        return ()
 
     @abstractmethod
     async def execute(self, input: Any, context: ToolContext) -> Any:
@@ -64,6 +69,10 @@ class SearchKnowledgeTool(ThanarahTool):
             },
             "required": ["query"],
         }
+
+    @property
+    def required_permissions(self) -> tuple[str, ...]:
+        return ("knowledge.read",)
 
     async def execute(self, input: dict, context: ToolContext) -> Any:
         from app.rag.pipeline import RAGPipeline
@@ -95,6 +104,10 @@ class CreateContractTool(ThanarahTool):
             "required": ["type"],
         }
 
+    @property
+    def required_permissions(self) -> tuple[str, ...]:
+        return ("artifact_write",)
+
     async def execute(self, input: dict, context: ToolContext) -> Any:
         # Contract generation engine — full implementation in contract module
         return {
@@ -124,6 +137,10 @@ class CalculateTool(ThanarahTool):
             },
             "required": ["expression"],
         }
+
+    @property
+    def required_permissions(self) -> tuple[str, ...]:
+        return ("compute",)
 
     async def execute(self, input: dict, context: ToolContext) -> Any:
         import ast
@@ -183,7 +200,12 @@ class ToolRegistry:
 
     def list_tools(self) -> list:
         return [
-            {"name": t.name, "description": t.description, "schema": t.schema}
+            {
+                "name": t.name,
+                "description": t.description,
+                "schema": t.schema,
+                "requiredPermissions": list(t.required_permissions),
+            }
             for t in self._tools.values()
         ]
 
@@ -191,5 +213,9 @@ class ToolRegistry:
         tool = self.get(name)
         if not tool:
             raise ValueError(f"Tool not found: {name}")
+        granted = set(context.metadata.get("authorizedPermissions", []))
+        missing = set(tool.required_permissions) - granted
+        if missing:
+            raise PermissionError(f"Missing permissions: {', '.join(sorted(missing))}")
         logger.info(f"Executing tool: {name} for tenant {context.tenant_id}")
         return await tool.execute(input, context)

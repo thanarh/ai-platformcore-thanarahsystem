@@ -32,6 +32,8 @@ export class AiController {
     body: {
       conversationId: string;
       content: string;
+      inputMode?: 'text' | 'voice';
+      voiceMetadata?: Record<string, unknown>;
     },
   ) {
     const tenantId = user.tenantId?.toString();
@@ -44,6 +46,8 @@ export class AiController {
         content: body.content,
         userId: user._id.toString(),
         tenantId,
+        inputMode: body.inputMode,
+        voiceMetadata: body.voiceMetadata,
       });
     } catch (error) {
       if (!platformAdmin) {
@@ -56,7 +60,12 @@ export class AiController {
   @Post('chat/stream')
   async chatStream(
     @CurrentUser() user: any,
-    @Body() body: { conversationId: string; content: string },
+    @Body() body: {
+      conversationId: string;
+      content: string;
+      inputMode?: 'text' | 'voice';
+      voiceMetadata?: Record<string, unknown>;
+    },
     @Res() res: Response,
   ) {
     const tenantId = user.tenantId?.toString();
@@ -68,6 +77,8 @@ export class AiController {
       content: body.content,
       userId: user._id.toString(),
       tenantId,
+      inputMode: body.inputMode,
+      voiceMetadata: body.voiceMetadata,
       res,
     });
   }
@@ -80,6 +91,16 @@ export class AiController {
   @Get('capabilities')
   getCapabilities() {
     return this.aiService.getCapabilities();
+  }
+
+  @Get('skills')
+  getSkills() {
+    return this.aiService.getSkills();
+  }
+
+  @Get('voice/capabilities')
+  getVoiceCapabilities() {
+    return this.aiService.getVoiceCapabilities();
   }
 
   @Get('backends')

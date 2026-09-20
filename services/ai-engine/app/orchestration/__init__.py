@@ -1,0 +1,1 @@
+"""Deterministic task planning and lifecycle contracts; no autonomous agent loop."""

@@ -49,6 +49,7 @@ class ResponseCacheService:
             "memoryEnabled": tenant_config.get("memoryEnabled", True),
             "knowledgeVersion": tenant_config.get("knowledgeVersion", ""),
             "contextProfile": tenant_config.get("contextProfile", {}),
+            "runtimeContext": tenant_config.get("runtimeContext", {}),
             "model": (
                 settings.external_ai_model
                 if settings.external_ai_enabled

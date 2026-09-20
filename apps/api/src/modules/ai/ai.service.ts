@@ -31,6 +31,8 @@ export class AiService {
     userId: string;
     tenantId: string;
     stream?: boolean;
+    inputMode?: 'text' | 'voice';
+    voiceMetadata?: Record<string, unknown>;
   }) {
     const requestId = uuidv4();
     const startTime = Date.now();
@@ -46,13 +48,15 @@ export class AiService {
     let tenantConfig: any = {};
     try {
       const tenant = await this.tenantsService.findById(data.tenantId);
+      const contextProfile = await this.contextProfileService
+        .getForAi(data.tenantId, data.userId)
+        .catch(() => ({}));
       tenantConfig = {
         ...(tenant.aiConfig || {}),
         industry: tenant.industry || tenant.type || 'general',
         medicalMode: tenant.medicalMode || {},
-        contextProfile: await this.contextProfileService
-          .getForAi(data.tenantId, data.userId)
-          .catch(() => ({})),
+        contextProfile,
+        runtimeContext: this.buildRuntimeContext(data, tenant, contextProfile),
       };
     } catch {}
 
@@ -63,6 +67,8 @@ export class AiService {
       conversationId: data.conversationId,
       role: 'user',
       content: data.content,
+      inputMode: data.inputMode,
+      voiceMetadata: data.voiceMetadata,
     });
     void this.contextProfileService.recordInteraction(
       data.tenantId,
@@ -98,6 +104,8 @@ export class AiService {
       tenantConfig,
       conversationSummary: conversation.summary,
       stream: data.stream || false,
+      inputMode: data.inputMode,
+      voiceMetadata: data.voiceMetadata,
     };
 
     try {
@@ -208,6 +216,8 @@ export class AiService {
     userId: string;
     tenantId: string;
     res: any;
+    inputMode?: 'text' | 'voice';
+    voiceMetadata?: Record<string, unknown>;
   }) {
     const requestId = uuidv4();
     const startTime = Date.now();
@@ -223,6 +233,7 @@ export class AiService {
       industry: tenantResult?.industry || tenantResult?.type || 'general',
       medicalMode: tenantResult?.medicalMode || {},
       contextProfile,
+      runtimeContext: this.buildRuntimeContext(data, tenantResult, contextProfile),
     };
 
     // Parallel: save user message + fetch recent history simultaneously
@@ -233,6 +244,8 @@ export class AiService {
         conversationId: data.conversationId,
         role: 'user',
         content: data.content,
+        inputMode: data.inputMode,
+        voiceMetadata: data.voiceMetadata,
       }),
       this.messagesService.getRecentMessages(data.conversationId, 8),
     ]);
@@ -267,6 +280,8 @@ export class AiService {
       tenantConfig,
       conversationSummary: conversation.summary,
       stream: true,
+      inputMode: data.inputMode,
+      voiceMetadata: data.voiceMetadata,
     };
 
     // Set SSE headers
@@ -354,7 +369,12 @@ export class AiService {
         sseBuffer = events.pop() || '';
 
         for (const event of events) {
+          let eventType = 'message';
           for (const line of event.split(/\r?\n/)) {
+            if (line.startsWith('event:')) {
+              eventType = line.slice(6).trim();
+              continue;
+            }
             if (!line.startsWith('data:')) continue;
             const raw = line.slice(5).trim();
             if (!raw) continue;
@@ -366,7 +386,9 @@ export class AiService {
               const parsed = JSON.parse(raw);
               if (parsed.delta) fullContent += parsed.delta;
               if (parsed.meta) aiMeta = parsed.meta;
-              const publicEvent = parsed.meta
+              const publicEvent = eventType !== 'message' && !parsed.event
+                ? { ...parsed, event: eventType }
+                : parsed.meta
                 ? { ...parsed, meta: { service: 'Thanarah Intelligence' } }
                 : parsed;
               data.res.write(`data: ${JSON.stringify(publicEvent)}\n\n`);
@@ -447,12 +469,51 @@ export class AiService {
     }
   }
 
+  private buildRuntimeContext(data: { userId: string; tenantId: string }, tenant: any, profile: any) {
+    const language =
+      profile?.userContext?.preferredLanguage ||
+      tenant?.settings?.defaultLanguage ||
+      'ar';
+    return {
+      userId: data.userId,
+      tenantId: data.tenantId,
+      timezone: tenant?.settings?.timezone || 'UTC',
+      locale: language === 'en' ? 'en-US' : 'ar-SA',
+      language,
+    };
+  }
+
   async getCapabilities() {
     try {
       const response = await axios.get(`${this.aiEngineUrl}/backends/capabilities`, { timeout: 5000 });
       return response.data;
     } catch {
       return { generation: { enabled: false }, embeddings: { ready: false }, rag: { enabled: false } };
+    }
+  }
+
+  async getSkills() {
+    try {
+      const response = await axios.get(`${this.aiEngineUrl}/capabilities/skills`, { timeout: 5000 });
+      return response.data;
+    } catch {
+      return { skills: [], executionMode: 'unavailable' };
+    }
+  }
+
+  async getVoiceCapabilities() {
+    try {
+      const response = await axios.get(`${this.aiEngineUrl}/voice/capabilities`, { timeout: 5000 });
+      return response.data;
+    } catch {
+      return {
+        voiceEnabled: false,
+        executionMode: 'unavailable',
+        supportedLanguages: ['ar', 'en'],
+        states: ['IDLE', 'LISTENING', 'TRANSCRIBING', 'THINKING', 'GENERATING', 'SPEAKING', 'STOPPED', 'ERROR'],
+        speechToText: { available: false },
+        textToSpeech: { available: false },
+      };
     }
   }
 

@@ -1,0 +1,1 @@
+"""Voice Mode contracts that feed the existing text AI pipeline."""

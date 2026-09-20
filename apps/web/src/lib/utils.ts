@@ -45,6 +45,7 @@ export async function streamChat(
   onDelta: (delta: string) => void,
   onDone: (meta?: any) => void,
   onError: (err: string) => void,
+  onEvent: (event: any) => void = () => {},
   signal?: AbortSignal,
 ) {
   try {
@@ -96,6 +97,7 @@ export async function streamChat(
           onError(sanitizeStreamText(parsed.content) || 'تعذر إكمال الطلب حالياً.');
           return;
         }
+        if (parsed.event) onEvent(parsed);
         const delta = sanitizeStreamText(parsed.delta);
         if (delta) onDelta(delta);
         if (parsed.meta) meta = { ...(meta || {}), ...parsed.meta };

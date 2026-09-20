@@ -5,19 +5,26 @@ import { MessageSquare, Sparkles, Sliders, X } from 'lucide-react';
 import { ThanarahIcon } from '@/components/ThanarahLogo';
 import { useChatStore } from '@/store/chat';
 import { useRouter } from 'next/navigation';
-import { contextProfilesApi, conversationsApi } from '@/lib/api';
+import { aiApi, contextProfilesApi, conversationsApi } from '@/lib/api';
 
 export default function ChatHomePage() {
   const router = useRouter();
   const { setActiveConversation, addConversation } = useChatStore();
   const [personalization, setPersonalization] = useState<any>(null);
   const [loadingProfile, setLoadingProfile] = useState(true);
+  const [skills, setSkills] = useState<any[]>([]);
 
   useEffect(() => {
     contextProfilesApi.suggestions()
       .then(setPersonalization)
       .catch(() => setPersonalization({ mode: 'welcome', isNewUser: true, suggestions: [] }))
       .finally(() => setLoadingProfile(false));
+  }, []);
+
+  useEffect(() => {
+    aiApi.skills()
+      .then((payload) => setSkills(payload?.skills || []))
+      .catch(() => setSkills([]));
   }, []);
 
   const startChat = async (prompt?: string) => {
@@ -116,6 +123,27 @@ export default function ChatHomePage() {
               <p className="text-xs text-gray-500 font-arabic">Tip: يمكنك سؤالي بطريقة طبيعية، بدون أوامر محددة.</p>
               <p className="text-xs text-gray-500 font-arabic">Tip: كلما استخدمتني أكثر، أصبحت اقتراحاتي أكثر ارتباطًا بسياق عملك.</p>
               <p className="text-xs text-gray-500 font-arabic">Tip: يمكنك تخصيص طريقة تعاملي معك من الإعدادات.</p>
+            </div>
+          </div>
+        )}
+
+        {skills.length > 0 && (
+          <div className="text-right space-y-2">
+            <p className="text-xs font-medium text-gray-500 font-arabic">جرّب Skill</p>
+            <div className="flex flex-wrap gap-2">
+              {skills.slice(0, 6).map((skill) => (
+                <span
+                  key={skill.id}
+                  title={skill.implementationStatus === 'contract-only' ? 'Contract فقط — غير مفعّلة في هذه المرحلة' : skill.description}
+                  className={`rounded-full border px-3 py-1.5 text-xs font-arabic ${
+                    skill.enabled
+                      ? 'border-thanarah-200 bg-thanarah-50 text-thanarah-800'
+                      : 'border-gray-200 bg-gray-50 text-gray-400'
+                  }`}
+                >
+                  {skill.name}
+                </span>
+              ))}
             </div>
           </div>
         )}

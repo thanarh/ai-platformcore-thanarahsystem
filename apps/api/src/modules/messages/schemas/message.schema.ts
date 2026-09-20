@@ -20,6 +20,21 @@ export class Message {
   @Prop({ required: true })
   content: string;
 
+  @Prop({ type: String, enum: ['text', 'voice'], default: 'text' })
+  inputMode: 'text' | 'voice';
+
+  /** Transcription and audio references only; the audio binary is not stored here. */
+  @Prop({ type: Object, default: {} })
+  voiceMetadata?: {
+    sessionId?: string;
+    language?: 'ar' | 'en';
+    transcriptionStatus?: 'pending' | 'completed' | 'failed';
+    audioMimeType?: string;
+    durationMs?: number;
+    capturedAt?: Date | string;
+    audioStorageRef?: string;
+  };
+
   @Prop({ index: false })
   contentHash?: string;
 

@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.config import settings
-from app.routers import chat, knowledge, backends, health
+from app.routers import chat, knowledge, backends, health, capabilities, voice
 from app.router.intelligence_router import IntelligenceRouter
 from app.backends.registry import BackendRegistry
 from app.database import init_db
@@ -94,6 +94,8 @@ app.include_router(health.router, tags=["health"])
 app.include_router(chat.router, prefix="/chat", tags=["chat"])
 app.include_router(knowledge.router, prefix="/knowledge", tags=["knowledge"])
 app.include_router(backends.router, prefix="/backends", tags=["backends"])
+app.include_router(capabilities.router, prefix="/capabilities", tags=["capabilities"])
+app.include_router(voice.router, prefix="/voice", tags=["voice"])
 
 
 @app.exception_handler(Exception)

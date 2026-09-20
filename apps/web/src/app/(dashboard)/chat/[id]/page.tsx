@@ -2,12 +2,12 @@
 export const dynamic = 'force-dynamic';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
-import { Send, Square, Copy, Menu, ThumbsUp, ThumbsDown, Pin } from 'lucide-react';
+import { Send, Square, Copy, Menu, ThumbsUp, ThumbsDown, Pin, Sparkles } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useChatStore, Message } from '@/store/chat';
 import { useAuthStore } from '@/store/auth';
-import { messagesApi } from '@/lib/api';
+import { aiApi, messagesApi } from '@/lib/api';
 import { streamChat, cn, isRTL } from '@/lib/utils';
 import { ThanarahIcon } from '@/components/ThanarahLogo';
 
@@ -27,10 +27,18 @@ export default function ChatPage() {
   const [input, setInput] = useState('');
   const [abortController, setAbortController] = useState<AbortController | null>(null);
   const [feedback, setFeedback] = useState<Record<string, 'up' | 'down'>>({});
+  const [skills, setSkills] = useState<any[]>([]);
+  const [executionEvents, setExecutionEvents] = useState<any[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const convMessages: Message[] = messages[convId] || [];
+
+  useEffect(() => {
+    aiApi.skills()
+      .then((payload) => setSkills(payload?.skills || []))
+      .catch(() => setSkills([]));
+  }, []);
 
   useEffect(() => {
     if (!convId) return;
@@ -65,6 +73,7 @@ export default function ChatPage() {
     if (!content || isStreaming || !token) return;
 
     setInput('');
+    setExecutionEvents([]);
     setStreaming(true);
     const controller = new AbortController();
     setAbortController(controller);
@@ -105,6 +114,9 @@ export default function ChatPage() {
         setAbortController(null);
         window.dispatchEvent(new Event('thanarah-usage-changed'));
       },
+      (event) => {
+        setExecutionEvents((current) => [...current, event].slice(-8));
+      },
       controller.signal,
     );
   }, [input, convId, token, isStreaming, addMessage, finalizeLastMessage, setStreaming, updateLastMessage, updateConversation]);
@@ -143,6 +155,50 @@ export default function ChatPage() {
           نسخة تجريبية · اكتمال المشروع 100%
         </span>
       </div>
+
+      {skills.length > 0 && (
+        <div className="flex items-center gap-2 overflow-x-auto border-b border-gray-100 bg-white px-3 py-2 sm:px-4" dir="rtl">
+          <span className="inline-flex items-center gap-1 text-[11px] text-gray-500 font-arabic whitespace-nowrap">
+            <Sparkles className="w-3.5 h-3.5 text-thanarah-600" />
+            Skills
+          </span>
+          {skills.slice(0, 8).map((skill) => (
+            <span
+              key={skill.id}
+              title={skill.implementationStatus === 'contract-only' ? 'Contract فقط — غير مفعّلة في هذه المرحلة' : skill.description}
+              className={cn(
+                'rounded-full border px-2.5 py-1 text-[10px] whitespace-nowrap font-arabic',
+                skill.enabled
+                  ? 'border-thanarah-200 bg-thanarah-50 text-thanarah-800'
+                  : 'border-gray-200 bg-gray-50 text-gray-400',
+              )}
+            >
+              {skill.name}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {executionEvents.length > 0 && (
+        <div className="border-b border-gray-100 bg-gray-50 px-3 py-2 sm:px-4" dir="rtl" aria-live="polite">
+          <div className="mx-auto flex max-w-3xl flex-wrap items-center gap-2">
+            {executionEvents.map((event, index) => (
+              <span key={`${event.event}-${index}`} className="inline-flex items-center gap-1 text-[11px] text-gray-500 font-arabic">
+                <span className={cn(
+                  'h-1.5 w-1.5 rounded-full',
+                  event.event === 'status' && event.state === 'completed' ? 'bg-green-500' : 'bg-thanarah-500 animate-pulse',
+                )} />
+                {event.event === 'status'
+                  ? event.state === 'completed' ? 'اكتمل التنفيذ' : 'جاري تجهيز الطلب'
+                  : event.event === 'task_started' ? 'بدأت مهمة'
+                    : event.event === 'task_completed' ? 'اكتملت مهمة'
+                      : event.event === 'artifact_created' ? 'تم إنشاء artifact'
+                        : event.event}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Messages */}
       <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-3 sm:px-4 py-4 sm:py-6 space-y-4 sm:space-y-6">

@@ -9,6 +9,7 @@ from app.memory import memory_service
 from app.response_cache import response_cache_service
 from app.config import settings
 from pydantic import BaseModel
+from app.streaming.events import event_frame, legacy_delta_frame, StreamEventType
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -61,14 +62,14 @@ async def chat_stream(request: Request, chat_request: ChatRequest):
 
     async def event_generator():
         try:
+            yield event_frame(StreamEventType.STATUS, {"state": "generating"})
             stream_gen, route, rag_sources, telemetry = await tir.stream_route(chat_request)
             full_content = []
             async for token in stream_gen:
                 if await request.is_disconnected():
                     return
                 full_content.append(token)
-                data = json.dumps({"delta": token})
-                yield f"data: {data}\n\n"
+                yield legacy_delta_frame(token)
 
             # Learn from the completed exchange after delivery preparation.
             if (chat_request.tenantConfig or {}).get("memoryEnabled", True) is not False:
@@ -78,6 +79,7 @@ async def chat_stream(request: Request, chat_request: ChatRequest):
                 except Exception:
                     pass
 
+            yield event_frame(StreamEventType.STATUS, {"state": "completed"})
             # Send metadata at the end
             meta = {
                 "meta": {
@@ -96,8 +98,10 @@ async def chat_stream(request: Request, chat_request: ChatRequest):
             yield "data: [DONE]\n\n"
         except Exception as e:
             logger.error(f"Stream error: {e}")
-            error_data = json.dumps({"error": True, "content": "تعذر إكمال الطلب حاليًا."})
-            yield f"data: {error_data}\n\n"
+            yield event_frame(
+                StreamEventType.ERROR,
+                {"error": True, "content": "تعذر إكمال الطلب حاليًا."},
+            )
 
     return StreamingResponse(
         event_generator(),

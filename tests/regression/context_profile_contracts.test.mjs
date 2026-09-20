@@ -46,3 +46,23 @@ test('personalization is passed into AI context and cache identity', () => {
   assert.doesNotMatch(webHome, /const SUGGESTIONS/);
   assert.match(webHome, /contextProfilesApi\.suggestions/);
 });
+
+test('core foundation exposes runtime context, skills, orchestration, artifacts, and events', () => {
+  const chatModel = read('services/ai-engine/app/models/chat.py');
+  const router = read('services/ai-engine/app/router/intelligence_router.py');
+  const skills = read('services/ai-engine/app/skills/registry.py');
+  const orchestrator = read('services/ai-engine/app/orchestration/orchestrator.py');
+  const artifacts = read('services/ai-engine/app/artifacts/store.py');
+  const events = read('services/ai-engine/app/streaming/events.py');
+  const chatRoute = read('services/ai-engine/app/routers/chat.py');
+
+  assert.match(chatModel, /runtimeContext: Dict\[str, Any\]/);
+  assert.match(router, /UserRuntimeContext\.from_mapping/);
+  assert.match(skills, /contract-only/);
+  assert.match(orchestrator, /class TaskOrchestrator/);
+  assert.match(orchestrator, /Task dependency cycle detected/);
+  assert.match(artifacts, /class InMemoryArtifactStore/);
+  assert.match(events, /event_frame/);
+  assert.match(chatRoute, /StreamEventType\.STATUS/);
+  assert.match(chatRoute, /legacy_delta_frame/);
+});

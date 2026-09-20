@@ -15,6 +15,7 @@ from app.memory import memory_service
 from app.response_cache import response_cache_service
 from app.memory.daily_learning import daily_learning_service
 from app.telemetry import RequestTelemetry
+from app.foundation.runtime_context import UserRuntimeContext
 
 logger = logging.getLogger(__name__)
 
@@ -159,6 +160,27 @@ class IntelligenceRouter:
 
         if request.conversationSummary:
             append_part(f"## Conversation Summary\n{request.conversationSummary}", 2000)
+
+        runtime = UserRuntimeContext.from_mapping(
+            request.runtimeContext,
+            tenant_id=request.tenantId,
+            user_id=request.userId,
+        )
+        runtime_snapshot = runtime.snapshot()
+        append_part(
+            "## User Runtime Context\n"
+            "Use these request-scoped values for date/time questions. "
+            "Do not infer a location or use server time instead.\n"
+            f"Timezone: {runtime_snapshot['timezone']}\n"
+            f"Locale: {runtime_snapshot['locale']}\n"
+            f"Language: {runtime_snapshot['language']}\n"
+            f"Current date: {runtime_snapshot['currentDate']}\n"
+            f"Current time: {runtime_snapshot['currentTime']}\n"
+            f"Today: {runtime_snapshot['today']}\n"
+            f"Tomorrow: {runtime_snapshot['tomorrow']}\n"
+            f"Yesterday: {runtime_snapshot['yesterday']}",
+            1000,
+        )
 
         if user_profile:
             append_part(

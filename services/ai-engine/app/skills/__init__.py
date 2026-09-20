@@ -1,0 +1,1 @@
+"""Skill contracts and deterministic skill discovery."""

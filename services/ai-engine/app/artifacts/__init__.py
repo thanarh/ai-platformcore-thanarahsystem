@@ -1,0 +1,1 @@
+"""Artifact metadata contracts; binary content is intentionally out of scope."""

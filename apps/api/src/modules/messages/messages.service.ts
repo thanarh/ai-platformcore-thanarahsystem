@@ -14,6 +14,8 @@ export class MessagesService {
     conversationId: string;
     role: string;
     content: string;
+    inputMode?: 'text' | 'voice';
+    voiceMetadata?: object;
     aiMetadata?: object;
   }): Promise<MessageDocument> {
     const normalizedContent = data.content.trim().replace(/\s+/g, ' ').toLowerCase();
@@ -23,6 +25,8 @@ export class MessagesService {
       conversationId: new Types.ObjectId(data.conversationId),
       role: data.role,
       content: data.content,
+      inputMode: data.inputMode || 'text',
+      voiceMetadata: data.voiceMetadata || {},
       contentHash: createHash('sha256').update(normalizedContent).digest('hex'),
       aiMetadata: data.aiMetadata || {},
     });
