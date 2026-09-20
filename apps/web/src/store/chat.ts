@@ -6,6 +6,7 @@ export interface Message {
   role: 'user' | 'assistant' | 'system';
   content: string;
   isStreaming?: boolean;
+  streamStatus?: 'analyzing' | 'generating' | 'stopped';
   isPinned?: boolean;
   feedback?: {
     rating?: 'up' | 'down';
@@ -46,7 +47,12 @@ interface ChatState {
   
   setMessages: (convId: string, msgs: Message[]) => void;
   addMessage: (convId: string, msg: Message) => void;
-  updateLastMessage: (convId: string, content: string, done?: boolean) => void;
+  updateLastMessage: (
+    convId: string,
+    content: string,
+    done?: boolean,
+    streamStatus?: Message['streamStatus'],
+  ) => void;
   finalizeLastMessage: (convId: string, content: string, meta?: any) => void;
   updateMessage: (convId: string, messageId: string, data: Partial<Message>) => void;
   
@@ -89,13 +95,15 @@ export const useChatStore = create<ChatState>((set) => ({
         [convId]: [...(s.messages[convId] || []), msg],
       },
     })),
-  updateLastMessage: (convId, content, done = false) =>
+  updateLastMessage: (convId, content, done = false, streamStatus) =>
     set((s) => {
       const msgs = [...(s.messages[convId] || [])];
       if (msgs.length === 0) return s;
       const last = { ...msgs[msgs.length - 1] };
       last.content = content;
       last.isStreaming = !done;
+      if (streamStatus) last.streamStatus = streamStatus;
+      if (done && !streamStatus) delete last.streamStatus;
       msgs[msgs.length - 1] = last;
       return { messages: { ...s.messages, [convId]: msgs } };
     }),
@@ -106,6 +114,11 @@ export const useChatStore = create<ChatState>((set) => ({
       const last = { ...msgs[msgs.length - 1] };
       last.content = content;
       last.isStreaming = false;
+      if (meta.stopped) {
+        last.streamStatus = 'stopped';
+      } else {
+        delete last.streamStatus;
+      }
       if (meta.messageId) last._id = String(meta.messageId);
       last.aiMetadata = { ...(last.aiMetadata || {}), ...meta };
       msgs[msgs.length - 1] = last;

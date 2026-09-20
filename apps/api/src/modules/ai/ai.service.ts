@@ -259,6 +259,7 @@ export class AiService {
     data.res.setHeader('X-Accel-Buffering', 'no');
     data.res.flushHeaders?.();
     data.res.write(': connected\n\n');
+      data.res.flush?.();
 
     let fullContent = '';
     let aiMeta: any = {};
@@ -313,9 +314,6 @@ export class AiService {
         if (responseEnded) return;
         responseEnded = true;
         response.data.destroy();
-        if (fullContent) {
-          void persistAssistant(fullContent, { ...aiMeta, stoppedByUser: true }).catch(() => {});
-        }
         void this.usageService.record({
           tenantId: data.tenantId,
           userId: data.userId,
@@ -329,6 +327,7 @@ export class AiService {
       });
 
       response.data.on('data', (chunk: Buffer) => {
+        if (responseEnded) return;
         sseBuffer += chunk.toString('utf8');
         const events = sseBuffer.split(/\r?\n\r?\n/);
         sseBuffer = events.pop() || '';
@@ -350,6 +349,7 @@ export class AiService {
                 ? { ...parsed, meta: { service: 'Thanarah Intelligence' } }
                 : parsed;
               data.res.write(`data: ${JSON.stringify(publicEvent)}\n\n`);
+              data.res.flush?.();
             } catch (error) {
               this.logger.warn(`Ignored malformed AI stream event: ${error.message}`);
             }

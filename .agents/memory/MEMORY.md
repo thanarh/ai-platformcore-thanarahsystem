@@ -4,3 +4,4 @@
 - [AI response cache safety](ai-response-cache-safety.md) — cache only context-free requests until mutable RAG and memory expose reliable tenant versions
 - [Current AI-only scope](ai-only-scope.md) — stop after AI Performance Phase 1; no admin/customer features or Phase 2 unless explicitly requested
 - [Ollama warm readiness](ollama-warm-readiness.md) — `/api/ps` model presence does not guarantee a warm first generation; validate with real generation
+- [SSE measurement](sse-measurement.md) — use a non-buffering client read such as `read1()` when timing incremental SSE delivery

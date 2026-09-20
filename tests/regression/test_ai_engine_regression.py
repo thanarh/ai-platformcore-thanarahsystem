@@ -44,6 +44,11 @@ class _FakeRouter:
             yield "أول"
             yield " رد"
 
+        telemetry = SimpleNamespace(
+            request_id="test-request",
+            values={},
+            finish=lambda **_kwargs: {},
+        )
         return (
             tokens(),
             RouteDecision(
@@ -52,11 +57,15 @@ class _FakeRouter:
                 fallback_order=[],
             ),
             [],
+            telemetry,
         )
 
 
 class _FakeRequest:
     app = SimpleNamespace(state=SimpleNamespace(intelligence_router=_FakeRouter()))
+
+    async def is_disconnected(self):
+        return False
 
 
 class _FakeCursor:

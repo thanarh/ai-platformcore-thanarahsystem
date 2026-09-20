@@ -71,8 +71,13 @@ export default function ChatPage() {
     // Add user message
     addMessage(convId, { role: 'user', content, createdAt: new Date().toISOString() });
 
-    // Add placeholder assistant message
-    addMessage(convId, { role: 'assistant', content: '', isStreaming: true });
+    // Add an operational placeholder immediately; it is not model reasoning.
+    addMessage(convId, {
+      role: 'assistant',
+      content: '',
+      isStreaming: true,
+      streamStatus: 'analyzing',
+    });
 
     let accumulated = '';
 
@@ -82,7 +87,7 @@ export default function ChatPage() {
       token,
       (delta) => {
         accumulated += delta;
-        updateLastMessage(convId, accumulated, false);
+        updateLastMessage(convId, accumulated, false, 'generating');
       },
       (meta) => {
         finalizeLastMessage(convId, accumulated, meta);
@@ -252,17 +257,33 @@ function MessageBubble({ message, onCopy, onPin, onFeedback, feedback }: { messa
           >
             {message.isStreaming && !message.content ? (
               <div
-                className="flex min-h-10 min-w-10 items-center justify-center"
+                className="flex min-h-10 items-center gap-2 text-xs text-gray-500"
                 role="status"
                 aria-label="جارٍ تجهيز الرد"
+                aria-live="polite"
               >
                 <ThanarahIcon
                   size={24}
                   className="animate-thanarah-loading"
                 />
+                <span>
+                  {message.streamStatus === 'analyzing'
+                    ? 'Analyzing...'
+                    : 'Generating response...'}
+                </span>
               </div>
             ) : (
               <>
+                {message.isStreaming && (
+                  <div
+                    className="mb-2 flex items-center gap-2 text-[11px] text-gray-500"
+                    role="status"
+                    aria-live="polite"
+                  >
+                    <span className="inline-block h-1.5 w-1.5 rounded-full bg-thanarah-600 animate-pulse-subtle" />
+                    <span>Generating response...</span>
+                  </div>
+                )}
                 <div className={cn('prose-chat text-gray-800', isArabic ? 'font-arabic' : '')}>
                   <ReactMarkdown remarkPlugins={[remarkGfm]}>
                     {message.content}
@@ -270,6 +291,11 @@ function MessageBubble({ message, onCopy, onPin, onFeedback, feedback }: { messa
                 </div>
                 {message.isStreaming && (
                   <span className="inline-block w-1 h-4 bg-thanarah-600 animate-pulse-subtle rounded ml-0.5" />
+                )}
+                {message.streamStatus === 'stopped' && !message.isStreaming && (
+                  <div className="mt-2 text-[11px] text-gray-400" role="status">
+                    Response stopped
+                  </div>
                 )}
                 {!message.isStreaming && message.content && (
                   <div className="flex items-center justify-end mt-2 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition">

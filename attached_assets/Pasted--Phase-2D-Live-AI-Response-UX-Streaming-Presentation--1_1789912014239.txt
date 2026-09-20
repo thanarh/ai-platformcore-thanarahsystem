@@ -1,0 +1,153 @@
+نبدأ الآن **Phase 2D: Live AI Response UX / Streaming Presentation**.
+
+الهدف في هذه المرحلة ليس إضافة Web Search أو Tool Calling أو Qdrant أو أي feature جديدة. أريد فقط تثبيت تجربة عرض استجابة الـ AI بشكل لحظي، ثم نتوقف.
+
+### المطلوب
+
+عندما يرسل المستخدم رسالة:
+
+1. لا تنتظر اكتمال إجابة الـ model بالكامل قبل عرض أي شيء.
+2. يبدأ الـ UI فورًا بإظهار حالة المعالجة.
+3. عند وصول أول token من Ollama، يبدأ عرض النص مباشرة داخل رسالة الـ assistant.
+4. كل token/chunk يصل من backend يظهر فورًا في الواجهة.
+5. لا يوجد loading screen ينتظر انتهاء generation.
+6. الـ assistant message نفسها تتكون تدريجيًا أمام المستخدم:
+
+   * أولًا يظهر placeholder/status
+   * ثم يبدأ النص في الظهور
+   * ثم يستمر التحديث لحظة بلحظة
+   * عند وصول `done` تتحول الرسالة إلى الحالة النهائية.
+7. حافظ على SSE/streaming الحالي ولا تستبدله بطلب ينتظر JSON كامل.
+
+### مهم جدًا بخصوص "thinking"
+
+لا تعرض Chain-of-Thought الداخلي للنموذج ولا تحاول استخراج reasoning مخفي منه.
+
+بدل ذلك نريد **processing state UI** واضحًا فقط، مثل:
+
+`Analyzing...`
+
+ثم عند الحاجة:
+
+`Retrieving information...`
+
+ثم:
+
+`Generating response...`
+
+هذه مجرد حالات تشغيلية للواجهة وليست ادعاءً بأننا نعرض التفكير الداخلي للنموذج.
+
+وفي هذه المرحلة يمكن استخدام الحالات الحالية الموجودة فعليًا في pipeline فقط. لا تضف fake reasoning أو نصوصًا طويلة توهم المستخدم بأن النموذج يفكر في شيء لم يحدث.
+
+### الاختبار الأول
+
+قبل تنفيذ أي تغييرات كبيرة، اختبر سؤالًا بسيطًا مثل:
+
+"ما هي عاصمة السعودية؟"
+
+وأريد أن أرى في الواجهة تقريبًا:
+
+```text
+User
+ما هي عاصمة السعودية؟
+
+Assistant
+Analyzing...
+
+Assistant
+الرياض
+```
+
+لكن كلمة "الرياض" نفسها يجب أن تظهر من الـ stream عند وصولها، وليس بعد اكتمال response كامل.
+
+اختبر أيضًا سؤالًا أطول للتأكد أنني أرى النص يتكون تدريجيًا:
+
+```text
+User
+اشرح لي الفرق بين API و Token بشكل مبسط
+
+Assistant
+Generating...
+
+API هو...
+API يسمح...
+API هو الواجهة...
+...
+```
+
+### المطلوب تقنيًا
+
+تحقق من الـ flow كاملًا:
+
+Frontend
+→ SSE
+→ Backend
+→ Ollama
+→ streamed chunks
+→ Backend
+→ Frontend
+→ incremental rendering
+
+وتأكد من:
+
+* أول chunk يصل للـ client بدون انتظار اكتمال generation.
+* لا يوجد buffering غير ضروري في backend.
+* لا يتم تجميع النص كاملًا ثم إرساله مرة واحدة.
+* `done` frame موجود ويُعالج بشكل صحيح.
+* errors أثناء streaming تظهر بشكل صحيح.
+* إلغاء الطلب/Abort يعمل بدون ترك request معلق.
+* الرسالة النهائية تُحفظ بعد اكتمال generation فقط.
+* لا يحدث duplicate text بسبب إعادة تجميع chunks.
+
+### مهم
+
+لا تغير production model.
+
+لا تغير:
+
+`qwen2.5:1.5b`
+
+ولا:
+
+`num_thread=4`
+
+ولا:
+
+`num_ctx=2048`
+
+ولا:
+
+`num_batch=64`
+
+ولا تضف أي external provider.
+
+ولا تبدأ Phase 3.
+
+### التحقق
+
+بعد التنفيذ شغّل:
+
+* streaming tests
+* regression
+* compile/typecheck
+* health
+* اختبار فعلي للـ SSE
+
+وأعطني أرقامًا حقيقية لـ:
+
+* request start → first byte
+* request start → first token
+* first token → last token
+* total generation time
+* عدد chunks
+* هل ظهر أي buffering
+* هل `done` وصل
+* هل Abort نجح
+
+وأرفق/حدّث documentation للـ streaming behavior.
+
+**توقف بعد هذه المرحلة.**
+
+لا تضف features أخرى، ولا Web Search، ولا Agent، ولا Tool Calling، ولا RAG production activation.
+
+أريد أولًا أن نثبت شكل وتجربة الـ live response نفسها، وبعدها نكمل باقي الـ AI Core خطوة بخطوة.

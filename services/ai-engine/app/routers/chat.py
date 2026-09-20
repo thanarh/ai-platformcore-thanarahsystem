@@ -64,6 +64,8 @@ async def chat_stream(request: Request, chat_request: ChatRequest):
             stream_gen, route, rag_sources, telemetry = await tir.stream_route(chat_request)
             full_content = []
             async for token in stream_gen:
+                if await request.is_disconnected():
+                    return
                 full_content.append(token)
                 data = json.dumps({"delta": token})
                 yield f"data: {data}\n\n"

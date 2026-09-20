@@ -1,0 +1,36 @@
+{
+  "measuredAt": "2026-09-20T13:54:33.791388+00:00",
+  "aiEngineUrl": "http://127.0.0.1:8000",
+  "productionConfigChanged": false,
+  "shortPrompt": {
+    "success": true,
+    "firstByteMs": 1259.75,
+    "firstTokenMs": 1259.83,
+    "firstTokenToLastTokenMs": 577.35,
+    "totalMs": 1898.39,
+    "chunkCount": 9,
+    "sseFrameCount": 11,
+    "malformedFrames": 0,
+    "doneFrameSeen": true,
+    "bufferingGapMs": 0.08
+  },
+  "longPrompt": {
+    "success": true,
+    "firstByteMs": 785.83,
+    "firstTokenMs": 785.89,
+    "firstTokenToLastTokenMs": 5982.71,
+    "totalMs": 6769.59,
+    "chunkCount": 96,
+    "sseFrameCount": 98,
+    "malformedFrames": 0,
+    "doneFrameSeen": true,
+    "bufferingGapMs": 0.06
+  },
+  "abort": {
+    "abortRequested": true,
+    "firstByteObserved": true,
+    "abortAfterFirstByteMs": 481.68,
+    "connectionClosedByProbe": true,
+    "doneExpected": false
+  }
+}

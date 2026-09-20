@@ -120,6 +120,7 @@ export async function streamChat(
     buffer += decoder.decode();
     if (!completed && buffer.trim()) processEvent(buffer);
     if (!completed) onDone(meta);
+    await reader.cancel().catch(() => {});
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') {
       onDone({ stopped: true });
