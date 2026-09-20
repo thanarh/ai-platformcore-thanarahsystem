@@ -38,6 +38,11 @@ function sanitizeStreamText(value: unknown): string {
     .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '');
 }
 
+export interface StreamChatOptions {
+  inputMode?: 'text' | 'voice';
+  voiceMetadata?: Record<string, unknown>;
+}
+
 export async function streamChat(
   conversationId: string,
   content: string,
@@ -47,6 +52,7 @@ export async function streamChat(
   onError: (err: string) => void,
   onEvent: (event: any) => void = () => {},
   signal?: AbortSignal,
+  options?: StreamChatOptions,
 ) {
   try {
     const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
@@ -56,7 +62,7 @@ export async function streamChat(
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ conversationId, content }),
+      body: JSON.stringify({ conversationId, content, ...options }),
       signal,
     });
 

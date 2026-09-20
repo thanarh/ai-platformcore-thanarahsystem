@@ -5,6 +5,14 @@ export interface Message {
   _id?: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
+  inputMode?: 'text' | 'voice';
+  voiceMetadata?: {
+    sessionId?: string;
+    language?: 'ar' | 'en';
+    transcriptionStatus?: 'pending' | 'completed' | 'failed';
+    audioMimeType?: string;
+    durationMs?: number;
+  };
   isStreaming?: boolean;
   streamStatus?: 'analyzing' | 'generating' | 'stopped';
   isPinned?: boolean;

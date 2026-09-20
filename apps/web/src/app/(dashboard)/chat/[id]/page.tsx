@@ -2,7 +2,7 @@
 export const dynamic = 'force-dynamic';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
-import { Send, Square, Copy, Menu, ThumbsUp, ThumbsDown, Pin, Sparkles } from 'lucide-react';
+import { Send, Square, Copy, Menu, ThumbsUp, ThumbsDown, Pin, Sparkles, Mic, Type } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useChatStore, Message } from '@/store/chat';
@@ -10,6 +10,8 @@ import { useAuthStore } from '@/store/auth';
 import { aiApi, messagesApi } from '@/lib/api';
 import { streamChat, cn, isRTL } from '@/lib/utils';
 import { ThanarahIcon } from '@/components/ThanarahLogo';
+
+type VoiceState = 'IDLE' | 'LISTENING' | 'TRANSCRIBING' | 'THINKING' | 'GENERATING' | 'SPEAKING' | 'STOPPED' | 'ERROR';
 
 export default function ChatPage() {
   const params = useParams();
@@ -29,6 +31,9 @@ export default function ChatPage() {
   const [feedback, setFeedback] = useState<Record<string, 'up' | 'down'>>({});
   const [skills, setSkills] = useState<any[]>([]);
   const [executionEvents, setExecutionEvents] = useState<any[]>([]);
+  const [voiceCapabilities, setVoiceCapabilities] = useState<any>(null);
+  const [inputMode, setInputMode] = useState<'text' | 'voice'>('text');
+  const [voiceState, setVoiceState] = useState<VoiceState>('IDLE');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -38,6 +43,9 @@ export default function ChatPage() {
     aiApi.skills()
       .then((payload) => setSkills(payload?.skills || []))
       .catch(() => setSkills([]));
+    aiApi.voiceCapabilities()
+      .then((payload) => setVoiceCapabilities(payload))
+      .catch(() => setVoiceCapabilities(null));
   }, []);
 
   useEffect(() => {
@@ -118,6 +126,7 @@ export default function ChatPage() {
         setExecutionEvents((current) => [...current, event].slice(-8));
       },
       controller.signal,
+      { inputMode: 'text' },
     );
   }, [input, convId, token, isStreaming, addMessage, finalizeLastMessage, setStreaming, updateLastMessage, updateConversation]);
 
@@ -176,6 +185,61 @@ export default function ChatPage() {
               {skill.name}
             </span>
           ))}
+        </div>
+      )}
+
+      <div className="flex items-center gap-1 border-b border-gray-100 bg-white px-3 py-2 sm:px-4" dir="rtl">
+        <button
+          type="button"
+          onClick={() => { setInputMode('text'); setVoiceState('IDLE'); }}
+          className={cn(
+            'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-arabic transition',
+            inputMode === 'text' ? 'bg-thanarah-100 text-thanarah-800' : 'text-gray-500 hover:bg-gray-100',
+          )}
+          aria-pressed={inputMode === 'text'}
+        >
+          <Type className="h-3.5 w-3.5" />
+          Text
+        </button>
+        <button
+          type="button"
+          onClick={() => setInputMode('voice')}
+          className={cn(
+            'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-arabic transition',
+            inputMode === 'voice' ? 'bg-thanarah-100 text-thanarah-800' : 'text-gray-500 hover:bg-gray-100',
+          )}
+          aria-pressed={inputMode === 'voice'}
+          title={voiceCapabilities?.voiceEnabled ? 'Voice mode' : 'Voice foundation فقط — محرك الصوت غير متاح'}
+        >
+          <Mic className="h-3.5 w-3.5" />
+          Voice
+        </button>
+        {inputMode === 'voice' && (
+          <span className="mr-2 text-[10px] text-gray-400 font-arabic">
+            {voiceCapabilities?.voiceEnabled
+              ? 'جاهز للاستماع'
+              : 'Foundation فقط: STT/TTS غير مثبت'}
+          </span>
+        )}
+      </div>
+
+      {inputMode === 'voice' && (
+        <div className="border-b border-gray-100 bg-gray-50 px-3 py-2 sm:px-4" dir="rtl">
+          <div className="mx-auto flex max-w-3xl items-center gap-2 text-[11px] text-gray-500 font-arabic">
+            <Mic className={cn('h-4 w-4', voiceState === 'LISTENING' ? 'text-red-500' : 'text-gray-400')} />
+            <span>
+              {voiceState === 'ERROR'
+                ? 'Voice غير متاح حاليًا'
+                : voiceState === 'LISTENING'
+                  ? 'Listening...'
+                  : voiceState === 'SPEAKING'
+                    ? 'Speaking...'
+                    : 'اضغط على الميكروفون عند توفر محرك STT المحلي'}
+            </span>
+            <span className="mr-auto rounded-full border border-gray-200 bg-white px-2 py-0.5 text-[10px]">
+              {voiceState}
+            </span>
+          </div>
         </div>
       )}
 
@@ -265,13 +329,26 @@ export default function ChatPage() {
                 <Square className="w-3.5 h-3.5 text-gray-600 fill-gray-600" />
               </button>
             ) : (
-              <button
-                onClick={() => handleSend()}
-                disabled={!input.trim()}
-                className="w-8 h-8 flex items-center justify-center bg-thanarah-700 hover:bg-thanarah-600 disabled:bg-gray-200 rounded-lg transition disabled:cursor-not-allowed"
-              >
-                <Send className="w-3.5 h-3.5 text-white disabled:text-gray-400" />
-              </button>
+              <>
+                {inputMode === 'voice' && (
+                  <button
+                    type="button"
+                    disabled={!voiceCapabilities?.voiceEnabled}
+                    onClick={() => setVoiceState('LISTENING')}
+                    className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 bg-white hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50 transition"
+                    title={voiceCapabilities?.voiceEnabled ? 'بدء الاستماع' : 'Voice foundation فقط — STT غير متاح'}
+                  >
+                    <Mic className="w-3.5 h-3.5 text-thanarah-700" />
+                  </button>
+                )}
+                <button
+                  onClick={() => handleSend()}
+                  disabled={!input.trim()}
+                  className="w-8 h-8 flex items-center justify-center bg-thanarah-700 hover:bg-thanarah-600 disabled:bg-gray-200 rounded-lg transition disabled:cursor-not-allowed"
+                >
+                  <Send className="w-3.5 h-3.5 text-white disabled:text-gray-400" />
+                </button>
+              </>
             )}
           </div>
         </div>
@@ -296,6 +373,12 @@ function MessageBubble({ message, onCopy, onPin, onFeedback, feedback }: { messa
               className="bg-thanarah-700 text-white rounded-2xl rounded-tl-md px-4 py-3 text-sm font-arabic leading-relaxed"
               dir={isArabic ? 'rtl' : 'ltr'}
             >
+              {message.inputMode === 'voice' && (
+                <div className="mb-1 flex items-center gap-1 text-[10px] text-white/70 font-arabic">
+                  <Mic className="h-3 w-3" />
+                  Voice transcription
+                </div>
+              )}
               {message.content}
             </div>
             {message._id && (

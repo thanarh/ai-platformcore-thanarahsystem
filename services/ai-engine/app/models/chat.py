@@ -16,6 +16,8 @@ class ChatRequest(BaseModel):
     conversationSummary: Optional[str] = None
     tenantConfig: Dict[str, Any] = Field(default_factory=dict)
     runtimeContext: Dict[str, Any] = Field(default_factory=dict)
+    inputMode: str = "text"
+    voiceMetadata: Dict[str, Any] = Field(default_factory=dict)
     stream: bool = False
 
 

@@ -55,6 +55,7 @@ test('core foundation exposes runtime context, skills, orchestration, artifacts,
   const artifacts = read('services/ai-engine/app/artifacts/store.py');
   const events = read('services/ai-engine/app/streaming/events.py');
   const chatRoute = read('services/ai-engine/app/routers/chat.py');
+  const voice = read('services/ai-engine/app/voice/contracts.py');
 
   assert.match(chatModel, /runtimeContext: Dict\[str, Any\]/);
   assert.match(router, /UserRuntimeContext\.from_mapping/);
@@ -65,4 +66,7 @@ test('core foundation exposes runtime context, skills, orchestration, artifacts,
   assert.match(events, /event_frame/);
   assert.match(chatRoute, /StreamEventType\.STATUS/);
   assert.match(chatRoute, /legacy_delta_frame/);
+  assert.match(voice, /class VoiceSession/);
+  assert.match(voice, /SUPPORTED_VOICE_LANGUAGES/);
+  assert.match(voice, /voiceEnabled.*False/);
 });

@@ -7,6 +7,7 @@ from app.foundation.runtime_context import UserRuntimeContext
 from app.orchestration.orchestrator import TaskOrchestrator
 from app.skills.registry import SkillRegistry
 from app.streaming.events import StreamEventType, event_frame, legacy_delta_frame
+from app.voice.contracts import VoiceSession, VoiceState, resolve_voice_language
 
 
 class Phase2DFoundationTests(unittest.TestCase):
@@ -87,6 +88,24 @@ class Phase2DFoundationTests(unittest.TestCase):
     def test_stream_event_contract_keeps_legacy_text_frame(self):
         self.assertIn("event: status", event_frame(StreamEventType.STATUS, {"state": "planning"}))
         self.assertIn('data: {"delta": "hello"}', legacy_delta_frame("hello"))
+
+    def test_voice_session_lifecycle_supports_abort_without_agent_execution(self):
+        session = VoiceSession("tenant-a", "user-a", "conversation-a", language="en")
+        session.transition(VoiceState.LISTENING)
+        session.transition(VoiceState.TRANSCRIBING)
+        session.transcription = "What is today?"
+        session.transition(VoiceState.THINKING)
+        session.transition(VoiceState.GENERATING)
+        session.stop()
+        self.assertEqual(session.state, VoiceState.STOPPED)
+        self.assertEqual(session.to_dict()["conversationId"], "conversation-a")
+        with self.assertRaises(ValueError):
+            session.transition(VoiceState.SPEAKING)
+
+    def test_voice_language_precedence_supports_arabic_and_english(self):
+        self.assertEqual(resolve_voice_language("en", "ar", "ar"), "en")
+        self.assertEqual(resolve_voice_language("fr", "en", "ar"), "en")
+        self.assertEqual(resolve_voice_language("fr", "fr", "fr"), "ar")
 
 
 if __name__ == "__main__":

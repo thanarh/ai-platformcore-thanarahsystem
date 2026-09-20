@@ -12,6 +12,8 @@ class StreamEventType(str, Enum):
     TASK_COMPLETED = "task_completed"
     ARTIFACT_CREATED = "artifact_created"
     SOURCE_FOUND = "source_found"
+    VOICE_STATE = "voice_state"
+    TRANSCRIPT = "transcript"
     ERROR = "error"
     DONE = "done"
 

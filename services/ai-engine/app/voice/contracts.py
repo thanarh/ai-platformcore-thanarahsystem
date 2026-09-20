@@ -37,14 +37,14 @@ class VoiceSession:
 
     def transition(self, state: VoiceState, error: Optional[str] = None) -> None:
         allowed = {
-            VoiceState.IDLE: {VoiceState.LISTENING, VoiceState.ERROR},
+            VoiceState.IDLE: {VoiceState.LISTENING, VoiceState.STOPPED, VoiceState.ERROR},
             VoiceState.LISTENING: {VoiceState.TRANSCRIBING, VoiceState.STOPPED, VoiceState.ERROR},
             VoiceState.TRANSCRIBING: {VoiceState.THINKING, VoiceState.STOPPED, VoiceState.ERROR},
             VoiceState.THINKING: {VoiceState.GENERATING, VoiceState.STOPPED, VoiceState.ERROR},
             VoiceState.GENERATING: {VoiceState.SPEAKING, VoiceState.STOPPED, VoiceState.ERROR},
             VoiceState.SPEAKING: {VoiceState.IDLE, VoiceState.STOPPED, VoiceState.ERROR},
             VoiceState.STOPPED: {VoiceState.IDLE, VoiceState.LISTENING},
-            VoiceState.ERROR: {VoiceState.IDLE, VoiceState.LISTENING},
+            VoiceState.ERROR: {VoiceState.IDLE, VoiceState.LISTENING, VoiceState.STOPPED},
         }
         if state != self.state and state not in allowed[self.state]:
             raise ValueError(f"Invalid voice transition: {self.state.value} -> {state.value}")

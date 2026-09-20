@@ -118,6 +118,7 @@ export const aiApi = {
   health: () => api.get('/ai/health').then((r) => r.data),
   capabilities: () => api.get('/ai/capabilities').then((r) => r.data),
   skills: () => api.get('/ai/skills').then((r) => r.data),
+  voiceCapabilities: () => api.get('/ai/voice/capabilities').then((r) => r.data),
   backends: () => api.get('/ai/backends').then((r) => r.data),
   updateBackend: (id: string, data: any) =>
     api.put(`/ai/backends/${id}`, data).then((r) => r.data),
