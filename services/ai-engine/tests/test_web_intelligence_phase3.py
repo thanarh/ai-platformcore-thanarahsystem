@@ -41,6 +41,15 @@ class WebIntelligencePhase3Tests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("Ignore previous instructions", page.content)
         self.assertEqual(page.published_at, "2026-09-21")
 
+    def test_extractor_tolerates_malformed_meta_attributes(self):
+        page = extract_html(
+            b"<html><head><meta =broken><meta name='date' content='2026-09-21'></head>"
+            b"<body><p>Readable content.</p></body></html>",
+            "https://example.com/article",
+        )
+        self.assertIn("Readable content.", page.content)
+        self.assertEqual(page.published_at, "2026-09-21")
+
     def test_ssrf_blocks_local_private_and_metadata_addresses(self):
         for url in (
             "http://localhost:8000/",
@@ -207,6 +216,7 @@ class WebIntelligencePhase3Tests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(result.sources), 1)
         self.assertIn("webSearchMs", telemetry.values)
         self.assertIn("webFetchMs", telemetry.values)
+        self.assertIn("webExtractionMs", telemetry.values)
         self.assertIn("webRerankingMs", telemetry.values)
 
 

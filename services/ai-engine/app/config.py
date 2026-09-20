@@ -80,6 +80,7 @@ class Settings(BaseSettings):
     web_fetch_max_bytes: int = 1_500_000
     web_fetch_max_redirects: int = 3
     web_fetch_retries: int = 1
+    web_fetch_user_agent: str = "ThanarahLocalWebIntelligence/1.0"
     web_safe_search: int = 1
 
     # Local embeddings for semantic RAG. Sentence Transformers is optional;

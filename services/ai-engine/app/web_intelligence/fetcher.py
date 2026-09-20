@@ -117,13 +117,17 @@ class SafeHTTPFetcher:
                             current,
                             follow_redirects=False,
                             timeout=self.timeout_seconds,
+                            headers={"User-Agent": settings.web_fetch_user_agent},
                         )
                     else:
                         async with httpx.AsyncClient(
                             timeout=httpx.Timeout(self.timeout_seconds),
                             follow_redirects=False,
                         ) as client:
-                            response = await client.get(current)
+                            response = await client.get(
+                                current,
+                                headers={"User-Agent": settings.web_fetch_user_agent},
+                            )
                     if response.status_code in {301, 302, 303, 307, 308}:
                         location = response.headers.get("location")
                         if not location:

@@ -5,26 +5,29 @@
   "productionModel": "qwen2.5:1.5b",
   "productionConfigChanged": false,
   "webSearchEnabled": false,
+  "developmentWorkflowWebSearchEnabled": true,
   "searxng": {
     "endpoint": "http://127.0.0.1:8080",
-    "reachable": false,
-    "httpStatus": null,
-    "jsonResponse": false,
-    "resultCount": 0,
-    "error": "All connection attempts failed",
-    "portsChecked": [8080, 8888]
+    "reachable": true,
+    "httpStatus": 200,
+    "jsonResponse": true,
+    "resultCount": 1,
+    "engines": ["wikipedia"],
+    "error": null,
+    "portsChecked": [8080]
   },
   "rawMeasurements": {
     "live": {
-      "searchLatencyMs": null,
-      "fetchLatencyMs": null,
-      "extractionLatencyMs": null,
-      "rerankingLatencyMs": null,
-      "totalWebLatencyMs": null,
-      "successfulFetchRate": null,
-      "sourceCount": 0,
-      "citationIntegrity": null,
-      "status": "not_measured_searxng_unavailable"
+      "queryCount": 10,
+      "searchLatencyMs": {"min": 71.73, "mean": 222.24, "max": 765.97},
+      "fetchLatencyMs": {"min": 0.01, "mean": 33.82, "max": 270.48},
+      "extractionLatencyMs": {"min": 0.0, "mean": 1.16, "max": 9.26},
+      "rerankingLatencyMs": {"min": 0.0, "mean": 0.12, "max": 0.93},
+      "totalWebLatencyMs": {"min": 0.01, "mean": 205.95, "max": 766.08},
+      "successfulFetchRate": 0.125,
+      "sourceCount": 1,
+      "citationIntegrity": {"passed": 1, "checked": 1},
+      "status": "measured_live"
     },
     "localFixtureOnly": {
       "searchLatencyMs": 0.036,
@@ -36,6 +39,47 @@
       "citationIntegrity": true,
       "status": "fixture_not_production"
     }
+  },
+  "liveBenchmark": {
+    "engineScope": "SearXNG with Wikipedia engine only",
+    "queries": [
+      {"id": 1, "class": "current-information", "query": "ما أحدث أخبار Python اليوم؟", "expectedWeb": true, "observedUseWeb": true, "decisionLatencyMs": 0.02, "searchLatencyMs": 433.68, "fetchLatencyMs": 0.01, "extractionLatencyMs": 0.0, "rerankingLatencyMs": 0.0, "totalWebLatencyMs": 433.78, "searchResultCount": 0, "fetchedCount": 0, "successfulFetch": null, "sourceCount": 0, "citationIntegrity": null},
+      {"id": 2, "class": "current-information", "query": "ما آخر معلومات Python الحالية؟", "expectedWeb": true, "observedUseWeb": true, "decisionLatencyMs": 0.03, "searchLatencyMs": 80.04, "fetchLatencyMs": 0.03, "extractionLatencyMs": 0.0, "rerankingLatencyMs": 0.0, "totalWebLatencyMs": 80.13, "searchResultCount": 0, "fetchedCount": 0, "successfulFetch": null, "sourceCount": 0, "citationIntegrity": null},
+      {"id": 3, "class": "current-information", "query": "what is the current Python information today?", "expectedWeb": true, "observedUseWeb": true, "decisionLatencyMs": 0.02, "searchLatencyMs": 200.6, "fetchLatencyMs": 0.01, "extractionLatencyMs": 0.0, "rerankingLatencyMs": 0.0, "totalWebLatencyMs": 200.66, "searchResultCount": 0, "fetchedCount": 0, "successfulFetch": null, "sourceCount": 0, "citationIntegrity": null},
+      {"id": 4, "class": "technical", "query": "Python", "expectedWeb": true, "observedUseWeb": true, "decisionLatencyMs": 0.02, "searchLatencyMs": 75.03, "fetchLatencyMs": 270.48, "extractionLatencyMs": 9.26, "rerankingLatencyMs": 0.93, "totalWebLatencyMs": 355.97, "searchResultCount": 1, "fetchedCount": 1, "successfulFetch": true, "sourceCount": 1, "citationIntegrity": true},
+      {"id": 5, "class": "technical", "query": "ابحث عن Python programming language", "expectedWeb": true, "observedUseWeb": true, "decisionLatencyMs": 0.03, "searchLatencyMs": 76.96, "fetchLatencyMs": 0.01, "extractionLatencyMs": 0.0, "rerankingLatencyMs": 0.0, "totalWebLatencyMs": 77.03, "searchResultCount": 0, "fetchedCount": 0, "successfulFetch": null, "sourceCount": 0, "citationIntegrity": null},
+      {"id": 6, "class": "technical", "query": "research HTTP protocol", "expectedWeb": true, "observedUseWeb": true, "decisionLatencyMs": 0.02, "searchLatencyMs": 73.93, "fetchLatencyMs": 0.01, "extractionLatencyMs": 0.0, "rerankingLatencyMs": 0.0, "totalWebLatencyMs": 74.05, "searchResultCount": 0, "fetchedCount": 0, "successfulFetch": null, "sourceCount": 0, "citationIntegrity": null},
+      {"id": 7, "class": "explicit-search", "query": "search the web for Python", "expectedWeb": true, "observedUseWeb": true, "decisionLatencyMs": 0.02, "searchLatencyMs": 71.73, "fetchLatencyMs": 0.01, "extractionLatencyMs": 0.0, "rerankingLatencyMs": 0.0, "totalWebLatencyMs": 71.79, "searchResultCount": 0, "fetchedCount": 0, "successfulFetch": null, "sourceCount": 0, "citationIntegrity": null},
+      {"id": 8, "class": "explicit-search", "query": "ابحث عن Python", "expectedWeb": true, "observedUseWeb": true, "decisionLatencyMs": 0.02, "searchLatencyMs": 765.97, "fetchLatencyMs": 0.01, "extractionLatencyMs": 0.0, "rerankingLatencyMs": 0.0, "totalWebLatencyMs": 766.08, "searchResultCount": 0, "fetchedCount": 0, "successfulFetch": null, "sourceCount": 0, "citationIntegrity": null},
+      {"id": 9, "class": "should-not-use-web", "query": "اشرح مفهوم Python من معرفتي العامة", "expectedWeb": false, "observedUseWeb": false, "decisionLatencyMs": 0.03, "searchLatencyMs": null, "fetchLatencyMs": null, "extractionLatencyMs": null, "rerankingLatencyMs": null, "totalWebLatencyMs": 0.02, "searchResultCount": 0, "fetchedCount": 0, "successfulFetch": null, "sourceCount": 0, "citationIntegrity": null},
+      {"id": 10, "class": "should-not-use-web", "query": "اكتب لي رسالة اعتذار قصيرة", "expectedWeb": false, "observedUseWeb": false, "decisionLatencyMs": 0.01, "searchLatencyMs": null, "fetchLatencyMs": null, "extractionLatencyMs": null, "rerankingLatencyMs": null, "totalWebLatencyMs": 0.01, "searchResultCount": 0, "fetchedCount": 0, "successfulFetch": null, "sourceCount": 0, "citationIntegrity": null}
+    ],
+    "summary": {
+      "webActivationPrecision": 1.0,
+      "webNonActivationCorrectness": 1.0,
+      "successfulFetchRate": 0.125,
+      "totalSourceCount": 1,
+      "citationIntegrityPassed": 1,
+      "citationIntegrityChecked": 1,
+      "expectedWebActivations": 8,
+      "observedWebActivations": 8,
+      "observedNonActivations": 2
+    }
+  },
+  "sseSmoke": {
+    "eventsObserved": ["status", "search_started", "source_found", "fetch_started", "fetch_completed", "generating", "text", "done", "[DONE]"],
+    "deltaChars": 566,
+    "sourceCount": 1,
+    "citationIds": ["[source-1]"],
+    "sourceUrls": ["https://en.wikipedia.org/wiki/Python"],
+    "done": true,
+    "model": "qwen2.5:1.5b",
+    "generationReady": true,
+    "ollamaReachable": true,
+    "webFetchedCount": 1,
+    "webExtractionMs": 7.8,
+    "timeToFirstTokenMs": 9803.2,
+    "totalMs": 16056.14
   },
   "decisionBenchmark": [
     {"id": 1, "class": "current-information", "query": "ما آخر أخبار التقنية اليوم؟", "signalDetected": true, "observedUseWeb": false, "reason": "disabled_by_environment"},
@@ -77,8 +121,8 @@
     "publicCacheContainsPrivateContext": false
   },
   "tests": {
-    "pythonTotal": 16,
-    "pythonPassed": 16,
+    "pythonTotal": 17,
+    "pythonPassed": 17,
     "pythonFailed": 0,
     "apiTypecheck": "passed",
     "webTypecheck": "passed",
@@ -89,7 +133,7 @@
   },
   "productionStatus": {
     "safeToEnable": false,
-    "reason": "SearXNG is not available in the current environment",
+    "reason": "Development benchmark passed, but production remains disabled pending a production availability decision and broader engine stability review",
     "modelChanged": false,
     "externalAiAdded": false,
     "paidApiAdded": false

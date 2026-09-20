@@ -37,9 +37,13 @@ class _ReadableHTMLParser(HTMLParser):
         if tag in self._IGNORED:
             self._ignored_depth += 1
         if tag == "meta":
-            attrs_dict = {key.casefold(): value or "" for key, value in attrs}
+            attrs_dict = {
+                str(key).casefold(): str(value or "")
+                for key, value in attrs
+                if key is not None
+            }
             key = attrs_dict.get("property") or attrs_dict.get("name")
-            if key.casefold() in {"article:published_time", "date", "pubdate", "publishdate"}:
+            if key and key.casefold() in {"article:published_time", "date", "pubdate", "publishdate"}:
                 self.published_at = attrs_dict.get("content") or None
         if tag in self._TEXT_TAGS and self._ignored_depth == 0:
             self._buffer = []

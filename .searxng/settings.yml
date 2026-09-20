@@ -1,4 +1,7 @@
-use_default_settings: true
+use_default_settings:
+  engines:
+    keep_only:
+      - wikipedia
 
 general:
   instance_name: "Thanarah Local SearXNG"

@@ -129,6 +129,8 @@ class WebIntelligencePipeline:
 
         selected = list(search_results[: max(1, min(settings.web_max_fetch_results, 5))])
         fetch_started = time.perf_counter()
+        fetch_durations: list[float] = []
+        extraction_durations: list[float] = []
 
         async def fetch_one(item: SearchResult) -> tuple[SearchResult, Any, ExtractedPage | None]:
             result.events.append(self._event("fetch_started", url=item.url))
@@ -136,9 +138,11 @@ class WebIntelligencePipeline:
             fetched = self._cache_get(self._fetch_cache, fetch_key, settings.web_fetch_cache_ttl_seconds)
             fetch_cache_hit = fetched is not None
             try:
+                fetch_one_started = time.perf_counter()
                 if fetched is None:
                     fetched = await self.fetcher.fetch(item.url)
                     self._fetch_cache[fetch_key] = (time.monotonic(), fetched)
+                fetch_durations.append((time.perf_counter() - fetch_one_started) * 1000)
                 extraction_key = self._cache_key(item.url, hashlib.sha256(fetched.content).hexdigest())
                 extracted = self._cache_get(
                     self._extraction_cache,
@@ -146,7 +150,9 @@ class WebIntelligencePipeline:
                     settings.web_extraction_cache_ttl_seconds,
                 )
                 if extracted is None:
+                    extraction_started = time.perf_counter()
                     extracted = extract_html(fetched.content, fetched.url, content_type=fetched.content_type)
+                    extraction_durations.append((time.perf_counter() - extraction_started) * 1000)
                     self._extraction_cache[extraction_key] = (time.monotonic(), extracted)
                 result.events.append(self._event("fetch_completed", url=item.url, contentChars=len(extracted.content)))
                 return item, fetched, extracted
@@ -156,7 +162,11 @@ class WebIntelligencePipeline:
 
         pages = await asyncio.gather(*(fetch_one(item) for item in selected))
         if telemetry is not None:
-            telemetry.add_ms("webFetchMs", fetch_started)
+            telemetry.set(
+                "webFetchMs",
+                round(max(fetch_durations, default=(time.perf_counter() - fetch_started) * 1000), 2),
+            )
+            telemetry.set("webExtractionMs", round(max(extraction_durations, default=0.0), 2))
             telemetry.set("webFetchedCount", sum(1 for _, _, page in pages if page is not None))
 
         candidates: list[dict[str, Any]] = []

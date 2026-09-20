@@ -13,6 +13,14 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 
+def _effective_language(query: str, language: str) -> str:
+    if language and language != "auto":
+        return language
+    compact = "".join((query or "").split())
+    arabic = sum("\u0600" <= char <= "\u06ff" for char in compact)
+    return "ar" if compact and arabic / len(compact) > 0.2 else "en"
+
+
 @dataclass(frozen=True)
 class SearchResult:
     title: str
@@ -62,8 +70,9 @@ class SearXNGClient:
         started = datetime.now(timezone.utc)
         try:
             response = await self._request({
-                "q": "thanarah",
+                "q": "Python",
                 "format": "json",
+                "language": "en",
                 "safesearch": settings.web_safe_search,
                 "categories": "general",
             })
@@ -97,10 +106,11 @@ class SearXNGClient:
     ) -> list[SearchResult]:
         if not query.strip():
             return []
+        effective_language = _effective_language(query, language or "auto")
         response = await self._request({
             "q": query.strip(),
             "format": "json",
-            "language": language or "auto",
+            "language": effective_language,
             "safesearch": settings.web_safe_search if safe_search is None else safe_search,
             "categories": "general",
             **({"region": region} if region else {}),

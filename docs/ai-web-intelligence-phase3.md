@@ -21,11 +21,19 @@ User question
   -> real source citations
 ```
 
-The feature is implemented but **not enabled** because SearXNG is not present
-in the current Replit environment. The default remains:
+The feature is implemented and verified in the development workflow with a
+local SearXNG container. Production remains **disabled**. The default
+application configuration remains:
 
 ```text
 WEB_SEARCH_ENABLED=false
+SEARXNG_URL=http://127.0.0.1:8080
+```
+
+The development workflow explicitly enables the local-only path:
+
+```text
+WEB_SEARCH_ENABLED=true
 SEARXNG_URL=http://127.0.0.1:8080
 ```
 
@@ -59,6 +67,10 @@ title, url, snippet, source, rank, publishedAt
 The endpoint is exposed for diagnostics at `GET /web/capabilities`. This
 endpoint performs a small live probe and reports whether SearXNG is reachable
 and returning JSON.
+
+The local container is configured with the Wikipedia engine only behind
+SearXNG. This keeps the phase local and avoids adding any external or paid
+search provider. Thanarah does not call Wikipedia directly.
 
 ### Safe fetcher
 
@@ -133,45 +145,76 @@ enabled, so mutable web evidence cannot be reused as a context-free response.
 
 ### SearXNG
 
-The live probe on the running AI Engine returned:
+The live probe on the running AI Engine returned HTTP 200 with valid JSON:
 
 ```json
 {
-  "enabled": false,
+  "enabled": true,
   "provider": "SearXNG",
   "endpoint": "http://127.0.0.1:8080",
   "probe": {
-    "reachable": false,
-    "httpStatus": null,
-    "json": false,
-    "resultCount": 0,
-    "error": "All connection attempts failed"
+    "reachable": true,
+    "httpStatus": 200,
+    "json": true,
+    "resultCount": 1
   },
-  "productionSafe": true
+  "productionSafe": false
 }
 ```
 
-Ports `8080` and `8888` were also checked before implementation. No SearXNG
-service was available. The implementation therefore does not claim that live
-Web Search is working.
+The probe is intentionally small; the full benchmark below exercised multiple
+queries and the complete retrieval path for the verified source.
 
 ## Benchmark
 
 The complete raw benchmark record is in
 `docs/ai-web-intelligence-phase3-benchmark.json`.
 
-### Live dependency measurements
+### Live benchmark: 10 real queries
 
 | Measurement | Result |
 |---|---:|
-| SearXNG reachable | `false` |
-| SearXNG HTTP status | `not available` |
-| SearXNG JSON response | `false` |
-| Live search latency | `not measured` |
-| Live fetch latency | `not measured` |
-| Live extraction latency | `not measured` |
-| Live reranking latency | `not measured` |
-| Live total web latency | `not measured` |
+| Queries | `10` |
+| SearXNG reachable | `true` |
+| SearXNG HTTP status | `200` |
+| Search latency, min / mean / max | `71.73 / 222.24 / 765.97 ms` |
+| Fetch latency, min / mean / max | `0.01 / 33.82 / 270.48 ms` |
+| Extraction latency, min / mean / max | `0 / 1.16 / 9.26 ms` |
+| Reranking latency, min / mean / max | `0 / 0.12 / 0.93 ms` |
+| Total web latency, min / mean / max | `0.01 / 205.95 / 766.08 ms` |
+| Successful fetch rate | `12.5%` (`1/8` web activations) |
+| Sources returned | `1` |
+| Citation integrity | `1/1` source-bearing case passed |
+| Web activation precision | `100%` |
+| Non-activation correctness | `100%` |
+
+All eight web-triggering queries reached the local SearXNG decision and search
+path. The Wikipedia-only engine returned one verified result for the exact
+Python smoke query; the other seven web-triggering phrases returned no
+Wikipedia result. These are recorded as empty retrievals, not padded or
+converted into fabricated citations.
+
+The raw per-query measurements are in
+`docs/ai-web-intelligence-phase3-benchmark.json`.
+
+### Live Qwen/SSE smoke test
+
+The real `/chat/stream` path was exercised with local `qwen2.5:1.5b` and a
+web-required Python query. It produced:
+
+- `status`, `search_started`, `source_found`, `fetch_started`,
+  `fetch_completed`, `generating`, `done`, and `[DONE]`;
+- incremental delta text;
+- source URLs in final metadata;
+- a citation block in the generated response;
+- `generationReady=true`, `ollamaReachable=true`, and model
+  `qwen2.5:1.5b`.
+
+The final live smoke telemetry reported approximately `9803 ms` to first
+token and `16056 ms` total generation time, with
+`ollamaReachable=true`, `generationReady=true`, and
+`model=qwen2.5:1.5b`. Extraction telemetry for this stream was `7.8 ms`.
+This is a live smoke measurement, not a production SLO claim.
 
 ### Deterministic fixture measurement
 
@@ -191,7 +234,7 @@ This is a local fixture measurement only, not a production or internet claim:
 Executed:
 
 - Python compile: passed
-- Python regression/unit suite: **16/16 passed**
+- Python regression/unit suite: **17/17 passed**
 - SSRF tests: localhost, loopback, private/metadata IP, internal hostname,
   malicious redirect: passed
 - Fetch tests: timeout/error path, invalid content type, oversized response:
@@ -203,14 +246,17 @@ Executed:
 - Web TypeScript check: passed
 - `git diff --check`: passed
 - AI Engine health: HTTP 200, MongoDB connected, local model available
-- Web capabilities endpoint: HTTP 200, SearXNG unavailable and correctly
-  reported
+- Web capabilities endpoint: HTTP 200, SearXNG reachable and returning JSON
+- Live 10-query SearXNG benchmark: completed
+- Live Qwen SSE/citation smoke test: completed
 
 ## Production configuration
 
-No production web-search activation was performed. To enable this phase later,
-the environment must provide a verified SearXNG instance and then pass the
-live search/fetch/latency/security benchmark. Until then:
+No production web-search activation was performed. The development-only
+benchmark passed routing, SSRF, source, citation, and SSE checks, but
+production remains disabled because the Wikipedia-only engine has limited
+coverage and this measurement is not a production availability, throughput,
+or cost guarantee. Until a production decision is made explicitly:
 
 ```text
 WEB_SEARCH_ENABLED=false
@@ -250,7 +296,7 @@ OLLAMA_KEEP_ALIVE=10m
 
 ## Stop condition
 
-Phase 3 is complete as an integration foundation and remains safely disabled
-until SearXNG is supplied and the live benchmark is run. No Thanarah Core
-integration, tool calling, agent loop, autonomous execution, PDF/spreadsheet
-generation, voice engine, paid API, or production Qdrant activation was added.
+Phase 3 is complete as a development-only enablement and live verification.
+Production web search remains disabled. No Thanarah Core integration, tool
+calling, agent loop, autonomous execution, PDF/spreadsheet generation, voice
+engine, paid API, or production Qdrant activation was added.

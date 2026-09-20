@@ -6,3 +6,4 @@
 - [Ollama warm readiness](ollama-warm-readiness.md) — `/api/ps` model presence does not guarantee a warm first generation; validate with real generation
 - [SSE measurement](sse-measurement.md) — use a non-buffering client read such as `read1()` when timing incremental SSE delivery
 - [Phase 2D foundation boundary](phase2d-foundation.md) — task, skill, artifact, and event layers are contracts first; real tool execution remains explicitly gated
+- [Local SearXNG limits](searxng-local-constraints.md) — IPv4 binding and an explicit User-Agent are required; keep the enabled engine set local and verified
