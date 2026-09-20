@@ -1,0 +1,1308 @@
+{
+  "measuredAt": "2026-09-20T12:56:22.476105+00:00",
+  "ollamaUrl": "http://localhost:11434",
+  "productionModel": "qwen2.5:1.5b",
+  "productionConfigChanged": false,
+  "benchmarkOnlyModels": [
+    "qwen2.5:0.5b"
+  ],
+  "host": {
+    "platform": "Linux-6.18.52-x86_64-with-glibc2.40",
+    "logicalCpu": 4,
+    "runtimeConfig": {
+      "numCtx": 2048,
+      "numThread": 4,
+      "numBatch": 64,
+      "keepAlive": "10m",
+      "maxTokens": 16
+    }
+  },
+  "dataset": [
+    {
+      "id": "ar-01",
+      "category": "arabic",
+      "prompt": "اكتب ثلاث خطوات مختصرة للتحقق من جاهزية خدمة قبل النشر."
+    },
+    {
+      "id": "ar-02",
+      "category": "arabic",
+      "prompt": "اشرح الفرق بين latency وthroughput في جملتين."
+    },
+    {
+      "id": "ar-03",
+      "category": "arabic",
+      "prompt": "لخص سياسة احتفاظ بالبيانات في نقاط واضحة، ولا تخترع تفاصيل غير مذكورة."
+    },
+    {
+      "id": "ar-04",
+      "category": "arabic",
+      "prompt": "أجب بالعربية: ما فائدة تسجيل الأخطاء مع request ID؟"
+    },
+    {
+      "id": "ar-05",
+      "category": "arabic",
+      "prompt": "حوّل العبارة إلى قائمة تحقق من 4 عناصر: راجع الاختبارات، المراقبة، النسخ الاحتياطي، وخطة التراجع."
+    },
+    {
+      "id": "en-01",
+      "category": "english",
+      "prompt": "Write three concise steps for checking service readiness before deployment."
+    },
+    {
+      "id": "en-02",
+      "category": "english",
+      "prompt": "Explain the difference between latency and throughput in two sentences."
+    },
+    {
+      "id": "en-03",
+      "category": "english",
+      "prompt": "Summarize a data-retention policy without inventing details that were not provided."
+    },
+    {
+      "id": "en-04",
+      "category": "english",
+      "prompt": "What is the benefit of recording errors with a request ID? Answer briefly."
+    },
+    {
+      "id": "en-05",
+      "category": "english",
+      "prompt": "Turn this into a four-item checklist: test, observe, back up, and keep rollback ready."
+    },
+    {
+      "id": "tech-01",
+      "category": "technical",
+      "prompt": "Give a safe migration checklist for adding a nullable database column."
+    },
+    {
+      "id": "tech-02",
+      "category": "technical",
+      "prompt": "Compare a bounded queue with an unbounded queue for an API service."
+    },
+    {
+      "id": "tech-03",
+      "category": "technical",
+      "prompt": "Describe how to detect a cache stampede and name two mitigations."
+    },
+    {
+      "id": "tech-04",
+      "category": "technical",
+      "prompt": "Explain why a health endpoint should distinguish liveness from readiness."
+    },
+    {
+      "id": "tech-05",
+      "category": "technical",
+      "prompt": "Give a concise incident rollback plan for a failed deployment."
+    },
+    {
+      "id": "conv-01",
+      "category": "conversational",
+      "prompt": "I have a busy day. Suggest a simple way to prioritize three tasks."
+    },
+    {
+      "id": "conv-02",
+      "category": "conversational",
+      "prompt": "Help me phrase a polite message asking for a project status update."
+    },
+    {
+      "id": "conv-03",
+      "category": "conversational",
+      "prompt": "Suggest a short evening routine that includes planning tomorrow."
+    },
+    {
+      "id": "conv-04",
+      "category": "conversational",
+      "prompt": "Give a concise answer to someone asking why monitoring matters."
+    },
+    {
+      "id": "conv-05",
+      "category": "conversational",
+      "prompt": "Rewrite this politely: 'You did not send the information on time.'"
+    }
+  ],
+  "modelInventory": [
+    {
+      "name": "qwen2.5:0.5b",
+      "size": 397821319,
+      "digest": "a8b0c51577010a279d933d14c2a8ab4b268079d44c5c8830c0a93900f1827c67",
+      "details": {
+        "parent_model": "",
+        "format": "gguf",
+        "family": "qwen2",
+        "families": [
+          "qwen2"
+        ],
+        "parameter_size": "494.03M",
+        "quantization_level": "Q4_K_M",
+        "context_length": 32768,
+        "embedding_length": 896
+      }
+    },
+    {
+      "name": "qwen2.5:1.5b",
+      "size": 986061892,
+      "digest": "65ec06548149b04c096a120e4a6da9d4017ea809c91734ea5631e89f96ddc57b",
+      "details": {
+        "parent_model": "",
+        "format": "gguf",
+        "family": "qwen2",
+        "families": [
+          "qwen2"
+        ],
+        "parameter_size": "1.5B",
+        "quantization_level": "Q4_K_M",
+        "context_length": 32768,
+        "embedding_length": 1536
+      }
+    }
+  ],
+  "quantizationScope": {
+    "installedVariants": "Both installed Qwen variants are Q4_K_M.",
+    "alternateQuantizationBenchmarked": false,
+    "reason": "No alternate quantized variant was installed; the benchmark stays small and local."
+  },
+  "models": {
+    "qwen2.5:1.5b": {
+      "model": "qwen2.5:1.5b",
+      "details": {
+        "parent_model": "",
+        "format": "gguf",
+        "family": "qwen2",
+        "families": [
+          "qwen2"
+        ],
+        "parameter_size": "1.5B",
+        "quantization_level": "Q4_K_M"
+      },
+      "warmup": {
+        "ttftMs": 18884.98,
+        "totalMs": 18885.12,
+        "modelLoadMs": 18616.31,
+        "promptEvalMs": 264.07,
+        "evalMs": 0.0,
+        "tokensPerSecond": 1000.0,
+        "inputTokens": 33,
+        "outputTokens": 1,
+        "streamChunks": 1,
+        "done": true
+      },
+      "iterations": 20,
+      "ttftMs": {
+        "p50": 357.38,
+        "p95": 461.25,
+        "average": 369.94,
+        "max": 575.78
+      },
+      "totalMs": {
+        "p50": 1185.97,
+        "p95": 1353.76,
+        "average": 1217.38,
+        "max": 1660.85
+      },
+      "modelLoadMs": {
+        "p50": 157.09,
+        "p95": 179.33,
+        "average": 158.7,
+        "max": 192.78
+      },
+      "promptEvalMs": {
+        "p50": 189.22,
+        "p95": 307.58,
+        "average": 204.47,
+        "max": 405.18
+      },
+      "tokensPerSecond": {
+        "p50": 18.79,
+        "p95": 22.37,
+        "average": 18.89,
+        "max": 23.46
+      },
+      "inputTokens": {
+        "p50": 41.0,
+        "p95": 58.0,
+        "average": 43.7,
+        "max": 69.0
+      },
+      "outputTokens": {
+        "p50": 16.0,
+        "p95": 16.0,
+        "average": 15.8,
+        "max": 16.0
+      },
+      "resources": {
+        "sampleCount": 85,
+        "cpuPercent": {
+          "p50": 78.1,
+          "p95": 188.3,
+          "average": 97.65,
+          "max": 194.2
+        },
+        "rssMb": {
+          "p50": 1280.2,
+          "p95": 1304.04,
+          "average": 1026.93,
+          "max": 1304.45
+        }
+      },
+      "qualityEvidence": {
+        "automatedEvidenceOnly": true,
+        "dimensions": [
+          "Arabic coherence",
+          "instruction following",
+          "factual consistency",
+          "refusal behavior",
+          "formatting",
+          "technical answer quality"
+        ],
+        "evidenceByCategory": {
+          "arabic": {
+            "responsesObserved": 5,
+            "nonEmptyResponses": 5,
+            "arabicCharacterResponses": 5,
+            "humanReviewRequired": true
+          },
+          "english": {
+            "responsesObserved": 5,
+            "nonEmptyResponses": 5,
+            "arabicCharacterResponses": 0,
+            "humanReviewRequired": true
+          },
+          "technical": {
+            "responsesObserved": 5,
+            "nonEmptyResponses": 5,
+            "arabicCharacterResponses": 0,
+            "humanReviewRequired": true
+          },
+          "conversational": {
+            "responsesObserved": 5,
+            "nonEmptyResponses": 5,
+            "arabicCharacterResponses": 0,
+            "humanReviewRequired": true
+          }
+        },
+        "limitation": "These counters do not score semantic quality; human review is required."
+      },
+      "rawMeasurements": [
+        {
+          "id": "ar-01",
+          "category": "arabic",
+          "ttftMs": 461.25,
+          "totalMs": 1315.37,
+          "modelLoadMs": 192.78,
+          "promptEvalMs": 264.61,
+          "evalMs": 854.03,
+          "tokensPerSecond": 18.73,
+          "inputTokens": 50,
+          "outputTokens": 16,
+          "streamChunks": 16,
+          "done": true,
+          "output": "1. تأكد من أن جميع المحتوى هو مصنوع بشكل"
+        },
+        {
+          "id": "ar-02",
+          "category": "arabic",
+          "ttftMs": 357.38,
+          "totalMs": 1301.16,
+          "modelLoadMs": 171.86,
+          "promptEvalMs": 180.9,
+          "evalMs": 943.74,
+          "tokensPerSecond": 16.95,
+          "inputTokens": 41,
+          "outputTokens": 16,
+          "streamChunks": 16,
+          "done": true,
+          "output": "Latency هو مدة التأخير أو الانتظار التي تمر"
+        },
+        {
+          "id": "ar-03",
+          "category": "arabic",
+          "ttftMs": 458.15,
+          "totalMs": 1141.32,
+          "modelLoadMs": 145.88,
+          "promptEvalMs": 307.58,
+          "evalMs": 682.14,
+          "tokensPerSecond": 23.46,
+          "inputTokens": 58,
+          "outputTokens": 16,
+          "streamChunks": 16,
+          "done": true,
+          "output": "سياسة حماية البيانات واضحة وليست خيالية أو تتض"
+        },
+        {
+          "id": "ar-04",
+          "category": "arabic",
+          "ttftMs": 435.91,
+          "totalMs": 1346.82,
+          "modelLoadMs": 145.9,
+          "promptEvalMs": 284.93,
+          "evalMs": 910.92,
+          "tokensPerSecond": 17.56,
+          "inputTokens": 46,
+          "outputTokens": 16,
+          "streamChunks": 16,
+          "done": true,
+          "output": "تسجيل الأخطاء مع الـ \"request ID\" يساعد في التعرف"
+        },
+        {
+          "id": "ar-05",
+          "category": "arabic",
+          "ttftMs": 575.78,
+          "totalMs": 1660.85,
+          "modelLoadMs": 156.73,
+          "promptEvalMs": 405.18,
+          "evalMs": 1085.02,
+          "tokensPerSecond": 14.75,
+          "inputTokens": 69,
+          "outputTokens": 16,
+          "streamChunks": 16,
+          "done": true,
+          "output": "1. اختبارات: يهدف إلى فحص الكفاءة وال"
+        },
+        {
+          "id": "en-01",
+          "category": "english",
+          "ttftMs": 284.48,
+          "totalMs": 999.93,
+          "modelLoadMs": 158.38,
+          "promptEvalMs": 120.55,
+          "evalMs": 715.29,
+          "tokensPerSecond": 22.37,
+          "inputTokens": 38,
+          "outputTokens": 16,
+          "streamChunks": 16,
+          "done": true,
+          "output": "1. Verify all dependencies are installed.\n2. Test the application under various conditions"
+        },
+        {
+          "id": "en-02",
+          "category": "english",
+          "ttftMs": 346.66,
+          "totalMs": 1158.18,
+          "modelLoadMs": 160.9,
+          "promptEvalMs": 175.92,
+          "evalMs": 810.59,
+          "tokensPerSecond": 19.74,
+          "inputTokens": 39,
+          "outputTokens": 16,
+          "streamChunks": 16,
+          "done": true,
+          "output": "Latency refers to how long it takes for data to travel from one point to"
+        },
+        {
+          "id": "en-03",
+          "category": "english",
+          "ttftMs": 393.8,
+          "totalMs": 1161.03,
+          "modelLoadMs": 179.33,
+          "promptEvalMs": 209.83,
+          "evalMs": 766.89,
+          "tokensPerSecond": 20.86,
+          "inputTokens": 44,
+          "outputTokens": 16,
+          "streamChunks": 16,
+          "done": true,
+          "output": "A comprehensive data retention policy outlines how long personal information is stored, when it can"
+        },
+        {
+          "id": "en-04",
+          "category": "english",
+          "ttftMs": 349.17,
+          "totalMs": 1311.47,
+          "modelLoadMs": 156.52,
+          "promptEvalMs": 182.51,
+          "evalMs": 962.12,
+          "tokensPerSecond": 16.63,
+          "inputTokens": 42,
+          "outputTokens": 16,
+          "streamChunks": 16,
+          "done": true,
+          "output": "Recording errors with a request ID allows for tracking and troubleshooting by linking specific issues to"
+        },
+        {
+          "id": "en-05",
+          "category": "english",
+          "ttftMs": 380.98,
+          "totalMs": 1111.69,
+          "modelLoadMs": 151.6,
+          "promptEvalMs": 224.34,
+          "evalMs": 730.36,
+          "tokensPerSecond": 21.91,
+          "inputTokens": 47,
+          "outputTokens": 16,
+          "streamChunks": 16,
+          "done": true,
+          "output": "- Test the system thoroughly.\n- Observe its performance under various conditions.\n-"
+        },
+        {
+          "id": "tech-01",
+          "category": "technical",
+          "ttftMs": 285.94,
+          "totalMs": 1147.6,
+          "modelLoadMs": 141.54,
+          "promptEvalMs": 138.65,
+          "evalMs": 861.62,
+          "tokensPerSecond": 18.57,
+          "inputTokens": 39,
+          "outputTokens": 16,
+          "streamChunks": 16,
+          "done": true,
+          "output": "1. Backup the current database.\n2. Create a new table or modify an"
+        },
+        {
+          "id": "tech-02",
+          "category": "technical",
+          "ttftMs": 313.05,
+          "totalMs": 1315.01,
+          "modelLoadMs": 150.41,
+          "promptEvalMs": 158.02,
+          "evalMs": 1001.11,
+          "tokensPerSecond": 15.98,
+          "inputTokens": 41,
+          "outputTokens": 16,
+          "streamChunks": 16,
+          "done": true,
+          "output": "A bounded queue limits the number of items it can hold, ensuring that the system"
+        },
+        {
+          "id": "tech-03",
+          "category": "technical",
+          "ttftMs": 405.87,
+          "totalMs": 1353.76,
+          "modelLoadMs": 146.56,
+          "promptEvalMs": 254.43,
+          "evalMs": 947.78,
+          "tokensPerSecond": 16.88,
+          "inputTokens": 41,
+          "outputTokens": 16,
+          "streamChunks": 16,
+          "done": true,
+          "output": "A cache stampede occurs when multiple processes simultaneously access the same cache, causing it"
+        },
+        {
+          "id": "tech-04",
+          "category": "technical",
+          "ttftMs": 308.78,
+          "totalMs": 1041.79,
+          "modelLoadMs": 147.79,
+          "promptEvalMs": 156.01,
+          "evalMs": 732.87,
+          "tokensPerSecond": 21.83,
+          "inputTokens": 40,
+          "outputTokens": 16,
+          "streamChunks": 16,
+          "done": true,
+          "output": "A health endpoint should distinguish between liveness (indicating the system is alive)"
+        },
+        {
+          "id": "tech-05",
+          "category": "technical",
+          "ttftMs": 325.59,
+          "totalMs": 1164.96,
+          "modelLoadMs": 165.47,
+          "promptEvalMs": 151.97,
+          "evalMs": 840.25,
+          "tokensPerSecond": 19.04,
+          "inputTokens": 38,
+          "outputTokens": 16,
+          "streamChunks": 16,
+          "done": true,
+          "output": "1. Identify the cause: Determine what went wrong during the deployment.\n2."
+        },
+        {
+          "id": "conv-01",
+          "category": "conversational",
+          "ttftMs": 364.14,
+          "totalMs": 1210.6,
+          "modelLoadMs": 157.09,
+          "promptEvalMs": 202.26,
+          "evalMs": 841.75,
+          "tokensPerSecond": 19.01,
+          "inputTokens": 43,
+          "outputTokens": 16,
+          "streamChunks": 16,
+          "done": true,
+          "output": "Break down the tasks into urgency and importance, then focus on completing the most critical"
+        },
+        {
+          "id": "conv-02",
+          "category": "conversational",
+          "ttftMs": 387.19,
+          "totalMs": 1236.43,
+          "modelLoadMs": 175.85,
+          "promptEvalMs": 190.75,
+          "evalMs": 849.35,
+          "tokensPerSecond": 18.84,
+          "inputTokens": 40,
+          "outputTokens": 16,
+          "streamChunks": 16,
+          "done": true,
+          "output": "\"Could you provide an update on the progress of our project? I'm eager"
+        },
+        {
+          "id": "conv-03",
+          "category": "conversational",
+          "ttftMs": 276.94,
+          "totalMs": 1135.83,
+          "modelLoadMs": 143.68,
+          "promptEvalMs": 128.39,
+          "evalMs": 858.12,
+          "tokensPerSecond": 18.65,
+          "inputTokens": 38,
+          "outputTokens": 16,
+          "streamChunks": 16,
+          "done": true,
+          "output": "Plan your day's tasks, set goals for the next 24 hours,"
+        },
+        {
+          "id": "conv-04",
+          "category": "conversational",
+          "ttftMs": 333.76,
+          "totalMs": 1185.97,
+          "modelLoadMs": 165.19,
+          "promptEvalMs": 163.4,
+          "evalMs": 851.61,
+          "tokensPerSecond": 18.79,
+          "inputTokens": 38,
+          "outputTokens": 16,
+          "streamChunks": 16,
+          "done": true,
+          "output": "Monitoring helps ensure compliance, identify issues early, track progress towards goals, and maintain"
+        },
+        {
+          "id": "conv-05",
+          "category": "conversational",
+          "ttftMs": 353.93,
+          "totalMs": 1047.8,
+          "modelLoadMs": 160.53,
+          "promptEvalMs": 189.22,
+          "evalMs": 694.09,
+          "tokensPerSecond": 17.29,
+          "inputTokens": 42,
+          "outputTokens": 12,
+          "streamChunks": 11,
+          "done": true,
+          "output": "Could you please provide the requested information by the deadline?"
+        }
+      ],
+      "context": {
+        "short": {
+          "iterations": 1,
+          "inputTokens": {
+            "p50": 55.0,
+            "p95": 55.0,
+            "average": 55.0,
+            "max": 55.0
+          },
+          "promptEvalMs": {
+            "p50": 273.21,
+            "p95": 273.21,
+            "average": 273.21,
+            "max": 273.21
+          },
+          "ttftMs": {
+            "p50": 439.72,
+            "p95": 439.72,
+            "average": 439.72,
+            "max": 439.72
+          },
+          "totalMs": {
+            "p50": 1277.57,
+            "p95": 1277.57,
+            "average": 1277.57,
+            "max": 1277.57
+          },
+          "tokensPerSecond": {
+            "p50": 19.1,
+            "p95": 19.1,
+            "average": 19.1,
+            "max": 19.1
+          },
+          "rawMeasurements": [
+            {
+              "ttftMs": 439.72,
+              "totalMs": 1277.57,
+              "modelLoadMs": 154.01,
+              "promptEvalMs": 273.21,
+              "evalMs": 837.73,
+              "tokensPerSecond": 19.1,
+              "inputTokens": 55,
+              "outputTokens": 16,
+              "streamChunks": 16,
+              "done": true
+            }
+          ]
+        },
+        "medium": {
+          "iterations": 1,
+          "inputTokens": {
+            "p50": 316.0,
+            "p95": 316.0,
+            "average": 316.0,
+            "max": 316.0
+          },
+          "promptEvalMs": {
+            "p50": 2136.62,
+            "p95": 2136.62,
+            "average": 2136.62,
+            "max": 2136.62
+          },
+          "ttftMs": {
+            "p50": 2295.64,
+            "p95": 2295.64,
+            "average": 2295.64,
+            "max": 2295.64
+          },
+          "totalMs": {
+            "p50": 3040.89,
+            "p95": 3040.89,
+            "average": 3040.89,
+            "max": 3040.89
+          },
+          "tokensPerSecond": {
+            "p50": 21.47,
+            "p95": 21.47,
+            "average": 21.47,
+            "max": 21.47
+          },
+          "rawMeasurements": [
+            {
+              "ttftMs": 2295.64,
+              "totalMs": 3040.89,
+              "modelLoadMs": 152.48,
+              "promptEvalMs": 2136.62,
+              "evalMs": 745.29,
+              "tokensPerSecond": 21.47,
+              "inputTokens": 316,
+              "outputTokens": 16,
+              "streamChunks": 15,
+              "done": true
+            }
+          ]
+        },
+        "long": {
+          "iterations": 1,
+          "inputTokens": {
+            "p50": 1220.0,
+            "p95": 1220.0,
+            "average": 1220.0,
+            "max": 1220.0
+          },
+          "promptEvalMs": {
+            "p50": 9953.78,
+            "p95": 9953.78,
+            "average": 9953.78,
+            "max": 9953.78
+          },
+          "ttftMs": {
+            "p50": 10128.8,
+            "p95": 10128.8,
+            "average": 10128.8,
+            "max": 10128.8
+          },
+          "totalMs": {
+            "p50": 10963.09,
+            "p95": 10963.09,
+            "average": 10963.09,
+            "max": 10963.09
+          },
+          "tokensPerSecond": {
+            "p50": 19.18,
+            "p95": 19.18,
+            "average": 19.18,
+            "max": 19.18
+          },
+          "rawMeasurements": [
+            {
+              "ttftMs": 10128.8,
+              "totalMs": 10963.09,
+              "modelLoadMs": 136.94,
+              "promptEvalMs": 9953.78,
+              "evalMs": 834.07,
+              "tokensPerSecond": 19.18,
+              "inputTokens": 1220,
+              "outputTokens": 16,
+              "streamChunks": 16,
+              "done": true
+            }
+          ]
+        }
+      }
+    },
+    "qwen2.5:0.5b": {
+      "model": "qwen2.5:0.5b",
+      "details": {
+        "parent_model": "",
+        "format": "gguf",
+        "family": "qwen2",
+        "families": [
+          "qwen2"
+        ],
+        "parameter_size": "494.03M",
+        "quantization_level": "Q4_K_M"
+      },
+      "warmup": {
+        "ttftMs": 4221.26,
+        "totalMs": 4221.4,
+        "modelLoadMs": 4031.28,
+        "promptEvalMs": 186.33,
+        "evalMs": 0.0,
+        "tokensPerSecond": 1000.0,
+        "inputTokens": 33,
+        "outputTokens": 1,
+        "streamChunks": 1,
+        "done": true
+      },
+      "iterations": 20,
+      "ttftMs": {
+        "p50": 275.56,
+        "p95": 422.72,
+        "average": 292.88,
+        "max": 468.09
+      },
+      "totalMs": {
+        "p50": 946.75,
+        "p95": 1183.61,
+        "average": 903.14,
+        "max": 1242.31
+      },
+      "modelLoadMs": {
+        "p50": 154.19,
+        "p95": 184.76,
+        "average": 160.61,
+        "max": 254.4
+      },
+      "promptEvalMs": {
+        "p50": 115.7,
+        "p95": 206.03,
+        "average": 124.36,
+        "max": 256.34
+      },
+      "tokensPerSecond": {
+        "p50": 25.95,
+        "p95": 34.56,
+        "average": 26.82,
+        "max": 35.72
+      },
+      "inputTokens": {
+        "p50": 41.0,
+        "p95": 58.0,
+        "average": 43.7,
+        "max": 69.0
+      },
+      "outputTokens": {
+        "p50": 16.0,
+        "p95": 16.0,
+        "average": 15.6,
+        "max": 16.0
+      },
+      "resources": {
+        "sampleCount": 45,
+        "cpuPercent": {
+          "p50": 306.7,
+          "p95": 329.1,
+          "average": 283.48,
+          "max": 329.8
+        },
+        "rssMb": {
+          "p50": 1787.66,
+          "p95": 1794.75,
+          "average": 1740.65,
+          "max": 1794.8
+        }
+      },
+      "qualityEvidence": {
+        "automatedEvidenceOnly": true,
+        "dimensions": [
+          "Arabic coherence",
+          "instruction following",
+          "factual consistency",
+          "refusal behavior",
+          "formatting",
+          "technical answer quality"
+        ],
+        "evidenceByCategory": {
+          "arabic": {
+            "responsesObserved": 5,
+            "nonEmptyResponses": 5,
+            "arabicCharacterResponses": 5,
+            "humanReviewRequired": true
+          },
+          "english": {
+            "responsesObserved": 5,
+            "nonEmptyResponses": 5,
+            "arabicCharacterResponses": 0,
+            "humanReviewRequired": true
+          },
+          "technical": {
+            "responsesObserved": 5,
+            "nonEmptyResponses": 5,
+            "arabicCharacterResponses": 0,
+            "humanReviewRequired": true
+          },
+          "conversational": {
+            "responsesObserved": 5,
+            "nonEmptyResponses": 5,
+            "arabicCharacterResponses": 0,
+            "humanReviewRequired": true
+          }
+        },
+        "limitation": "These counters do not score semantic quality; human review is required."
+      },
+      "rawMeasurements": [
+        {
+          "id": "ar-01",
+          "category": "arabic",
+          "ttftMs": 280.09,
+          "totalMs": 946.75,
+          "modelLoadMs": 143.34,
+          "promptEvalMs": 132.39,
+          "evalMs": 666.0,
+          "tokensPerSecond": 24.02,
+          "inputTokens": 50,
+          "outputTokens": 16,
+          "streamChunks": 16,
+          "done": true,
+          "output": "1. احجز الوقت المناسب لإجراء التحقق.\n2. تأ"
+        },
+        {
+          "id": "ar-02",
+          "category": "arabic",
+          "ttftMs": 234.98,
+          "totalMs": 948.01,
+          "modelLoadMs": 145.36,
+          "promptEvalMs": 85.56,
+          "evalMs": 712.1,
+          "tokensPerSecond": 22.47,
+          "inputTokens": 41,
+          "outputTokens": 16,
+          "streamChunks": 16,
+          "done": true,
+          "output": "Latency هو فترة تأخير زمنية لعملية أو عملية أخرى،"
+        },
+        {
+          "id": "ar-03",
+          "category": "arabic",
+          "ttftMs": 386.66,
+          "totalMs": 968.62,
+          "modelLoadMs": 175.03,
+          "promptEvalMs": 206.03,
+          "evalMs": 582.45,
+          "tokensPerSecond": 27.47,
+          "inputTokens": 58,
+          "outputTokens": 16,
+          "streamChunks": 16,
+          "done": true,
+          "output": "السياسة العامة لاحتفاظ البيانات تتضمن:\n\n1. عدم إ"
+        },
+        {
+          "id": "ar-04",
+          "category": "arabic",
+          "ttftMs": 325.44,
+          "totalMs": 974.62,
+          "modelLoadMs": 172.42,
+          "promptEvalMs": 131.97,
+          "evalMs": 649.21,
+          "tokensPerSecond": 24.65,
+          "inputTokens": 46,
+          "outputTokens": 16,
+          "streamChunks": 16,
+          "done": true,
+          "output": "تسجيل الأخطاء مع Request ID (Request ID) يتيح لك الت"
+        },
+        {
+          "id": "ar-05",
+          "category": "arabic",
+          "ttftMs": 422.72,
+          "totalMs": 1087.04,
+          "modelLoadMs": 156.36,
+          "promptEvalMs": 256.34,
+          "evalMs": 663.2,
+          "tokensPerSecond": 24.13,
+          "inputTokens": 69,
+          "outputTokens": 16,
+          "streamChunks": 16,
+          "done": true,
+          "output": "1. راجع الاختبارات\n2. المراقبة"
+        },
+        {
+          "id": "en-01",
+          "category": "english",
+          "ttftMs": 308.67,
+          "totalMs": 1183.61,
+          "modelLoadMs": 175.17,
+          "promptEvalMs": 93.61,
+          "evalMs": 874.85,
+          "tokensPerSecond": 18.29,
+          "inputTokens": 38,
+          "outputTokens": 16,
+          "streamChunks": 16,
+          "done": true,
+          "output": "1. Conduct a thorough review of the current system's capabilities.\n2. Ensure"
+        },
+        {
+          "id": "en-02",
+          "category": "english",
+          "ttftMs": 316.4,
+          "totalMs": 1242.31,
+          "modelLoadMs": 184.76,
+          "promptEvalMs": 127.07,
+          "evalMs": 925.05,
+          "tokensPerSecond": 17.3,
+          "inputTokens": 39,
+          "outputTokens": 16,
+          "streamChunks": 16,
+          "done": true,
+          "output": "Latency refers to the time it takes for a system or application to respond to"
+        },
+        {
+          "id": "en-03",
+          "category": "english",
+          "ttftMs": 468.09,
+          "totalMs": 1166.78,
+          "modelLoadMs": 254.4,
+          "promptEvalMs": 200.06,
+          "evalMs": 699.71,
+          "tokensPerSecond": 22.87,
+          "inputTokens": 44,
+          "outputTokens": 16,
+          "streamChunks": 16,
+          "done": true,
+          "output": "A data retention policy outlines how long certain types of information should be stored or deleted"
+        },
+        {
+          "id": "en-04",
+          "category": "english",
+          "ttftMs": 292.2,
+          "totalMs": 769.38,
+          "modelLoadMs": 181.86,
+          "promptEvalMs": 103.83,
+          "evalMs": 477.09,
+          "tokensPerSecond": 33.54,
+          "inputTokens": 42,
+          "outputTokens": 16,
+          "streamChunks": 16,
+          "done": true,
+          "output": "Recording errors with a request ID helps in tracking and managing requests, ensuring that each"
+        },
+        {
+          "id": "en-05",
+          "category": "english",
+          "ttftMs": 247.54,
+          "totalMs": 864.96,
+          "modelLoadMs": 135.79,
+          "promptEvalMs": 107.89,
+          "evalMs": 616.54,
+          "tokensPerSecond": 25.95,
+          "inputTokens": 47,
+          "outputTokens": 16,
+          "streamChunks": 16,
+          "done": true,
+          "output": "- Test the system before deployment.\n- Observe user behavior during testing.\n-"
+        },
+        {
+          "id": "tech-01",
+          "category": "technical",
+          "ttftMs": 256.29,
+          "totalMs": 986.31,
+          "modelLoadMs": 153.37,
+          "promptEvalMs": 98.95,
+          "evalMs": 729.71,
+          "tokensPerSecond": 21.93,
+          "inputTokens": 39,
+          "outputTokens": 16,
+          "streamChunks": 16,
+          "done": true,
+          "output": "To add a nullable database column to an existing table, follow these steps:\n\n1"
+        },
+        {
+          "id": "tech-02",
+          "category": "technical",
+          "ttftMs": 323.69,
+          "totalMs": 908.6,
+          "modelLoadMs": 178.51,
+          "promptEvalMs": 140.79,
+          "evalMs": 584.98,
+          "tokensPerSecond": 27.35,
+          "inputTokens": 41,
+          "outputTokens": 16,
+          "streamChunks": 16,
+          "done": true,
+          "output": "A bounded queue is a type of queue where the number of elements in the queue"
+        },
+        {
+          "id": "tech-03",
+          "category": "technical",
+          "ttftMs": 275.56,
+          "totalMs": 738.98,
+          "modelLoadMs": 151.82,
+          "promptEvalMs": 119.33,
+          "evalMs": 462.92,
+          "tokensPerSecond": 34.56,
+          "inputTokens": 41,
+          "outputTokens": 16,
+          "streamChunks": 16,
+          "done": true,
+          "output": "A cache stampede occurs when the system experiences an overload, causing all caches to"
+        },
+        {
+          "id": "tech-04",
+          "category": "technical",
+          "ttftMs": 253.48,
+          "totalMs": 851.92,
+          "modelLoadMs": 147.14,
+          "promptEvalMs": 101.11,
+          "evalMs": 599.63,
+          "tokensPerSecond": 26.68,
+          "inputTokens": 40,
+          "outputTokens": 16,
+          "streamChunks": 16,
+          "done": true,
+          "output": "A health endpoint that distinguishes between liveness (whether the system is operational)"
+        },
+        {
+          "id": "tech-05",
+          "category": "technical",
+          "ttftMs": 262.24,
+          "totalMs": 756.83,
+          "modelLoadMs": 154.19,
+          "promptEvalMs": 102.94,
+          "evalMs": 494.76,
+          "tokensPerSecond": 32.34,
+          "inputTokens": 38,
+          "outputTokens": 16,
+          "streamChunks": 16,
+          "done": true,
+          "output": "1. Identify the root cause: The failure is due to a bug in the"
+        },
+        {
+          "id": "conv-01",
+          "category": "conversational",
+          "ttftMs": 265.63,
+          "totalMs": 732.53,
+          "modelLoadMs": 145.08,
+          "promptEvalMs": 115.95,
+          "evalMs": 466.94,
+          "tokensPerSecond": 34.27,
+          "inputTokens": 43,
+          "outputTokens": 16,
+          "streamChunks": 16,
+          "done": true,
+          "output": "To prioritize three tasks, you can use the Eisenhower Box method: \n\n1."
+        },
+        {
+          "id": "conv-02",
+          "category": "conversational",
+          "ttftMs": 247.85,
+          "totalMs": 868.13,
+          "modelLoadMs": 127.87,
+          "promptEvalMs": 115.7,
+          "evalMs": 620.63,
+          "tokensPerSecond": 25.78,
+          "inputTokens": 40,
+          "outputTokens": 16,
+          "streamChunks": 16,
+          "done": true,
+          "output": "\"Could you please provide an update on the current status of our upcoming project?\""
+        },
+        {
+          "id": "conv-03",
+          "category": "conversational",
+          "ttftMs": 257.49,
+          "totalMs": 951.26,
+          "modelLoadMs": 160.76,
+          "promptEvalMs": 92.6,
+          "evalMs": 693.14,
+          "tokensPerSecond": 23.08,
+          "inputTokens": 38,
+          "outputTokens": 16,
+          "streamChunks": 16,
+          "done": true,
+          "output": "Here's a short evening routine for tomorrow:\n\n1. Wake up early: Start"
+        },
+        {
+          "id": "conv-04",
+          "category": "conversational",
+          "ttftMs": 212.22,
+          "totalMs": 660.21,
+          "modelLoadMs": 135.15,
+          "promptEvalMs": 73.09,
+          "evalMs": 447.98,
+          "tokensPerSecond": 35.72,
+          "inputTokens": 38,
+          "outputTokens": 16,
+          "streamChunks": 16,
+          "done": true,
+          "output": "Monitoring is crucial because it helps organizations identify trends, make informed decisions, and improve"
+        },
+        {
+          "id": "conv-05",
+          "category": "conversational",
+          "ttftMs": 220.41,
+          "totalMs": 456.01,
+          "modelLoadMs": 133.77,
+          "promptEvalMs": 82.0,
+          "evalMs": 235.57,
+          "tokensPerSecond": 33.96,
+          "inputTokens": 42,
+          "outputTokens": 8,
+          "streamChunks": 7,
+          "done": true,
+          "output": "'You delayed sending the information.'"
+        }
+      ],
+      "context": {
+        "short": {
+          "iterations": 1,
+          "inputTokens": {
+            "p50": 55.0,
+            "p95": 55.0,
+            "average": 55.0,
+            "max": 55.0
+          },
+          "promptEvalMs": {
+            "p50": 159.53,
+            "p95": 159.53,
+            "average": 159.53,
+            "max": 159.53
+          },
+          "ttftMs": {
+            "p50": 313.52,
+            "p95": 313.52,
+            "average": 313.52,
+            "max": 313.52
+          },
+          "totalMs": {
+            "p50": 841.05,
+            "p95": 841.05,
+            "average": 841.05,
+            "max": 841.05
+          },
+          "tokensPerSecond": {
+            "p50": 30.36,
+            "p95": 30.36,
+            "average": 30.36,
+            "max": 30.36
+          },
+          "rawMeasurements": [
+            {
+              "ttftMs": 313.52,
+              "totalMs": 841.05,
+              "modelLoadMs": 148.59,
+              "promptEvalMs": 159.53,
+              "evalMs": 526.94,
+              "tokensPerSecond": 30.36,
+              "inputTokens": 55,
+              "outputTokens": 16,
+              "streamChunks": 16,
+              "done": true
+            }
+          ]
+        },
+        "medium": {
+          "iterations": 1,
+          "inputTokens": {
+            "p50": 316.0,
+            "p95": 316.0,
+            "average": 316.0,
+            "max": 316.0
+          },
+          "promptEvalMs": {
+            "p50": 1363.42,
+            "p95": 1363.42,
+            "average": 1363.42,
+            "max": 1363.42
+          },
+          "ttftMs": {
+            "p50": 1539.74,
+            "p95": 1539.74,
+            "average": 1539.74,
+            "max": 1539.74
+          },
+          "totalMs": {
+            "p50": 2116.28,
+            "p95": 2116.28,
+            "average": 2116.28,
+            "max": 2116.28
+          },
+          "tokensPerSecond": {
+            "p50": 27.58,
+            "p95": 27.58,
+            "average": 27.58,
+            "max": 27.58
+          },
+          "rawMeasurements": [
+            {
+              "ttftMs": 1539.74,
+              "totalMs": 2116.28,
+              "modelLoadMs": 166.01,
+              "promptEvalMs": 1363.42,
+              "evalMs": 580.12,
+              "tokensPerSecond": 27.58,
+              "inputTokens": 316,
+              "outputTokens": 16,
+              "streamChunks": 16,
+              "done": true
+            }
+          ]
+        },
+        "long": {
+          "iterations": 1,
+          "inputTokens": {
+            "p50": 1220.0,
+            "p95": 1220.0,
+            "average": 1220.0,
+            "max": 1220.0
+          },
+          "promptEvalMs": {
+            "p50": 4949.52,
+            "p95": 4949.52,
+            "average": 4949.52,
+            "max": 4949.52
+          },
+          "ttftMs": {
+            "p50": 5122.13,
+            "p95": 5122.13,
+            "average": 5122.13,
+            "max": 5122.13
+          },
+          "totalMs": {
+            "p50": 5657.93,
+            "p95": 5657.93,
+            "average": 5657.93,
+            "max": 5657.93
+          },
+          "tokensPerSecond": {
+            "p50": 29.9,
+            "p95": 29.9,
+            "average": 29.9,
+            "max": 29.9
+          },
+          "rawMeasurements": [
+            {
+              "ttftMs": 5122.13,
+              "totalMs": 5657.93,
+              "modelLoadMs": 132.58,
+              "promptEvalMs": 4949.52,
+              "evalMs": 535.14,
+              "tokensPerSecond": 29.9,
+              "inputTokens": 1220,
+              "outputTokens": 16,
+              "streamChunks": 16,
+              "done": true
+            }
+          ]
+        }
+      }
+    }
+  },
+  "measuredAtRange": {
+    "first": "2026-09-20T12:56:22.476105+00:00",
+    "second": "2026-09-20T12:58:52.651366+00:00"
+  },
+  "runSummary": {
+    "modelRuns": 2,
+    "promptsPerModel": 20,
+    "contextSamplesPerSizePerModel": 1,
+    "externalProvidersUsed": false,
+    "productionModelChanged": false
+  }
+}
