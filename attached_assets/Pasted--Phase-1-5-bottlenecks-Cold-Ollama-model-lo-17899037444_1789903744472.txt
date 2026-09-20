@@ -1,0 +1,347 @@
+ممتاز. Phase 1.5 اكتملت والأرقام أصبحت واضحة.
+
+لدينا الآن bottlenecks مؤكدة:
+
+* Cold Ollama/model load: ~8.1s
+* Generation: 3.68s P50 / 9.19s P95
+* Prompt evaluation: up to 3.48s
+* Context/RAG: up to 1.50s
+* Sequential cache/profile retrieval: ~227ms each
+* Queue wait negligible
+* Exact cache ~2ms
+
+الآن ابدأ **Phase 2A فقط**.
+
+لا تبدأ Web Search أو Agent أو Tool Calling أو Thanarah Core integration الآن.
+
+---
+
+# PHASE 2A — RAG ENGINE + MODEL WARMING
+
+## Part 1 — Qdrant
+
+أضف Qdrant كـOpen Source vector database.
+
+مهم جدًا:
+
+MongoDB يبقى كما هو للـapplication data.
+
+لا تحذف MongoDB ولا تنقل users/chats/tenants إلى Qdrant.
+
+Qdrant يستخدم فقط للـknowledge/retrieval layer.
+
+---
+
+## Part 2 — Qdrant schema
+
+صمم collection architecture تدعم multi-tenancy.
+
+كل vector/chunk يجب أن يرتبط على الأقل بـ:
+
+* tenantId
+* clinicId إن وجد
+* documentId
+* documentVersion
+* chunkId
+* language
+* category
+* accessLevel
+* status
+* createdAt
+* updatedAt
+
+يجب أن يكون tenant isolation enforced داخل retrieval وليس فقط في frontend.
+
+لا يمكن أبدًا أن يسترجع Tenant A بيانات Tenant B.
+
+---
+
+## Part 3 — Hybrid Retrieval
+
+لا تستخدم dense vector search فقط.
+
+نفذ:
+
+Dense retrieval
++
+Sparse/BM25-style lexical retrieval
++
+metadata filtering
++
+rank fusion
+
+ثم استرجع عددًا أكبر من المرشحين، مثل Top 20–30.
+
+بعد ذلك نحتاج reranking محلي.
+
+---
+
+## Part 4 — Local Reranker
+
+استخدم نموذج reranking مفتوح المصدر يعمل محليًا ولا يعتمد على API خارجي.
+
+لا تضف أي paid provider.
+
+الـpipeline:
+
+Query
+→ hybrid retrieval
+→ Top 20–30
+→ local reranker
+→ Top 3–5
+→ context builder
+→ Qwen
+
+الهدف ليس فقط زيادة accuracy، بل تقليل كمية الـcontext الذي يصل إلى Qwen.
+
+---
+
+## Part 5 — Context Compression
+
+لا ترسل كل chunks المسترجعة إلى Qwen.
+
+اعمل context budget واضح.
+
+يجب أن يذهب إلى Qwen فقط:
+
+* أعلى النتائج relevance
+* معلومات metadata الضرورية
+* snippets مناسبة
+* source references
+
+لا نريد duplicate chunks.
+
+ولا نريد نفس المعلومة تتكرر 5 مرات.
+
+---
+
+## Part 6 — Legacy RAG Safety
+
+لا تحذف الـRAG الحالي.
+
+اعمل feature flag:
+
+LEGACY_RAG
+vs
+QDRANT_RAG
+
+بحيث نستطيع rollback بسهولة.
+
+إذا كان هناك existing knowledge data، لا تحذفها.
+
+أنشئ migration/indexing pipeline آمن يمكن تشغيله عدة مرات بدون duplicate vectors.
+
+---
+
+# Part 7 — Document indexing
+
+إذا كان النظام الحالي لديه documents/knowledge:
+
+اعمل indexing pipeline:
+
+document
+→ parse
+→ clean
+→ chunk
+→ metadata
+→ embedding
+→ Qdrant
+
+ويجب أن يكون idempotent.
+
+إعادة تشغيل indexing لن تنتج duplicate chunks.
+
+استخدم documentVersion لمنع mixing بين الإصدارات.
+
+---
+
+# Part 8 — Cold Ollama Optimization
+
+هذه أولوية عالية.
+
+النتيجة الحالية تقول إن cold model load يصل إلى ~8.1s.
+
+عند startup:
+
+1. AI service starts.
+2. Verify Ollama.
+3. Verify Qwen model exists.
+4. Warm the model.
+5. Execute minimal safe warm-up.
+6. Mark AI ready فقط بعد نجاح warm-up.
+
+لا نريد أول user request أن يدفع تكلفة model loading.
+
+أضف diagnostics توضح:
+
+* ollamaAvailable
+* modelAvailable
+* modelWarm
+* warmupDuration
+* lastWarmupAt
+
+ولا تعرض أي secrets.
+
+---
+
+# Part 9 — Parallelize independent operations
+
+إذا كان:
+
+cache lookup
+و
+profile retrieval
+
+مستقلين، نفذهما بالتوازي.
+
+لا تغير behavior أو permissions.
+
+اعمل benchmark قبل وبعد.
+
+---
+
+# Part 10 — Prompt optimization
+
+بناءً على Phase 1.5، Prompt evaluation يصل إلى ~3.48s.
+
+قلل context المرسل للموديل.
+
+لا ترسل conversation history كاملًا.
+
+استخدم:
+
+* recent relevant messages
+* conversation summary
+* relevant memory
+* Top 3–5 retrieved chunks
+
+ولا تضحي بالمعلومات الضرورية.
+
+ضع limits واضحة للـcontext.
+
+---
+
+# Part 11 — Benchmark
+
+أنشئ benchmark comparison:
+
+LEGACY RAG
+vs
+QDRANT RAG
+
+قِس:
+
+* retrieval latency
+* TTFT
+* total latency
+* tokens/sec
+* context size
+* prompt evaluation
+* CPU
+* RAM
+
+وقس accuracy/relevance على مجموعة أسئلة knowledge ثابتة.
+
+لا تعتبر Qdrant أفضل لمجرد أنه أسرع؛ نريد latency + retrieval quality.
+
+---
+
+# Part 12 — CPU experiment
+
+لا تعتمد على تجربة Replit ذات 4 CPU.
+
+لا تغيّر production thread count بناءً عليها.
+
+إذا كان benchmark الحالي يستطيع العمل على Render الحقيقي، اختبر:
+
+6 threads
+8 threads
+10 threads
+12 threads
+
+على البيئة الحقيقية فقط.
+
+إذا لم يكن Render متاحًا في البيئة الحالية، لا تدّعي نتائج 12 CPU.
+
+---
+
+# ممنوع في هذه المرحلة
+
+لا تضف:
+
+* SearXNG
+* Web Search
+* Playwright
+* Agent
+* Tool Calling
+* Thanarah Core integration
+* OpenAI
+* Anthropic
+* Gemini
+* Groq
+* OpenRouter
+* أي paid AI provider
+* أي تغيير غير ضروري في UI
+* أي تغيير في Users/Admin/Subscriptions
+
+---
+
+# Definition of Done
+
+يجب أن يكون لدينا:
+
+1. Qdrant integration
+2. Hybrid retrieval
+3. Local reranker
+4. Context compression
+5. Tenant-safe filtering
+6. Idempotent document indexing
+7. Legacy RAG fallback
+8. Ollama warm-up
+9. Parallel independent lookups
+10. Prompt/context optimization
+11. Benchmarks before/after
+12. Existing tests passing
+13. AI tests passing
+14. Build passing
+15. No security regressions
+
+أنشئ:
+
+docs/ai-rag-phase-2a.md
+
+ويجب أن يحتوي على أرقام فعلية:
+
+Legacy RAG:
+
+* retrieval P50/P95
+* TTFT P50/P95
+* total P50/P95
+* context size
+
+Qdrant:
+
+* retrieval P50/P95
+* TTFT P50/P95
+* total P50/P95
+* context size
+
+Warm model:
+
+* cold load time
+* warm request TTFT
+
+Parallelization:
+
+* before
+* after
+
+Prompt optimization:
+
+* before context size
+* after context size
+* before/after latency
+
+إذا لم يمكن قياس شيء، اذكر السبب ولا تخترع رقمًا.
+
+**بعد اكتمال Phase 2A توقف تمامًا. لا تبدأ Phase 3.**
