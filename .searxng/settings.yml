@@ -1,0 +1,17 @@
+use_default_settings: true
+
+general:
+  instance_name: "Thanarah Local SearXNG"
+
+server:
+  bind_address: "0.0.0.0"
+  port: 8080
+  secret_key: "thanarah-local-development-searxng-key"
+  image_proxy: false
+  http_protocol_version: "1.1"
+
+search:
+  safe_search: 1
+  formats:
+    - html
+    - json

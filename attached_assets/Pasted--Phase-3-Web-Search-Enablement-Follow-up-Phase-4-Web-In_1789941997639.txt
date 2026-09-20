@@ -1,0 +1,217 @@
+نفذ الآن فقط **Phase 3 Web Search Enablement Follow-up**.
+
+لا تبدأ Phase 4.
+
+الـ Web Intelligence code أصبح جاهزًا، لكن SearXNG غير متاح في البيئة الحالية، ولذلك لم يتم اختبار الـ pipeline الحقيقي.
+
+الهدف الآن:
+
+**تشغيل SearXNG محليًا فقط، ثم اختبار الـ Web Intelligence pipeline الحقيقي end-to-end.**
+
+### 1. SearXNG
+
+وفّر SearXNG محليًا باستخدام Docker/local open-source deployment.
+
+ممنوع:
+
+* paid search API
+* Google API
+* Bing API
+* SerpAPI
+* Tavily
+* أي external AI/search service
+
+SearXNG فقط.
+
+اجعل configuration قابلة للتحكم عبر environment variables، مثل:
+
+```text
+SEARXNG_URL
+WEB_SEARCH_ENABLED
+```
+
+ولا تفترض port إذا كان يمكن اكتشافه من configuration.
+
+### 2. لا تغير AI Runtime
+
+حافظ على:
+
+```text
+qwen2.5:1.5b
+num_thread=4
+num_ctx=2048
+num_batch=64
+keep_alive=10m
+```
+
+ولا تغير Ollama configuration.
+
+### 3. تحقق فعليًا
+
+بعد تشغيل SearXNG:
+
+اختبر:
+
+```text
+GET /web/capabilities
+```
+
+ويجب أن يظهر أن Web Search أصبح available.
+
+ثم اختبر:
+
+```text
+SearXNG
+ ↓
+Search
+ ↓
+Real result
+ ↓
+HTTP fetch
+ ↓
+Content extraction
+ ↓
+Local reranking
+ ↓
+Context compression
+ ↓
+Qwen
+ ↓
+Answer
+ ↓
+Real citations
+```
+
+### 4. Live benchmark
+
+استخدم على الأقل 10 queries حقيقية:
+
+* 3 current-information
+* 3 technical
+* 2 explicit "search the web"
+* 2 queries that should NOT use web
+
+قِس فعليًا:
+
+```text
+decision latency
+search latency
+fetch latency
+extraction latency
+reranking latency
+total web pipeline latency
+successful fetch rate
+source count
+citation integrity
+```
+
+وأيضًا:
+
+```text
+web activation precision
+web non-activation correctness
+```
+
+لا نحتاج score للجودة اللغوية الآن.
+
+### 5. Citation verification
+
+اختبر أن:
+
+* كل citation موجود فعلًا في retrieved sources.
+* URL لم يتم اختراعه.
+* title/domain يطابق المصدر.
+* source mapping صحيح.
+* أكثر من مصدر يعمل بشكل صحيح.
+* failed source لا يظهر كـ verified source.
+
+### 6. Security
+
+أعد تشغيل الاختبارات:
+
+* localhost
+* 127.0.0.1
+* private IP
+* metadata endpoint
+* redirect → private IP
+* oversized response
+* invalid content type
+
+ويجب ألا تسمح SearXNG results نفسها بتجاوز SSRF protection.
+
+### 7. Streaming
+
+اختبر live SSE:
+
+```text
+search_started
+source_found
+fetch_started
+fetch_completed
+generating
+text
+done
+```
+
+وتأكد أن النص لا ينتظر اكتمال Web Search بالكامل إذا كان architecture الحالي يسمح ببدء status events أولًا.
+
+### 8. Production
+
+بعد نجاح الـ live benchmark فقط:
+
+يمكن تغيير:
+
+```text
+WEB_SEARCH_ENABLED=true
+```
+
+لكن فقط إذا كانت كل اختبارات الأمان والـ live pipeline ناجحة.
+
+إذا كان SearXNG يعمل فقط في development وليس production، أبقِ production مغلقًا ووضح السبب.
+
+### 9. Deliverables
+
+حدّث:
+
+```text
+docs/ai-web-intelligence-phase3.md
+docs/ai-web-intelligence-phase3-benchmark.json
+```
+
+وأضف قسم:
+
+```text
+LIVE WEB BENCHMARK
+```
+
+مع الأرقام الحقيقية.
+
+فرق واضح بين:
+
+```text
+Fixture benchmark
+```
+
+و:
+
+```text
+Live SearXNG benchmark
+```
+
+### 10. STOP
+
+هذه الخطوة فقط.
+
+لا تبدأ:
+
+* Thanarah AI Gateway
+* Tool Calling
+* Agent
+* PDF
+* Spreadsheet
+* Voice
+* Qdrant production
+
+بعد نجاح Live Web Benchmark توقف وأرسل التقرير الكامل.
+
+إذا واجهت مشكلة في تشغيل SearXNG، لا تستبدله بأي service خارجي؛ وثّق المشكلة وتوقف.
