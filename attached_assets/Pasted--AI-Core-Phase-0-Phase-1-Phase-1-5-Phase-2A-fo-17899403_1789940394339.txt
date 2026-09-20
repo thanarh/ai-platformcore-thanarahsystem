@@ -1,0 +1,753 @@
+نعود الآن إلى **الخطة الأساسية للـ AI Core**.
+
+Phase 0 → ✓
+Phase 1 → ✓
+Phase 1.5 → ✓
+Phase 2A → ✓ foundation
+Phase 2B → ✓
+Phase 2C → ✓
+Conversation/Personality foundation → ✓/current
+
+الآن نبدأ:
+
+# PHASE 3 — WEB INTELLIGENCE
+
+الهدف هو إعطاء Thanarah Intelligence قدرة على البحث في الإنترنت بطريقة محلية، منظمة، قابلة للتتبع، وآمنة.
+
+**ممنوع استخدام أي paid/external AI provider.**
+
+لا OpenAI
+لا Anthropic
+لا Gemini
+لا Groq
+لا OpenRouter
+لا paid search API
+
+نريد استخدام:
+
+```text
+SearXNG
++
+HTTP fetching
++
+content extraction
++
+local reranking
++
+source verification
++
+citations
+```
+
+والـ local model الحالي يظل:
+
+```text
+qwen2.5:1.5b
+```
+
+ولا تغير production model أو runtime configuration.
+
+---
+
+# 1. Architecture
+
+أريد Web Intelligence كطبقة مستقلة:
+
+```text
+User
+ ↓
+Thanarah Intelligence
+ ↓
+Web Search Decision
+ ↓
+SearXNG
+ ↓
+Search Results
+ ↓
+Fetch relevant pages
+ ↓
+Extract clean content
+ ↓
+Local filtering / reranking
+ ↓
+Source verification
+ ↓
+Context compression
+ ↓
+Local Qwen
+ ↓
+Answer + Citations
+```
+
+لا تجعل الـ model يتصل بالإنترنت مباشرة.
+
+---
+
+# 2. SearXNG
+
+أضف SearXNG كـ local/self-hosted search layer.
+
+أولًا تحقق:
+
+```text
+SearXNG reachable?
+Search endpoint?
+JSON response?
+Latency?
+Result count?
+```
+
+إذا SearXNG غير موجود في البيئة الحالية:
+
+**لا تستخدم خدمة خارجية كبديل.**
+
+وثّق dependency المطلوبة وتوقف عن التنفيذ الذي يحتاجها.
+
+لا تدّعي أن Web Search يعمل إذا SearXNG غير متاح فعليًا.
+
+---
+
+# 3. Search Tool Contract
+
+أنشئ Tool واضح:
+
+```text
+web_search
+```
+
+Input:
+
+```text
+query
+language
+region
+maxResults
+safeSearch
+```
+
+Output:
+
+```text
+results[]
+```
+
+كل result:
+
+```text
+title
+url
+snippet
+source
+rank
+publishedAt
+```
+
+ولا تدخل search results مباشرة إلى model بدون filtering.
+
+---
+
+# 4. Search Intent
+
+لا تجعل كل سؤال يذهب إلى الإنترنت.
+
+نريد distinction:
+
+```text
+Normal conversation
+        ↓
+No web
+
+Current information
+        ↓
+Web Search
+
+Explicit user request:
+"ابحث لي..."
+        ↓
+Web Search
+
+Current price/news/law/weather/etc.
+        ↓
+Web Search
+```
+
+لكن القرار النهائي يجب أن يكون deterministic قدر الإمكان، وليس أن نترك model يخترع web search لكل سؤال.
+
+---
+
+# 5. Fetching
+
+بعد نتائج SearXNG:
+
+لا نعتمد فقط على snippets.
+
+أضف HTTP fetcher للصفحات المطلوبة.
+
+يجب أن يدعم:
+
+* timeout
+* redirects
+* content-type validation
+* maximum response size
+* robots/policy handling
+* malformed pages
+* failed pages
+* retry محدود
+* SSRF protection
+
+مهم جدًا:
+
+لا تسمح للـ user أو model بإجبار النظام على الوصول إلى:
+
+```text
+localhost
+127.0.0.1
+private IPs
+internal services
+metadata endpoints
+```
+
+طبّق SSRF protection حقيقي.
+
+---
+
+# 6. Content Extraction
+
+استخرج المحتوى المفيد من الصفحة بدل إرسال HTML كامل إلى model.
+
+Pipeline:
+
+```text
+HTML
+ ↓
+remove scripts/styles/navigation/noise
+ ↓
+main content
+ ↓
+title
+ ↓
+headings
+ ↓
+paragraphs
+ ↓
+metadata
+```
+
+احتفظ بـ:
+
+```text
+url
+title
+source
+retrievedAt
+publishedAt
+```
+
+---
+
+# 7. Local Reranking
+
+استخدم local reranking الموجود/المتاح في المشروع.
+
+لا تستخدم paid reranker.
+
+الترتيب:
+
+```text
+SearXNG results
+ ↓
+lexical relevance
++
+semantic relevance when available
+ ↓
+local reranker
+ ↓
+top sources
+```
+
+لا ترسل 20 صفحة كاملة إلى Qwen.
+
+---
+
+# 8. Context Compression
+
+بعد اختيار المصادر:
+
+```text
+Sources
+ ↓
+Relevant passages
+ ↓
+Deduplicate
+ ↓
+Compress
+ ↓
+Model context
+```
+
+ويجب أن نحافظ على source references.
+
+مثال:
+
+```text
+[1] Source title
+URL
+Relevant passage
+```
+
+الموديل لا يحتاج الصفحة كاملة.
+
+---
+
+# 9. Citations
+
+أي معلومة تم أخذها من الويب يجب أن يكون لها citation/source reference.
+
+مثال:
+
+```text
+بحسب المصدر...
+
+[1] Saudi Ministry...
+[2] Official documentation...
+```
+
+وفي الـ API:
+
+```text
+sources: [
+  {
+    id,
+    title,
+    url,
+    domain,
+    retrievedAt
+  }
+]
+```
+
+لا تسمح للموديل باختراع URLs.
+
+الـ citation data يجب أن تأتي من retrieval pipeline.
+
+---
+
+# 10. Source Quality
+
+أريد ترتيب المصادر حسب الجودة.
+
+بشكل مبدئي:
+
+```text
+Official / primary source
+        ↓
+Documentation / authoritative source
+        ↓
+Reputable secondary source
+        ↓
+General web source
+```
+
+لا نحتاج ranking معقد في هذه المرحلة.
+
+لكن يجب الاحتفاظ بـ:
+
+```text
+domain
+source type
+rank
+```
+
+بحيث يمكن تحسينه لاحقًا.
+
+---
+
+# 11. Freshness
+
+المعلومات التي تعتمد على الوقت يجب أن تحمل:
+
+```text
+retrievedAt
+```
+
+وإذا وجدنا:
+
+```text
+publishedAt
+updatedAt
+```
+
+نحفظها.
+
+مثال:
+
+```text
+current price
+today's news
+current policy
+current event
+```
+
+لا نعاملها كـ static knowledge.
+
+---
+
+# 12. Web Answer Contract
+
+أريد endpoint/service واضح مثل:
+
+```text
+webSearchService
+```
+
+ولا تضع web logic داخل:
+
+```text
+chat controller
+```
+
+بشكل عشوائي.
+
+الـ Chat layer يجب أن يستدعي capability.
+
+مثال:
+
+```text
+Chat
+ ↓
+Intent
+ ↓
+Web Intelligence
+ ↓
+Result
+ ↓
+Context
+ ↓
+Local Model
+```
+
+---
+
+# 13. Streaming
+
+Web execution يجب أن يظهر في الـ existing streaming event system.
+
+مثال:
+
+```text
+status:
+"Searching the web..."
+
+source_found:
+"Official documentation"
+
+status:
+"Reading relevant sources..."
+
+status:
+"Generating response..."
+
+text:
+"..."
+
+done
+```
+
+لا تعرض Chain-of-Thought.
+
+فقط execution states.
+
+---
+
+# 14. Error Handling
+
+إذا فشل البحث:
+
+```text
+SearXNG unavailable
+```
+
+لا تخترع answer وتقول إنها من الإنترنت.
+
+يمكن:
+
+```text
+Web search is currently unavailable.
+```
+
+أو fallback إلى normal model response فقط إذا كان السؤال لا يحتاج current information.
+
+إذا كان السؤال يحتاج web:
+
+يجب توضيح أن البحث لم يكن متاحًا.
+
+---
+
+# 15. Security
+
+هذه المرحلة يجب أن تكون security-first.
+
+اختبر:
+
+* SSRF
+* private IP blocking
+* localhost blocking
+* internal hostname blocking
+* oversized responses
+* malicious HTML
+* redirects
+* timeout
+* tenant isolation
+* user authorization
+* URL validation
+
+ولا تسمح لأي webpage content بأن يصبح instruction موثوقًا للنظام.
+
+مهم جدًا:
+
+**Web content = untrusted data.**
+
+إذا احتوت صفحة على:
+
+```text
+Ignore previous instructions...
+```
+
+يجب التعامل معها كمحتوى صفحة وليس instruction للـ AI.
+
+---
+
+# 16. Tenant Isolation
+
+Web search نفسه يمكن أن يكون عامًا، لكن:
+
+```text
+conversation
+context
+memory
+saved sources
+artifacts
+```
+
+كلها يجب أن تكون مرتبطة بـ:
+
+```text
+tenantId
+userId
+conversationId
+```
+
+ولا يوجد cross-tenant data.
+
+---
+
+# 17. Caching
+
+أضف caching للـ:
+
+```text
+search results
+fetched pages
+extracted content
+```
+
+لكن لا تجعل cache يسمح بتسريب tenant-specific context.
+
+استخدم TTL مناسب.
+
+ولا تخزن كل صفحات الإنترنت بلا حدود.
+
+---
+
+# 18. Benchmark
+
+أنشئ benchmark حقيقي لا يقل عن 20 حالة:
+
+### 5 Current-information queries
+
+مثال:
+
+* current date/time related query
+* current technology information
+
+### 5 explicit web-search queries
+
+### 5 technical research queries
+
+### 5 queries that should NOT use web
+
+نقيس:
+
+```text
+search latency
+fetch latency
+extraction latency
+reranking latency
+total web latency
+number of sources
+successful fetch rate
+citation presence
+```
+
+وكذلك:
+
+```text
+false web activation
+failed web activation
+```
+
+---
+
+# 19. No Quality Claims Yet
+
+لا تقل إن Web Intelligence "accurate" لمجرد أنه يعرض citations.
+
+نريد فقط إثبات:
+
+```text
+retrieval
+grounding
+source tracking
+citation integrity
+```
+
+جودة الإجابة نفسها سنعمل لها evaluation لاحقًا.
+
+---
+
+# 20. Production Safety
+
+في البداية:
+
+```text
+WEB_SEARCH_ENABLED=false
+```
+
+إذا كانت SearXNG غير متاحة.
+
+بعد اكتمال الاختبارات يمكن تفعيلها.
+
+لا تغيّر production behavior بدون verification.
+
+---
+
+# 21. Tests
+
+أريد:
+
+### SearXNG
+
+* availability
+* search
+* timeout
+* malformed response
+
+### Fetcher
+
+* HTTP success
+* redirect
+* timeout
+* oversized response
+* invalid content type
+
+### Security
+
+* localhost
+* private IP
+* metadata endpoint
+* SSRF redirect
+* malicious URL
+
+### Extraction
+
+* HTML
+* noisy page
+* empty page
+* malformed page
+
+### Reranking
+
+* deterministic ranking
+* relevant vs irrelevant
+
+### Citations
+
+* source preservation
+* no fabricated URLs
+* citation mapping
+
+### Streaming
+
+* status
+* source_found
+* text
+* done
+* error
+
+### Isolation
+
+* tenant
+* user
+* conversation
+
+ثم:
+
+```text
+Python tests
+Regression
+Compile/typecheck
+JSON validation
+Health
+```
+
+---
+
+# 22. Documentation
+
+أنشئ:
+
+```text
+docs/ai-web-intelligence-phase3.md
+docs/ai-web-intelligence-phase3-benchmark.json
+```
+
+ويجب أن يحتوي التقرير على:
+
+```text
+Architecture
+Dependencies
+SearXNG status
+Search latency
+Fetch latency
+Extraction latency
+Reranking latency
+Total latency
+Success rate
+Citation integrity
+Security tests
+Tenant isolation
+Production status
+```
+
+---
+
+# 23. STOP CONDITION
+
+نفذ **Phase 3 فقط**.
+
+لا تبدأ:
+
+* Thanarah Core integration
+* Tool Calling
+* Agent loop
+* autonomous execution
+* PDF generation
+* Spreadsheet generation
+* Voice engine
+* external AI providers
+
+بعد اكتمال Phase 3 توقف وأرسل لي التقرير الكامل والـ raw measurements.
+
+لا تخترع أي result.
+
+إذا SearXNG أو أي dependency غير متاحة في البيئة الحالية، وثّق ذلك بوضوح ولا تستبدلها بخدمة خارجية.

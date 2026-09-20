@@ -34,6 +34,7 @@ export default function ChatPage() {
   const [voiceState, setVoiceState] = useState<VoiceState>('IDLE');
   const [voiceError, setVoiceError] = useState('');
   const [browserSpeechAvailable, setBrowserSpeechAvailable] = useState(false);
+  const [voiceLanguage, setVoiceLanguage] = useState<'ar' | 'en'>('ar');
   const [showTools, setShowTools] = useState(false);
   const [selectedSkillId, setSelectedSkillId] = useState<string | undefined>();
   const [activeRequestCount, setActiveRequestCount] = useState(0);
@@ -50,6 +51,11 @@ export default function ChatPage() {
     aiApi.skills()
       .then((payload) => setSkills(payload?.skills || []))
       .catch(() => setSkills([]));
+  }, []);
+
+  useEffect(() => () => {
+    recognitionRef.current?.stop?.();
+    window.speechSynthesis?.cancel();
   }, []);
 
   useEffect(() => {
@@ -188,11 +194,11 @@ export default function ChatPage() {
     );
   }, [input, convId, token, inputMode, selectedSkillId, addMessage, finalizeMessage, setStreaming, updateStreamingMessage, updateConversation, speakResponse]);
 
-  const startVoiceCapture = useCallback(() => {
+  const startVoiceCapture = useCallback(async () => {
     const speechWindow = window as any;
     const Recognition = speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition;
     if (!Recognition) {
-      setVoiceError('التعرف الصوتي غير مدعوم في هذا المتصفح.');
+      setVoiceError('هذا المتصفح لا يوفر تحويل الكلام إلى نص. جرّب Chrome أو Edge على جهاز يدعم الميكروفون.');
       setVoiceState('ERROR');
       return;
     }
@@ -200,11 +206,21 @@ export default function ChatPage() {
     setInputMode('voice');
     setVoiceError('');
     setVoiceState('LISTENING');
+    try {
+      if (navigator.mediaDevices?.getUserMedia) {
+        const microphone = await navigator.mediaDevices.getUserMedia({ audio: true });
+        microphone.getTracks().forEach((track) => track.stop());
+      }
+    } catch {
+      setVoiceError('اسمح للمتصفح باستخدام الميكروفون ثم اضغط «تحدث» مرة أخرى.');
+      setVoiceState('ERROR');
+      return;
+    }
     const recognition = new Recognition();
     const sessionId = `voice-${Date.now()}`;
     let finalTranscript = '';
     let submitted = false;
-    recognition.lang = 'ar-SA';
+    recognition.lang = voiceLanguage === 'en' ? 'en-US' : 'ar-SA';
     recognition.continuous = false;
     recognition.interimResults = true;
     recognition.onresult = (event: any) => {
@@ -223,10 +239,10 @@ export default function ChatPage() {
         void handleSend(finalTranscript.trim(), {
           inputMode: 'voice',
           speakResponse: true,
-          language: 'ar',
+          language: voiceLanguage,
           voiceMetadata: {
             sessionId,
-            language: 'ar',
+            language: voiceLanguage,
             transcriptionStatus: 'completed',
           },
         });
@@ -250,7 +266,7 @@ export default function ChatPage() {
       setVoiceError('الميكروفون قيد الاستخدام أو يحتاج إلى إذن.');
       setVoiceState('ERROR');
     }
-  }, [handleSend]);
+  }, [handleSend, voiceLanguage]);
 
   const stopVoiceCapture = useCallback(() => {
     recognitionRef.current?.stop?.();
@@ -463,17 +479,26 @@ export default function ChatPage() {
               </span>
               <button
                 type="button"
-                disabled={!browserSpeechAvailable || voiceState === 'SPEAKING'}
+                disabled={voiceState === 'SPEAKING'}
                 onClick={voiceState === 'LISTENING' ? stopVoiceCapture : startVoiceCapture}
                 className={cn(
                   'inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] transition disabled:cursor-not-allowed disabled:opacity-50',
                   voiceState === 'LISTENING' ? 'border-red-200 bg-red-50 text-red-700' : 'border-gray-200 hover:bg-gray-50',
                 )}
-                title={browserSpeechAvailable ? 'تشغيل الميكروفون' : 'التعرف الصوتي غير مدعوم'}
+                title="تشغيل الميكروفون"
               >
                 <Mic className="h-3 w-3" />
                 {voiceState === 'LISTENING' ? 'إيقاف' : 'تحدث'}
               </button>
+              <select
+                value={voiceLanguage}
+                onChange={(event) => setVoiceLanguage(event.target.value as 'ar' | 'en')}
+                className="rounded-lg border border-gray-200 bg-white px-1.5 py-1 text-[10px] text-gray-600 outline-none"
+                aria-label="لغة الصوت"
+              >
+                <option value="ar">العربية</option>
+                <option value="en">English</option>
+              </select>
             </div>
           )}
 
@@ -484,7 +509,7 @@ export default function ChatPage() {
               onChange={(e) => { setInput(e.target.value); adjustTextarea(); }}
               onKeyDown={handleKeyDown}
               placeholder={inputMode === 'voice'
-                ? 'Voice transcription ستدخل هنا عند توفر STT...'
+                ? 'تحدث من زر الميكروفون أو اكتب هنا...'
                 : 'اكتب رسالتك هنا... (Enter للإرسال، Shift+Enter لسطر جديد)'}
               className="flex-1 bg-transparent resize-none outline-none text-base sm:text-sm text-gray-800 placeholder-gray-400 font-arabic leading-relaxed max-h-40"
               rows={1}
