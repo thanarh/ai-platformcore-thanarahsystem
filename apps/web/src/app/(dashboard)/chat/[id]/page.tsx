@@ -188,61 +188,6 @@ export default function ChatPage() {
         </div>
       )}
 
-      <div className="flex items-center gap-1 border-b border-gray-100 bg-white px-3 py-2 sm:px-4" dir="rtl">
-        <button
-          type="button"
-          onClick={() => { setInputMode('text'); setVoiceState('IDLE'); }}
-          className={cn(
-            'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-arabic transition',
-            inputMode === 'text' ? 'bg-thanarah-100 text-thanarah-800' : 'text-gray-500 hover:bg-gray-100',
-          )}
-          aria-pressed={inputMode === 'text'}
-        >
-          <Type className="h-3.5 w-3.5" />
-          Text
-        </button>
-        <button
-          type="button"
-          onClick={() => setInputMode('voice')}
-          className={cn(
-            'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-arabic transition',
-            inputMode === 'voice' ? 'bg-thanarah-100 text-thanarah-800' : 'text-gray-500 hover:bg-gray-100',
-          )}
-          aria-pressed={inputMode === 'voice'}
-          title={voiceCapabilities?.voiceEnabled ? 'Voice mode' : 'Voice foundation فقط — محرك الصوت غير متاح'}
-        >
-          <Mic className="h-3.5 w-3.5" />
-          Voice
-        </button>
-        {inputMode === 'voice' && (
-          <span className="mr-2 text-[10px] text-gray-400 font-arabic">
-            {voiceCapabilities?.voiceEnabled
-              ? 'جاهز للاستماع'
-              : 'Foundation فقط: STT/TTS غير مثبت'}
-          </span>
-        )}
-      </div>
-
-      {inputMode === 'voice' && (
-        <div className="border-b border-gray-100 bg-gray-50 px-3 py-2 sm:px-4" dir="rtl">
-          <div className="mx-auto flex max-w-3xl items-center gap-2 text-[11px] text-gray-500 font-arabic">
-            <Mic className={cn('h-4 w-4', voiceState === 'LISTENING' ? 'text-red-500' : 'text-gray-400')} />
-            <span>
-              {voiceState === 'ERROR'
-                ? 'Voice غير متاح حاليًا'
-                : voiceState === 'LISTENING'
-                  ? 'Listening...'
-                  : voiceState === 'SPEAKING'
-                    ? 'Speaking...'
-                    : 'اضغط على الميكروفون عند توفر محرك STT المحلي'}
-            </span>
-            <span className="mr-auto rounded-full border border-gray-200 bg-white px-2 py-0.5 text-[10px]">
-              {voiceState}
-            </span>
-          </div>
-        </div>
-      )}
-
       {executionEvents.length > 0 && (
         <div className="border-b border-gray-100 bg-gray-50 px-3 py-2 sm:px-4" dir="rtl" aria-live="polite">
           <div className="mx-auto flex max-w-3xl flex-wrap items-center gap-2">
@@ -305,42 +250,93 @@ export default function ChatPage() {
       {/* Input bar */}
       <div className="px-3 sm:px-4 pt-3 sm:pt-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] border-t border-gray-200 bg-white flex-shrink-0 safe-area-x">
         <div
-          className="flex items-end gap-3 bg-gray-50 border border-gray-200 rounded-2xl px-4 py-3 focus-within:border-thanarah-400 focus-within:ring-1 focus-within:ring-thanarah-400 transition"
+          className="flex flex-col gap-2 bg-gray-50 border border-gray-200 rounded-2xl px-4 py-3 focus-within:border-thanarah-400 focus-within:ring-1 focus-within:ring-thanarah-400 transition"
           dir="rtl"
         >
-          <textarea
-            ref={textareaRef}
-            value={input}
-            onChange={(e) => { setInput(e.target.value); adjustTextarea(); }}
-            onKeyDown={handleKeyDown}
-            placeholder="اكتب رسالتك هنا... (Enter للإرسال، Shift+Enter لسطر جديد)"
-            className="flex-1 bg-transparent resize-none outline-none text-base sm:text-sm text-gray-800 placeholder-gray-400 font-arabic leading-relaxed max-h-40"
-            rows={1}
-            dir={isRTL(input) ? 'rtl' : 'ltr'}
-            style={{ minHeight: '24px' }}
-          />
-          <div className="flex items-center gap-2 flex-shrink-0">
-            {isStreaming ? (
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => { setInputMode('text'); setVoiceState('IDLE'); }}
+              className={cn(
+                'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-arabic transition',
+                inputMode === 'text' ? 'bg-thanarah-100 text-thanarah-800' : 'text-gray-500 hover:bg-gray-100',
+              )}
+              aria-pressed={inputMode === 'text'}
+            >
+              <Type className="h-3.5 w-3.5" />
+              Text
+            </button>
+            <button
+              type="button"
+              onClick={() => setInputMode('voice')}
+              className={cn(
+                'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-arabic transition',
+                inputMode === 'voice' ? 'bg-thanarah-100 text-thanarah-800' : 'text-gray-500 hover:bg-gray-100',
+              )}
+              aria-pressed={inputMode === 'voice'}
+              title={voiceCapabilities?.voiceEnabled ? 'Voice mode' : 'Voice foundation فقط — محرك الصوت غير متاح'}
+            >
+              <Mic className="h-3.5 w-3.5" />
+              Voice
+            </button>
+            {inputMode === 'voice' && (
+              <span className="mr-1 text-[10px] text-gray-400 font-arabic">
+                Foundation فقط: STT/TTS غير مثبت
+              </span>
+            )}
+          </div>
+
+          {inputMode === 'voice' && (
+            <div className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-[11px] text-gray-500 font-arabic">
+              <Mic className={cn('h-4 w-4', voiceState === 'LISTENING' ? 'text-red-500' : 'text-gray-400')} />
+              <span>
+                {voiceState === 'ERROR'
+                  ? 'Voice غير متاح حاليًا'
+                  : voiceState === 'LISTENING'
+                    ? 'Listening...'
+                    : voiceState === 'SPEAKING'
+                      ? 'Speaking...'
+                      : 'أدوات Voice متاحة مستقبلًا عبر نفس المحادثة'}
+              </span>
+              <span className="mr-auto rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[10px]">
+                {voiceState}
+              </span>
               <button
-                onClick={() => abortController?.abort()}
-                className="w-8 h-8 flex items-center justify-center bg-gray-200 hover:bg-gray-300 rounded-lg transition"
-                title="إيقاف"
+                type="button"
+                disabled={!voiceCapabilities?.voiceEnabled}
+                onClick={() => setVoiceState('LISTENING')}
+                className="rounded-lg border border-gray-200 px-2 py-1 text-[10px] disabled:cursor-not-allowed disabled:opacity-50"
+                title={voiceCapabilities?.voiceEnabled ? 'بدء الاستماع' : 'Voice foundation فقط — STT غير متاح'}
               >
-                <Square className="w-3.5 h-3.5 text-gray-600 fill-gray-600" />
+                Microphone
               </button>
-            ) : (
-              <>
-                {inputMode === 'voice' && (
-                  <button
-                    type="button"
-                    disabled={!voiceCapabilities?.voiceEnabled}
-                    onClick={() => setVoiceState('LISTENING')}
-                    className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 bg-white hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50 transition"
-                    title={voiceCapabilities?.voiceEnabled ? 'بدء الاستماع' : 'Voice foundation فقط — STT غير متاح'}
-                  >
-                    <Mic className="w-3.5 h-3.5 text-thanarah-700" />
-                  </button>
-                )}
+            </div>
+          )}
+
+          <div className="flex w-full items-end gap-3">
+            <textarea
+              ref={textareaRef}
+              value={input}
+              onChange={(e) => { setInput(e.target.value); adjustTextarea(); }}
+              onKeyDown={handleKeyDown}
+              placeholder={inputMode === 'voice'
+                ? 'Voice transcription ستدخل هنا عند توفر STT...'
+                : 'اكتب رسالتك هنا... (Enter للإرسال، Shift+Enter لسطر جديد)'}
+              className="flex-1 bg-transparent resize-none outline-none text-base sm:text-sm text-gray-800 placeholder-gray-400 font-arabic leading-relaxed max-h-40"
+              rows={1}
+              dir={isRTL(input) ? 'rtl' : 'ltr'}
+              style={{ minHeight: '24px' }}
+            />
+            <div className="flex items-center gap-2 flex-shrink-0">
+              {isStreaming ? (
+                <button
+                  onClick={() => abortController?.abort()}
+                  className="w-8 h-8 flex items-center justify-center bg-gray-200 hover:bg-gray-300 rounded-lg transition"
+                  title="إيقاف"
+                >
+                  <Square className="w-3.5 h-3.5 text-gray-600 fill-gray-600" />
+                </button>
+              ) : (
                 <button
                   onClick={() => handleSend()}
                   disabled={!input.trim()}
@@ -348,8 +344,8 @@ export default function ChatPage() {
                 >
                   <Send className="w-3.5 h-3.5 text-white disabled:text-gray-400" />
                 </button>
-              </>
-            )}
+              )}
+            </div>
           </div>
         </div>
         <p className="text-center text-[10px] text-gray-400 mt-2 font-arabic">
