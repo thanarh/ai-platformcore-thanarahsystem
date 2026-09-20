@@ -31,12 +31,22 @@ class OllamaBackend(AIBackend):
         self._queue_lock = asyncio.Lock()
         self._queued = 0
         self._warmup_status = {
+            "ollamaReachable": False,
             "ollamaAvailable": False,
             "modelAvailable": False,
+            "modelLoaded": False,
             "modelWarm": False,
+            "generationReady": False,
             "warmupDuration": None,
+            "modelLoadMs": None,
+            "promptEvalMs": None,
+            "evalMs": None,
+            "lifecycleEvent": None,
             "lastWarmupAt": None,
         }
+        self._last_ollama_reachable: bool | None = None
+        self._last_model_loaded: bool | None = None
+        self._last_lifecycle_event: str | None = None
 
     @asynccontextmanager
     async def _generation_slot(self, telemetry=None):
@@ -107,11 +117,81 @@ class OllamaBackend(AIBackend):
 
     def _keep_alive(self) -> str | int:
         """Return duration strings as-is and numeric values as JSON numbers."""
-        value = settings.local_ai_keep_alive.strip()
+        value = (
+            settings.ollama_keep_alive
+            or settings.local_ai_keep_alive
+        ).strip()
         try:
             return int(value)
         except ValueError:
             return value
+
+    async def _probe_model_state(self, model: str) -> dict:
+        """Observe Ollama/model state without triggering a model load."""
+        try:
+            response = await self._get_client().get(
+                "/api/ps",
+                timeout=settings.local_ai_runtime_probe_timeout_seconds,
+            )
+            response.raise_for_status()
+            models = response.json().get("models", [])
+            names = {item.get("name") or item.get("model") for item in models}
+            loaded = model in names
+            restarted = self._last_ollama_reachable is False
+            self._last_ollama_reachable = True
+            self._last_model_loaded = loaded
+            return {
+                "ollamaReachable": True,
+                "modelLoaded": loaded,
+                "ollamaRestarted": restarted,
+            }
+        except Exception:
+            self._last_ollama_reachable = False
+            self._last_model_loaded = False
+            return {
+                "ollamaReachable": False,
+                "modelLoaded": False,
+                "ollamaRestarted": False,
+            }
+
+    def _classify_lifecycle(self, before: dict, load_ms: float) -> str:
+        if before.get("ollamaRestarted"):
+            event = "OLLAMA_RESTART"
+        elif load_ms >= settings.local_ai_cold_load_threshold_ms:
+            event = "MODEL_RELOAD" if before.get("modelLoaded") else "COLD_MODEL_LOAD"
+        elif before.get("modelLoaded"):
+            event = "WARM_MODEL_REQUEST"
+        else:
+            event = "COLD_MODEL_LOAD"
+        self._last_lifecycle_event = event
+        return event
+
+    def _record_generation_lifecycle(
+        self,
+        telemetry,
+        before: dict,
+        data: dict,
+    ) -> str:
+        load_ms = float(data.get("load_duration", 0) or 0) / 1_000_000
+        event = self._classify_lifecycle(before, load_ms)
+        self._last_model_loaded = True
+        self._last_ollama_reachable = True
+        if telemetry is not None:
+            telemetry.set("lifecycleEvent", event)
+            telemetry.set("ollamaReachable", bool(before.get("ollamaReachable")))
+            telemetry.set("modelAvailable", True)
+            telemetry.set("modelLoadedBefore", bool(before.get("modelLoaded")))
+            telemetry.set("generationReady", bool(data.get("done")))
+            telemetry.set_ms("modelLoadMs", load_ms)
+            telemetry.set_ms(
+                "ollamaPromptEvalMs",
+                float(data.get("prompt_eval_duration", 0) or 0) / 1_000_000,
+            )
+            telemetry.set_ms(
+                "ollamaEvalMs",
+                float(data.get("eval_duration", 0) or 0) / 1_000_000,
+            )
+        return event
 
     async def is_available(self) -> bool:
         return (await self.health_check()).available
@@ -120,15 +200,23 @@ class OllamaBackend(AIBackend):
         """Perform a real minimal generation before declaring AI ready."""
         started = time.perf_counter()
         status = {
+            "ollamaReachable": False,
             "ollamaAvailable": False,
             "modelAvailable": False,
+            "modelLoaded": False,
             "modelWarm": False,
+            "generationReady": False,
             "warmupDuration": None,
+            "modelLoadMs": None,
+            "promptEvalMs": None,
+            "evalMs": None,
+            "lifecycleEvent": None,
             "lastWarmupAt": None,
         }
         try:
             tags = await self._get_client().get("/api/tags", timeout=5)
             tags.raise_for_status()
+            status["ollamaReachable"] = True
             status["ollamaAvailable"] = True
             models = tags.json().get("models", [])
             names = {item.get("name") or item.get("model") for item in models}
@@ -136,6 +224,7 @@ class OllamaBackend(AIBackend):
             status["modelAvailable"] = model in names
             if not status["modelAvailable"]:
                 return status
+            before = await self._probe_model_state(model)
             response = await self._get_client().post(
                 "/api/chat",
                 json={
@@ -150,7 +239,22 @@ class OllamaBackend(AIBackend):
             )
             response.raise_for_status()
             data = response.json()
-            status["modelWarm"] = bool(data.get("done"))
+            load_ms = float(data.get("load_duration", 0) or 0) / 1_000_000
+            event = self._classify_lifecycle(before, load_ms)
+            after = await self._probe_model_state(model)
+            status["modelLoaded"] = bool(after.get("modelLoaded"))
+            status["modelWarm"] = bool(data.get("done")) and status["modelLoaded"]
+            status["generationReady"] = status["modelWarm"]
+            status["modelLoadMs"] = round(load_ms, 2)
+            status["promptEvalMs"] = round(
+                float(data.get("prompt_eval_duration", 0) or 0) / 1_000_000,
+                2,
+            )
+            status["evalMs"] = round(
+                float(data.get("eval_duration", 0) or 0) / 1_000_000,
+                2,
+            )
+            status["lifecycleEvent"] = event
             status["lastWarmupAt"] = datetime.now(timezone.utc).isoformat()
         except Exception as exc:
             logger.warning("Ollama warm-up failed: %s", str(exc)[:180])
@@ -167,6 +271,7 @@ class OllamaBackend(AIBackend):
         start = time.time()
         model = self._model(request)
         try:
+            lifecycle_before = await self._probe_model_state(model)
             async with self._generation_slot(request.telemetry):
                 response = await self._get_client().post(
                     "/api/chat",
@@ -181,6 +286,7 @@ class OllamaBackend(AIBackend):
                 )
             response.raise_for_status()
             data = response.json()
+            self._record_generation_lifecycle(request.telemetry, lifecycle_before, data)
             latency = (time.time() - start) * 1000
             self.record_success(latency)
             return AIResponse(
@@ -199,6 +305,7 @@ class OllamaBackend(AIBackend):
     async def stream_chat(self, request: AIRequest) -> AsyncGenerator[str, None]:
         start = time.time()
         model = self._model(request)
+        lifecycle_before = await self._probe_model_state(model)
         try:
             async with self._generation_slot(request.telemetry):
                 async with self._get_client().stream(
@@ -222,19 +329,12 @@ class OllamaBackend(AIBackend):
                         if content:
                             yield content
                         if data.get("done"):
+                            self._record_generation_lifecycle(
+                                request.telemetry,
+                                lifecycle_before,
+                                data,
+                            )
                             if request.telemetry is not None:
-                                request.telemetry.set_ms(
-                                    "modelLoadMs",
-                                    float(data.get("load_duration", 0)) / 1_000_000,
-                                )
-                                request.telemetry.set_ms(
-                                    "ollamaPromptEvalMs",
-                                    float(data.get("prompt_eval_duration", 0)) / 1_000_000,
-                                )
-                                request.telemetry.set_ms(
-                                    "ollamaEvalMs",
-                                    float(data.get("eval_duration", 0)) / 1_000_000,
-                                )
                                 request.telemetry.set(
                                     "inputTokens",
                                     int(data.get("prompt_eval_count", 0) or 0),
@@ -253,26 +353,61 @@ class OllamaBackend(AIBackend):
     async def health_check(self) -> HealthStatus:
         start = time.time()
         try:
-            response = await self._get_client().get("/api/ps", timeout=5)
-            response.raise_for_status()
-            models = response.json().get("models", [])
-            names = {
-                model.get("name") or model.get("model")
-                for model in models
+            tags_response = await self._get_client().get("/api/tags", timeout=5)
+            tags_response.raise_for_status()
+            available_names = {
+                item.get("name") or item.get("model")
+                for item in tags_response.json().get("models", [])
+            }
+            model = self.default_model
+            model_available = bool(model and model in available_names)
+            state = await self._probe_model_state(model) if model else {
+                "ollamaReachable": True,
+                "modelLoaded": False,
             }
             latency = (time.time() - start) * 1000
-            if self.default_model and self.default_model not in names:
+            status = dict(self._warmup_status)
+            status.update(
+                {
+                    "ollamaReachable": state.get("ollamaReachable", False),
+                    "ollamaAvailable": state.get("ollamaReachable", False),
+                    "modelAvailable": model_available,
+                    "modelLoaded": state.get("modelLoaded", False),
+                    "modelWarm": bool(
+                        state.get("modelLoaded", False)
+                        and status.get("generationReady", False)
+                    ),
+                    "generationReady": bool(
+                        state.get("modelLoaded", False)
+                        and status.get("generationReady", False)
+                    ),
+                }
+            )
+            self._warmup_status = status
+            if not state.get("ollamaReachable"):
                 return HealthStatus(
                     available=False,
                     latency_ms=latency,
-                    error=f"Model {self.default_model} is not loaded",
+                    error="Ollama is not reachable",
                 )
-            active_model = self.default_model or next(iter(names), None)
+            if not model_available:
+                return HealthStatus(
+                    available=False,
+                    latency_ms=latency,
+                    error=f"Model {model} is not available",
+                )
+            if not state.get("modelLoaded"):
+                return HealthStatus(
+                    available=False,
+                    latency_ms=latency,
+                    model="thanarah-local",
+                    error=f"Model {model} is available but not loaded",
+                )
             return HealthStatus(
-                available=bool(active_model),
+                available=True,
                 latency_ms=latency,
-                model="thanarah-local" if active_model else None,
-                error=None if active_model else "No local model is installed",
+                model="thanarah-local",
+                error=None,
             )
         except Exception as error:
             return HealthStatus(available=False, error=str(error))

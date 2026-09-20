@@ -32,6 +32,10 @@ async def health(request: Request):
         None,
     )
     warmup_status = getattr(request.app.state, "warmup_status", {})
+    if registry:
+        local_runtime = registry.get("thanarah-local")
+        if local_runtime and hasattr(local_runtime, "warmup_status"):
+            warmup_status = local_runtime.warmup_status()
     qdrant_available = await qdrant_store.is_available() if qdrant_store.enabled else False
     return {
         "status": "ok" if mongo_connected and local_backend and local_backend.get("healthy") else "degraded",

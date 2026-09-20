@@ -41,10 +41,17 @@ async def lifespan(app: FastAPI):
         app.state.warmup_status = await local_backend.warmup()
     else:
         app.state.warmup_status = {
+            "ollamaReachable": False,
             "ollamaAvailable": False,
             "modelAvailable": False,
+            "modelLoaded": False,
             "modelWarm": False,
+            "generationReady": False,
             "warmupDuration": None,
+            "modelLoadMs": None,
+            "promptEvalMs": None,
+            "evalMs": None,
+            "lifecycleEvent": None,
             "lastWarmupAt": None,
         }
 

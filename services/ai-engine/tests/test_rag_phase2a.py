@@ -1,5 +1,6 @@
 import unittest
 
+from app.backends.ollama import OllamaBackend
 from app.rag.qdrant_store import QdrantStore, _point_id
 from app.rag.reranker import LocalReranker
 
@@ -25,6 +26,37 @@ class RAGPhase2ATests(unittest.TestCase):
         self.assertGreater(
             reranker._lexical_score("معلومات الحجز", "معلومات الحجز والسياسات"),
             reranker._lexical_score("معلومات الحجز", "مقالة عامة عن الطقس"),
+        )
+
+    def test_ollama_lifecycle_classification(self):
+        backend = OllamaBackend()
+        self.assertEqual(
+            backend._classify_lifecycle(
+                {"modelLoaded": False, "ollamaRestarted": False},
+                1500,
+            ),
+            "COLD_MODEL_LOAD",
+        )
+        self.assertEqual(
+            backend._classify_lifecycle(
+                {"modelLoaded": True, "ollamaRestarted": False},
+                1500,
+            ),
+            "MODEL_RELOAD",
+        )
+        self.assertEqual(
+            backend._classify_lifecycle(
+                {"modelLoaded": True, "ollamaRestarted": False},
+                10,
+            ),
+            "WARM_MODEL_REQUEST",
+        )
+        self.assertEqual(
+            backend._classify_lifecycle(
+                {"modelLoaded": False, "ollamaRestarted": True},
+                1500,
+            ),
+            "OLLAMA_RESTART",
         )
 
 

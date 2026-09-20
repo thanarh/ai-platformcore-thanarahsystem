@@ -1,0 +1,186 @@
+{
+  "measuredAt": "2026-09-20T12:38:56.410679+00:00",
+  "model": "qwen2.5:1.5b",
+  "ollamaUrl": "http://localhost:11434",
+  "aiEngineUrl": "http://localhost:8000",
+  "productionConfigChanged": false,
+  "maxTokens": 1,
+  "threads": {
+    "settings": "direct Ollama options; production config unchanged",
+    "results": {
+      "4": {
+        "iterations": 1,
+        "ttftMs": {
+          "p50": 285.16,
+          "p95": 285.16,
+          "max": 285.16
+        },
+        "totalMs": {
+          "p50": 285.3,
+          "p95": 285.3,
+          "max": 285.3
+        },
+        "promptEvalMs": {
+          "p50": 95.74,
+          "p95": 95.74,
+          "max": 95.74
+        },
+        "tokensPerSecond": {
+          "p50": 1000.0,
+          "p95": 1000.0,
+          "max": 1000.0
+        },
+        "inputTokens": {
+          "p50": 53.0,
+          "p95": 53.0,
+          "max": 53.0
+        },
+        "rawRuntime": [
+          {
+            "ttftMs": 285.16,
+            "wallMs": 285.3,
+            "modelLoadMs": 184.68,
+            "promptEvalMs": 95.74,
+            "evalMs": 0.0,
+            "inputTokens": 53,
+            "outputTokens": 1,
+            "done": true
+          }
+        ]
+      },
+      "6": {
+        "iterations": 1,
+        "ttftMs": {
+          "p50": 3594.23,
+          "p95": 3594.23,
+          "max": 3594.23
+        },
+        "totalMs": {
+          "p50": 3594.64,
+          "p95": 3594.64,
+          "max": 3594.64
+        },
+        "promptEvalMs": {
+          "p50": 3408.66,
+          "p95": 3408.66,
+          "max": 3408.66
+        },
+        "tokensPerSecond": {
+          "p50": 1000.0,
+          "p95": 1000.0,
+          "max": 1000.0
+        },
+        "inputTokens": {
+          "p50": 53.0,
+          "p95": 53.0,
+          "max": 53.0
+        },
+        "rawRuntime": [
+          {
+            "ttftMs": 3594.23,
+            "wallMs": 3594.64,
+            "modelLoadMs": 179.02,
+            "promptEvalMs": 3408.66,
+            "evalMs": 0.0,
+            "inputTokens": 53,
+            "outputTokens": 1,
+            "done": true
+          }
+        ]
+      },
+      "8": {
+        "iterations": 1,
+        "ttftMs": {
+          "p50": 4224.51,
+          "p95": 4224.51,
+          "max": 4224.51
+        },
+        "totalMs": {
+          "p50": 4226.02,
+          "p95": 4226.02,
+          "max": 4226.02
+        },
+        "promptEvalMs": {
+          "p50": 4041.49,
+          "p95": 4041.49,
+          "max": 4041.49
+        },
+        "tokensPerSecond": {
+          "p50": 1000.0,
+          "p95": 1000.0,
+          "max": 1000.0
+        },
+        "inputTokens": {
+          "p50": 53.0,
+          "p95": 53.0,
+          "max": 53.0
+        },
+        "rawRuntime": [
+          {
+            "ttftMs": 4224.51,
+            "wallMs": 4226.02,
+            "modelLoadMs": 176.14,
+            "promptEvalMs": 4041.49,
+            "evalMs": 0.0,
+            "inputTokens": 53,
+            "outputTokens": 1,
+            "done": true
+          }
+        ]
+      },
+      "10": {
+        "iterations": 1,
+        "ttftMs": {
+          "p50": 7484.39,
+          "p95": 7484.39,
+          "max": 7484.39
+        },
+        "totalMs": {
+          "p50": 7484.63,
+          "p95": 7484.63,
+          "max": 7484.63
+        },
+        "promptEvalMs": {
+          "p50": 7249.65,
+          "p95": 7249.65,
+          "max": 7249.65
+        },
+        "tokensPerSecond": {
+          "p50": 1000.0,
+          "p95": 1000.0,
+          "max": 1000.0
+        },
+        "inputTokens": {
+          "p50": 53.0,
+          "p95": 53.0,
+          "max": 53.0
+        },
+        "rawRuntime": [
+          {
+            "ttftMs": 7484.39,
+            "wallMs": 7484.63,
+            "modelLoadMs": 224.06,
+            "promptEvalMs": 7249.65,
+            "evalMs": 0.0,
+            "inputTokens": 53,
+            "outputTokens": 1,
+            "done": true
+          }
+        ]
+      }
+    },
+    "resources": {
+      "sampleCount": 159,
+      "cpuPercent": {
+        "p50": 302.8,
+        "p95": 350.3,
+        "max": 388.3
+      },
+      "rssMb": {
+        "p50": 1329.01,
+        "p95": 1337.09,
+        "max": 1337.62
+      }
+    }
+  }
+}

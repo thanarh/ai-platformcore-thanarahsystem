@@ -1,0 +1,58 @@
+{
+  "measuredAt": "2026-09-20T12:34:20.133035+00:00",
+  "model": "qwen2.5:1.5b",
+  "ollamaUrl": "http://localhost:11434",
+  "aiEngineUrl": "http://localhost:8000",
+  "productionConfigChanged": false,
+  "maxTokens": 8,
+  "lifecycle": {
+    "keepAlive": "30s",
+    "idleSeconds": 35,
+    "rows": [
+      {
+        "step": "before",
+        "loaded": true
+      },
+      {
+        "step": "first_30s",
+        "wallMs": 24144.86,
+        "modelLoadMs": 23685.13,
+        "promptEvalMs": 394.81,
+        "evalMs": 0.0,
+        "inputTokens": 38,
+        "outputTokens": 1,
+        "done": true,
+        "loadedAfter": true
+      },
+      {
+        "step": "immediate",
+        "loaded": true
+      },
+      {
+        "step": "after_35s_idle",
+        "loaded": false
+      },
+      {
+        "step": "after_idle_reload",
+        "wallMs": 7882.19,
+        "modelLoadMs": 7536.84,
+        "promptEvalMs": 337.57,
+        "evalMs": 0.0,
+        "inputTokens": 38,
+        "outputTokens": 1,
+        "done": true,
+        "loadedAfter": true
+      },
+      {
+        "step": "after_reload_warm",
+        "wallMs": 255.3,
+        "modelLoadMs": 204.37,
+        "promptEvalMs": 46.06,
+        "evalMs": 0.0,
+        "inputTokens": 38,
+        "outputTokens": 1,
+        "done": true
+      }
+    ]
+  }
+}

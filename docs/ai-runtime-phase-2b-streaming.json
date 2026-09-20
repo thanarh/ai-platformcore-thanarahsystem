@@ -1,0 +1,18 @@
+{
+  "measuredAt": "2026-09-20T12:40:53.011087+00:00",
+  "model": "qwen2.5:1.5b",
+  "ollamaUrl": "http://localhost:11434",
+  "aiEngineUrl": "http://localhost:8000",
+  "productionConfigChanged": false,
+  "maxTokens": 1,
+  "streaming": {
+    "success": true,
+    "firstByteMs": 6785.11,
+    "firstTokenMs": 6786.55,
+    "lastTokenMs": 11525.52,
+    "totalMs": 11624.31,
+    "bufferingGapMs": 1.44,
+    "malformedFrames": 0,
+    "doneFrameSeen": true
+  }
+}

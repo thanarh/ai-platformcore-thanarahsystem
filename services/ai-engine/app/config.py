@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     local_ai_base_url: str = "http://localhost:11434"
     local_ai_model: str = "qwen2.5:0.5b"
     local_ai_keep_alive: str = "10m"
+    ollama_keep_alive: Optional[str] = None
+    local_ai_cold_load_threshold_ms: float = 1000.0
+    local_ai_runtime_probe_timeout_seconds: float = 2.0
     local_ai_num_ctx: int = 2048
     local_ai_num_thread: int = 4
     local_ai_num_batch: int = 64

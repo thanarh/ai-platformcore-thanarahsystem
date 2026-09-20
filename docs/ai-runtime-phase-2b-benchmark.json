@@ -1,0 +1,381 @@
+{
+  "measuredAt": "2026-09-20T12:41:11.773046+00:00",
+  "model": "qwen2.5:1.5b",
+  "productionConfigChanged": false,
+  "sampleLimitations": true,
+  "lifecycle": {
+    "keepAlive": "30s",
+    "idleSeconds": 35,
+    "rows": [
+      {
+        "step": "before",
+        "loaded": true
+      },
+      {
+        "step": "first_30s",
+        "wallMs": 24144.86,
+        "modelLoadMs": 23685.13,
+        "promptEvalMs": 394.81,
+        "evalMs": 0.0,
+        "inputTokens": 38,
+        "outputTokens": 1,
+        "done": true,
+        "loadedAfter": true
+      },
+      {
+        "step": "immediate",
+        "loaded": true
+      },
+      {
+        "step": "after_35s_idle",
+        "loaded": false
+      },
+      {
+        "step": "after_idle_reload",
+        "wallMs": 7882.19,
+        "modelLoadMs": 7536.84,
+        "promptEvalMs": 337.57,
+        "evalMs": 0.0,
+        "inputTokens": 38,
+        "outputTokens": 1,
+        "done": true,
+        "loadedAfter": true
+      },
+      {
+        "step": "after_reload_warm",
+        "wallMs": 255.3,
+        "modelLoadMs": 204.37,
+        "promptEvalMs": 46.06,
+        "evalMs": 0.0,
+        "inputTokens": 38,
+        "outputTokens": 1,
+        "done": true
+      }
+    ]
+  },
+  "threads": {
+    "settings": "direct Ollama options; production config unchanged",
+    "results": {
+      "4": {
+        "iterations": 1,
+        "ttftMs": {
+          "p50": 285.16,
+          "p95": 285.16,
+          "max": 285.16
+        },
+        "totalMs": {
+          "p50": 285.3,
+          "p95": 285.3,
+          "max": 285.3
+        },
+        "promptEvalMs": {
+          "p50": 95.74,
+          "p95": 95.74,
+          "max": 95.74
+        },
+        "tokensPerSecond": {
+          "p50": 1000.0,
+          "p95": 1000.0,
+          "max": 1000.0
+        },
+        "inputTokens": {
+          "p50": 53.0,
+          "p95": 53.0,
+          "max": 53.0
+        },
+        "rawRuntime": [
+          {
+            "ttftMs": 285.16,
+            "wallMs": 285.3,
+            "modelLoadMs": 184.68,
+            "promptEvalMs": 95.74,
+            "evalMs": 0.0,
+            "inputTokens": 53,
+            "outputTokens": 1,
+            "done": true
+          }
+        ]
+      },
+      "6": {
+        "iterations": 1,
+        "ttftMs": {
+          "p50": 3594.23,
+          "p95": 3594.23,
+          "max": 3594.23
+        },
+        "totalMs": {
+          "p50": 3594.64,
+          "p95": 3594.64,
+          "max": 3594.64
+        },
+        "promptEvalMs": {
+          "p50": 3408.66,
+          "p95": 3408.66,
+          "max": 3408.66
+        },
+        "tokensPerSecond": {
+          "p50": 1000.0,
+          "p95": 1000.0,
+          "max": 1000.0
+        },
+        "inputTokens": {
+          "p50": 53.0,
+          "p95": 53.0,
+          "max": 53.0
+        },
+        "rawRuntime": [
+          {
+            "ttftMs": 3594.23,
+            "wallMs": 3594.64,
+            "modelLoadMs": 179.02,
+            "promptEvalMs": 3408.66,
+            "evalMs": 0.0,
+            "inputTokens": 53,
+            "outputTokens": 1,
+            "done": true
+          }
+        ]
+      },
+      "8": {
+        "iterations": 1,
+        "ttftMs": {
+          "p50": 4224.51,
+          "p95": 4224.51,
+          "max": 4224.51
+        },
+        "totalMs": {
+          "p50": 4226.02,
+          "p95": 4226.02,
+          "max": 4226.02
+        },
+        "promptEvalMs": {
+          "p50": 4041.49,
+          "p95": 4041.49,
+          "max": 4041.49
+        },
+        "tokensPerSecond": {
+          "p50": 1000.0,
+          "p95": 1000.0,
+          "max": 1000.0
+        },
+        "inputTokens": {
+          "p50": 53.0,
+          "p95": 53.0,
+          "max": 53.0
+        },
+        "rawRuntime": [
+          {
+            "ttftMs": 4224.51,
+            "wallMs": 4226.02,
+            "modelLoadMs": 176.14,
+            "promptEvalMs": 4041.49,
+            "evalMs": 0.0,
+            "inputTokens": 53,
+            "outputTokens": 1,
+            "done": true
+          }
+        ]
+      },
+      "10": {
+        "iterations": 1,
+        "ttftMs": {
+          "p50": 7484.39,
+          "p95": 7484.39,
+          "max": 7484.39
+        },
+        "totalMs": {
+          "p50": 7484.63,
+          "p95": 7484.63,
+          "max": 7484.63
+        },
+        "promptEvalMs": {
+          "p50": 7249.65,
+          "p95": 7249.65,
+          "max": 7249.65
+        },
+        "tokensPerSecond": {
+          "p50": 1000.0,
+          "p95": 1000.0,
+          "max": 1000.0
+        },
+        "inputTokens": {
+          "p50": 53.0,
+          "p95": 53.0,
+          "max": 53.0
+        },
+        "rawRuntime": [
+          {
+            "ttftMs": 7484.39,
+            "wallMs": 7484.63,
+            "modelLoadMs": 224.06,
+            "promptEvalMs": 7249.65,
+            "evalMs": 0.0,
+            "inputTokens": 53,
+            "outputTokens": 1,
+            "done": true
+          }
+        ]
+      }
+    },
+    "resources": {
+      "sampleCount": 159,
+      "cpuPercent": {
+        "p50": 302.8,
+        "p95": 350.3,
+        "max": 388.3
+      },
+      "rssMb": {
+        "p50": 1329.01,
+        "p95": 1337.09,
+        "max": 1337.62
+      }
+    }
+  },
+  "context": {
+    "short": {
+      "iterations": 2,
+      "promptEvalMs": {
+        "p50": 41.69,
+        "p95": 48.01,
+        "max": 48.01
+      },
+      "ttftMs": {
+        "p50": 206.39,
+        "p95": 345.24,
+        "max": 345.24
+      },
+      "totalMs": {
+        "p50": 206.77,
+        "p95": 345.33,
+        "max": 345.33
+      },
+      "inputTokens": {
+        "p50": 57.0,
+        "p95": 57.0,
+        "max": 57.0
+      },
+      "rawRuntime": [
+        {
+          "ttftMs": 345.24,
+          "wallMs": 345.33,
+          "modelLoadMs": 295.66,
+          "promptEvalMs": 41.69,
+          "evalMs": 0.0,
+          "inputTokens": 57,
+          "outputTokens": 1,
+          "done": true
+        },
+        {
+          "ttftMs": 206.39,
+          "wallMs": 206.77,
+          "modelLoadMs": 154.7,
+          "promptEvalMs": 48.01,
+          "evalMs": 0.0,
+          "inputTokens": 57,
+          "outputTokens": 1,
+          "done": true
+        }
+      ]
+    },
+    "medium": {
+      "iterations": 2,
+      "promptEvalMs": {
+        "p50": 65.11,
+        "p95": 92.0,
+        "max": 92.0
+      },
+      "ttftMs": {
+        "p50": 278.07,
+        "p95": 300.18,
+        "max": 300.18
+      },
+      "totalMs": {
+        "p50": 278.16,
+        "p95": 300.28,
+        "max": 300.28
+      },
+      "inputTokens": {
+        "p50": 318.0,
+        "p95": 318.0,
+        "max": 318.0
+      },
+      "rawRuntime": [
+        {
+          "ttftMs": 300.18,
+          "wallMs": 300.28,
+          "modelLoadMs": 202.01,
+          "promptEvalMs": 92.0,
+          "evalMs": 0.0,
+          "inputTokens": 318,
+          "outputTokens": 1,
+          "done": true
+        },
+        {
+          "ttftMs": 278.07,
+          "wallMs": 278.16,
+          "modelLoadMs": 206.49,
+          "promptEvalMs": 65.11,
+          "evalMs": 0.0,
+          "inputTokens": 318,
+          "outputTokens": 1,
+          "done": true
+        }
+      ]
+    },
+    "long": {
+      "iterations": 2,
+      "promptEvalMs": {
+        "p50": 82.33,
+        "p95": 91.42,
+        "max": 91.42
+      },
+      "ttftMs": {
+        "p50": 262.92,
+        "p95": 334.8,
+        "max": 334.8
+      },
+      "totalMs": {
+        "p50": 262.98,
+        "p95": 335.66,
+        "max": 335.66
+      },
+      "inputTokens": {
+        "p50": 1082.0,
+        "p95": 1082.0,
+        "max": 1082.0
+      },
+      "rawRuntime": [
+        {
+          "ttftMs": 334.8,
+          "wallMs": 335.66,
+          "modelLoadMs": 231.72,
+          "promptEvalMs": 91.42,
+          "evalMs": 0.0,
+          "inputTokens": 1082,
+          "outputTokens": 1,
+          "done": true
+        },
+        {
+          "ttftMs": 262.92,
+          "wallMs": 262.98,
+          "modelLoadMs": 169.42,
+          "promptEvalMs": 82.33,
+          "evalMs": 0.0,
+          "inputTokens": 1082,
+          "outputTokens": 1,
+          "done": true
+        }
+      ]
+    }
+  },
+  "streaming": {
+    "success": true,
+    "firstByteMs": 6785.11,
+    "firstTokenMs": 6786.55,
+    "lastTokenMs": 11525.52,
+    "totalMs": 11624.31,
+    "bufferingGapMs": 1.44,
+    "malformedFrames": 0,
+    "doneFrameSeen": true
+  }
+}
