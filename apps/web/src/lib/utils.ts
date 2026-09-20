@@ -85,8 +85,12 @@ export async function streamChat(
     let completed = false;
 
     const processEvent = (event: string) => {
-      const raw = event
-        .split(/\r?\n/)
+      const lines = event.split(/\r?\n/);
+      const eventName = lines
+        .find((line) => line.startsWith('event:'))
+        ?.slice(6)
+        .trim();
+      const raw = lines
         .filter((line) => line.startsWith('data:'))
         .map((line) => line.slice(5).trimStart())
         .join('\n')
@@ -104,7 +108,8 @@ export async function streamChat(
           onError(sanitizeStreamText(parsed.content) || 'تعذر إكمال الطلب حالياً.');
           return;
         }
-        if (parsed.event) onEvent(parsed);
+        if (eventName) onEvent({ ...parsed, event: eventName });
+        else if (parsed.event) onEvent(parsed);
         const delta = sanitizeStreamText(parsed.delta);
         if (delta) onDelta(delta);
         if (parsed.meta) meta = { ...(meta || {}), ...parsed.meta };

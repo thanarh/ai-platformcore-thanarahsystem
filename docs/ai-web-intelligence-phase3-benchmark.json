@@ -1,0 +1,97 @@
+{
+  "phase": "3",
+  "name": "web-intelligence",
+  "measuredAt": "2026-09-21",
+  "productionModel": "qwen2.5:1.5b",
+  "productionConfigChanged": false,
+  "webSearchEnabled": false,
+  "searxng": {
+    "endpoint": "http://127.0.0.1:8080",
+    "reachable": false,
+    "httpStatus": null,
+    "jsonResponse": false,
+    "resultCount": 0,
+    "error": "All connection attempts failed",
+    "portsChecked": [8080, 8888]
+  },
+  "rawMeasurements": {
+    "live": {
+      "searchLatencyMs": null,
+      "fetchLatencyMs": null,
+      "extractionLatencyMs": null,
+      "rerankingLatencyMs": null,
+      "totalWebLatencyMs": null,
+      "successfulFetchRate": null,
+      "sourceCount": 0,
+      "citationIntegrity": null,
+      "status": "not_measured_searxng_unavailable"
+    },
+    "localFixtureOnly": {
+      "searchLatencyMs": 0.036,
+      "fetchAndExtractionLatencyMs": 0.182,
+      "rerankingLatencyMs": 2.183,
+      "totalWebLatencyMs": 2.665,
+      "successfulFetchRate": 1.0,
+      "sourceCount": 1,
+      "citationIntegrity": true,
+      "status": "fixture_not_production"
+    }
+  },
+  "decisionBenchmark": [
+    {"id": 1, "class": "current-information", "query": "ما آخر أخبار التقنية اليوم؟", "signalDetected": true, "observedUseWeb": false, "reason": "disabled_by_environment"},
+    {"id": 2, "class": "current-information", "query": "ما سعر النفط الحالي؟", "signalDetected": true, "observedUseWeb": false, "reason": "disabled_by_environment"},
+    {"id": 3, "class": "current-information", "query": "ما حالة الطقس الآن؟", "signalDetected": true, "observedUseWeb": false, "reason": "disabled_by_environment"},
+    {"id": 4, "class": "current-information", "query": "latest changes in web standards", "signalDetected": true, "observedUseWeb": false, "reason": "disabled_by_environment"},
+    {"id": 5, "class": "current-information", "query": "what happened in technology today?", "signalDetected": true, "observedUseWeb": false, "reason": "disabled_by_environment"},
+    {"id": 6, "class": "explicit-web-search", "query": "ابحث عن أفضل مكتبة PDF", "signalDetected": true, "observedUseWeb": false, "reason": "disabled_by_environment"},
+    {"id": 7, "class": "explicit-web-search", "query": "ابحث لي عن مصادر رسمية", "signalDetected": true, "observedUseWeb": false, "reason": "disabled_by_environment"},
+    {"id": 8, "class": "explicit-web-search", "query": "search online for a local-first cache design", "signalDetected": true, "observedUseWeb": false, "reason": "disabled_by_environment"},
+    {"id": 9, "class": "explicit-web-search", "query": "research safe HTTP fetchers", "signalDetected": true, "observedUseWeb": false, "reason": "disabled_by_environment"},
+    {"id": 10, "class": "explicit-web-search", "query": "فتش في الإنترنت عن توثيق FastAPI", "signalDetected": true, "observedUseWeb": false, "reason": "disabled_by_environment"},
+    {"id": 11, "class": "technical-research", "query": "ما الفرق بين API و Token؟", "signalDetected": false, "observedUseWeb": false, "reason": "no_web_signal"},
+    {"id": 12, "class": "technical-research", "query": "اشرح مفهوم caching", "signalDetected": false, "observedUseWeb": false, "reason": "no_web_signal"},
+    {"id": 13, "class": "technical-research", "query": "كيف يعمل HTTP status code؟", "signalDetected": false, "observedUseWeb": false, "reason": "no_web_signal"},
+    {"id": 14, "class": "technical-research", "query": "اشرح الفرق بين REST و RPC", "signalDetected": false, "observedUseWeb": false, "reason": "no_web_signal"},
+    {"id": 15, "class": "technical-research", "query": "ما هو JSON schema؟", "signalDetected": false, "observedUseWeb": false, "reason": "no_web_signal"},
+    {"id": 16, "class": "should-not-use-web", "query": "لخّص هذا النص الذي أرسلته", "signalDetected": false, "observedUseWeb": false, "reason": "no_web_signal"},
+    {"id": 17, "class": "should-not-use-web", "query": "اكتب لي رسالة اعتذار", "signalDetected": false, "observedUseWeb": false, "reason": "no_web_signal"},
+    {"id": 18, "class": "should-not-use-web", "query": "أعد صياغة هذه الفقرة", "signalDetected": false, "observedUseWeb": false, "reason": "no_web_signal"},
+    {"id": 19, "class": "should-not-use-web", "query": "ساعدني في تنظيم يومي", "signalDetected": false, "observedUseWeb": false, "reason": "no_web_signal"},
+    {"id": 20, "class": "should-not-use-web", "query": "ما الفرق بين فكرتين في هذا المستند؟", "signalDetected": false, "observedUseWeb": false, "reason": "no_web_signal"}
+  ],
+  "security": {
+    "ssrfLocalhost": "passed",
+    "ssrfLoopback": "passed",
+    "ssrfPrivateIp": "passed",
+    "ssrfMetadataEndpoint": "passed",
+    "ssrfInternalHostname": "passed",
+    "ssrfMaliciousRedirect": "passed",
+    "contentTypeValidation": "passed",
+    "responseSizeLimit": "passed",
+    "untrustedWebContentInstructionIsolation": "passed"
+  },
+  "isolation": {
+    "tenantIdPreserved": true,
+    "userIdPreserved": true,
+    "conversationIdPreserved": true,
+    "publicCacheContainsPrivateContext": false
+  },
+  "tests": {
+    "pythonTotal": 16,
+    "pythonPassed": 16,
+    "pythonFailed": 0,
+    "apiTypecheck": "passed",
+    "webTypecheck": "passed",
+    "compileall": "passed",
+    "gitDiffCheck": "passed",
+    "health": "passed",
+    "webCapabilities": "passed"
+  },
+  "productionStatus": {
+    "safeToEnable": false,
+    "reason": "SearXNG is not available in the current environment",
+    "modelChanged": false,
+    "externalAiAdded": false,
+    "paidApiAdded": false
+  }
+}

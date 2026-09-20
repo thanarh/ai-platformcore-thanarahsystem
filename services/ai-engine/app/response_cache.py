@@ -84,11 +84,19 @@ class ResponseCacheService:
         # Exact payload equality is not enough when mutable RAG or memory can
         # change the effective prompt. Cache only context-free requests until
         # those sources expose reliable per-tenant versions.
+        web_signal = False
+        if settings.web_search_enabled:
+            from app.web_intelligence.decision import decide_web
+
+            web_signal = bool(decide_web(ResponseCacheService._last_user_text(request), tenant_config).signals)
         return (
             settings.response_cache_enabled
             and tenant_config.get("cacheEnabled", True) is not False
             and tenant_config.get("ragEnabled", True) is False
             and tenant_config.get("memoryEnabled", True) is False
+            and tenant_config.get("webSearchRequired", False) is not True
+            and tenant_config.get("webSearchEnabled", False) is not True
+            and not web_signal
         )
 
     @staticmethod

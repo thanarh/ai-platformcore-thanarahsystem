@@ -393,7 +393,13 @@ export class AiService {
               const publicEvent = eventType !== 'message' && !parsed.event
                 ? { ...parsed, event: eventType }
                 : parsed.meta
-                ? { ...parsed, meta: { service: 'Thanarah Intelligence' } }
+                ? {
+                    ...parsed,
+                    meta: {
+                      ...parsed.meta,
+                      service: 'Thanarah Intelligence',
+                    },
+                  }
                 : parsed;
               data.res.write(`data: ${JSON.stringify(publicEvent)}\n\n`);
               data.res.flush?.();

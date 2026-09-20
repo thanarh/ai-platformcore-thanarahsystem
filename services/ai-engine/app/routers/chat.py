@@ -62,8 +62,13 @@ async def chat_stream(request: Request, chat_request: ChatRequest):
 
     async def event_generator():
         try:
+            yield event_frame(StreamEventType.STATUS, {"state": "routing"})
+            stream_gen, route, rag_sources, telemetry, web_events = await tir.stream_route(chat_request)
+            for event in web_events:
+                event_name = event.get("event", "status")
+                payload = {key: value for key, value in event.items() if key != "event"}
+                yield event_frame(event_name, payload)
             yield event_frame(StreamEventType.STATUS, {"state": "generating"})
-            stream_gen, route, rag_sources, telemetry = await tir.stream_route(chat_request)
             full_content = []
             async for token in stream_gen:
                 if await request.is_disconnected():
@@ -79,7 +84,7 @@ async def chat_stream(request: Request, chat_request: ChatRequest):
                 except Exception:
                     pass
 
-            yield event_frame(StreamEventType.STATUS, {"state": "completed"})
+            yield event_frame(StreamEventType.DONE, {"state": "completed"})
             # Send metadata at the end
             meta = {
                 "meta": {

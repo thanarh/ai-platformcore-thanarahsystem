@@ -2,7 +2,7 @@
 export const dynamic = 'force-dynamic';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
-import { Send, Square, Copy, Menu, ThumbsUp, ThumbsDown, Pin, Sparkles, Mic, Type, Wand2 } from 'lucide-react';
+import { Send, Square, Copy, ExternalLink, Globe2, Menu, ThumbsUp, ThumbsDown, Pin, Sparkles, Mic, Type, Wand2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useChatStore, Message } from '@/store/chat';
@@ -617,6 +617,30 @@ function MessageBubble({ message, onCopy, onPin, onFeedback, feedback }: { messa
                     {message.content}
                   </ReactMarkdown>
                 </div>
+                {!message.isStreaming && (message.aiMetadata?.ragSources?.length || 0) > 0 && (
+                  <div className="mt-4 border-t border-gray-100 pt-3" dir="rtl">
+                    <div className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold text-gray-500 font-arabic">
+                      <Globe2 className="h-3.5 w-3.5 text-thanarah-600" />
+                      مصادر الويب
+                    </div>
+                    <div className="grid gap-1.5">
+                      {message.aiMetadata?.ragSources?.map((source: any, sourceIndex: number) => (
+                        <a
+                          key={`${source.id || source.url || 'source'}-${sourceIndex}`}
+                          href={source.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex items-center gap-2 rounded-lg border border-gray-100 bg-gray-50 px-2.5 py-2 text-[10px] text-gray-600 transition hover:border-thanarah-200 hover:bg-thanarah-50"
+                        >
+                          <span className="min-w-0 flex-1 truncate font-arabic">
+                            [{source.id || `source-${sourceIndex + 1}`}] {source.title || source.domain || source.url}
+                          </span>
+                          <ExternalLink className="h-3 w-3 flex-shrink-0 text-gray-400" />
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {message.isStreaming && (
                   <span className="inline-block w-1 h-4 bg-thanarah-600 animate-pulse-subtle rounded ml-0.5" />
                 )}

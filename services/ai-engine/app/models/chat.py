@@ -12,6 +12,7 @@ class ChatRequest(BaseModel):
     messages: List[ChatMessage] = Field(default_factory=list)
     tenantId: str = "default"
     userId: Optional[str] = None
+    conversationId: Optional[str] = None
     requestId: Optional[str] = None
     conversationSummary: Optional[str] = None
     tenantConfig: Dict[str, Any] = Field(default_factory=dict)

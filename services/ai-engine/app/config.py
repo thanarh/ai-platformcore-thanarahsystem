@@ -65,6 +65,23 @@ class Settings(BaseSettings):
     rag_chunk_size: int = 350
     rag_chunk_overlap: int = 40
 
+    # Phase 3 local web intelligence. Disabled until a verified SearXNG
+    # instance and the security/latency checks are complete.
+    web_search_enabled: bool = False
+    searxng_url: str = "http://127.0.0.1:8080"
+    searxng_timeout_seconds: float = 4.0
+    web_max_results: int = 5
+    web_max_fetch_results: int = 3
+    web_max_context_chars: int = 6000
+    web_search_cache_ttl_seconds: int = 300
+    web_fetch_cache_ttl_seconds: int = 900
+    web_extraction_cache_ttl_seconds: int = 900
+    web_fetch_timeout_seconds: float = 8.0
+    web_fetch_max_bytes: int = 1_500_000
+    web_fetch_max_redirects: int = 3
+    web_fetch_retries: int = 1
+    web_safe_search: int = 1
+
     # Local embeddings for semantic RAG. Sentence Transformers is optional;
     # the service falls back to deterministic hashing embeddings automatically.
     embedding_provider: str = "auto"

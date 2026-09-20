@@ -55,6 +55,12 @@ async def health(request: Request):
             "backend": settings.rag_backend,
             "collection": settings.qdrant_collection,
         },
+        "web": {
+            "enabled": settings.web_search_enabled,
+            "provider": "SearXNG",
+            "endpoint": settings.searxng_url,
+            "productionSafe": not settings.web_search_enabled,
+        },
         "cache": response_cache_service.stats(),
         "telemetry": {"bufferedRecords": len(recent_records(512))},
         "backends": backends,
