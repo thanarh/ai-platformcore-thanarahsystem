@@ -30,3 +30,14 @@ privacy, and runtime behavior; the requested phase explicitly defers them.
 tenant/user-scoped message, never binary audio in conversation context. Keep
 Arabic and English language resolution explicit and make stop/interrupt
 idempotent for future STT/TTS execution.
+
+The Voice/Text selector belongs inside the message composer. Voice tools should
+open only after the user selects Voice; the microphone must never auto-start or
+remain a permanently active control.
+
+**Why:** The composer is the user's input-mode decision point, while keeping
+the microphone opt-in prevents accidental recording and reduces visual noise.
+
+**How to apply:** Keep Text as the default mode, show Voice tools contextually,
+and expose unavailable STT/TTS as disabled foundation controls until a local
+engine is enabled.
