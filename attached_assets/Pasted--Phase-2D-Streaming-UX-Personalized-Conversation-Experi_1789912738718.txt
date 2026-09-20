@@ -1,0 +1,511 @@
+نكمل Phase 2D، لكن نضيف فوق Streaming UX طبقة **Personalized Conversation Experience**.
+
+أريد منك تنفيذ هذه المرحلة كـ foundation حقيقية للـ AI Core، وليس مجرد UI mockup.
+
+### 1. عنوان تلقائي لكل Conversation
+
+كل محادثة جديدة تبدأ بدون عنوان ثابت.
+
+بعد أول رسالة/بداية مفيدة للمحادثة، يتم توليد عنوان قصير بناءً على محتوى المحادثة.
+
+مثال:
+
+```text
+كيف أقدر أحسن إدارة مواعيد العيادة؟
+```
+
+يصبح:
+
+```text
+إدارة مواعيد العيادة
+```
+
+مثال آخر:
+
+```text
+اشرح لي طريقة ربط WhatsApp مع Thanarah
+```
+
+يصبح:
+
+```text
+ربط WhatsApp مع Thanarah
+```
+
+الشروط:
+
+* العنوان قصير.
+* يعبر فعلًا عن موضوع المحادثة.
+* لا يحتوي على معلومات حساسة غير ضرورية.
+* لا نطلب من external AI.
+* استخدم local model الموجود حاليًا إذا احتجنا generation.
+* لا تجعل توليد العنوان يعطل أول response للمستخدم.
+* الأفضل أن يتم asynchronously بعد بدء المحادثة.
+* إذا فشل توليد العنوان، يبقى fallback واضح مثل `محادثة جديدة`.
+
+### 2. Pin Conversation
+
+أريد إمكانية تثبيت أي محادثة:
+
+```text
+Conversation
+├── title
+├── pinned
+├── createdAt
+├── updatedAt
+└── lastMessageAt
+```
+
+في الواجهة:
+
+```text
+Pinned
+────────────
+إدارة مواعيد العيادة
+ربط WhatsApp
+سياسة الإلغاء
+
+Recent
+────────────
+...
+```
+
+المحادثة المثبتة لا تختفي بسبب sorting العادي.
+
+يجب أن يكون:
+
+* pin
+* unpin
+* persistence
+* API
+* authorization
+* tenant/user isolation
+
+ولا يستطيع مستخدم رؤية conversations الخاصة بمستخدم/tenant آخر.
+
+### 3. Personalized Suggestions
+
+عند فتح Chat، لا أريد Suggestions ثابتة لكل المستخدمين.
+
+النظام يجب أن يبني suggestions حسب السياق المتاح عن العميل.
+
+مثال:
+
+عميل يتحدث كثيرًا عن:
+
+```text
+المواعيد
+الأطباء
+التأمين
+الفواتير
+```
+
+يمكن أن تظهر:
+
+```text
+راجع مواعيد اليوم
+حلل أكثر أوقات العيادة ازدحامًا
+راجع خدمات التأمين
+ساعدني في متابعة الفواتير
+```
+
+لكن مستخدمًا آخر يتحدث عن:
+
+```text
+التسويق
+المبيعات
+خدمة العملاء
+```
+
+يظهر له شيء مختلف.
+
+### 4. Customer / Organization Intelligence Profile
+
+نحتاج Foundation لملف سياق لكل:
+
+```text
+User
+Organization / Tenant
+```
+
+ولا أريد منك عمل "memory" عشوائية.
+
+أنشئ مفهومًا واضحًا مثل:
+
+```text
+AI Context Profile
+```
+
+يمكن أن يحتوي مستقبلًا على:
+
+```text
+organizationContext
+userContext
+frequentTopics
+recentTopics
+preferredLanguage
+preferredResponseStyle
+frequentTasks
+knownPreferences
+importantEntities
+recentActivity
+```
+
+لكن:
+
+**لا تحفظ كل شيء تلقائيًا.**
+
+نريد فقط المعلومات التي لها قيمة مستقبلية ويمكن استخدامها لتحسين المساعدة.
+
+مثال:
+
+```text
+preferredLanguage = ar
+frequentTopics = [
+  appointments,
+  insurance,
+  doctors
+]
+```
+
+ومثال:
+
+```text
+preferredResponseStyle = concise
+```
+
+إذا كان النظام لديه evidence كافٍ من الاستخدام.
+
+لا تستنتج معلومات حساسة أو شخصية من مجرد تخمين.
+
+### 5. Memory يجب أن تكون Tenant-safe
+
+هذه نقطة CRITICAL.
+
+كل memory/context يجب أن يرتبط بـ:
+
+```text
+tenantId
+organizationId
+userId
+```
+
+ولا يجوز إطلاقًا أن يتم retrieval لمعلومات من Tenant آخر.
+
+حتى لو تشابهت المواضيع.
+
+مثال:
+
+```text
+Clinic A
+└── user 123
+    └── memory/context A
+
+Clinic B
+└── user 456
+    └── memory/context B
+```
+
+ولا يوجد أي cross-tenant retrieval.
+
+### 6. New User Experience
+
+عندما يكون المستخدم جديدًا ولا توجد لديه conversations أو context كافٍ:
+
+لا تعرض له suggestions مبنية على بيانات غير موجودة.
+
+بدل ذلك نريد Welcome state جميل لـ Thanarah Intelligence.
+
+مثل:
+
+```text
+مرحبًا بك في ذكاء Thanarah
+
+أنا هنا لمساعدتك في العمل،
+المعلومات، والتحليل داخل مؤسستك.
+
+يمكنك أن تسألني عن:
+المواعيد
+العملاء
+الخدمات
+التقارير
+إجراءات العمل
+ومعلومات مؤسستك
+```
+
+ثم Tips بسيطة:
+
+```text
+Tip
+يمكنك سؤالي بطريقة طبيعية، بدون أوامر محددة.
+
+Tip
+كلما استخدمتني أكثر، أصبحت اقتراحاتي أكثر ارتباطًا بسياق عملك.
+
+Tip
+يمكنك تخصيص طريقة تعاملي معك.
+```
+
+لا تستخدم fake claims مثل "أنا أعرفك بالكامل".
+
+### 7. Thanarah Intelligence Customization
+
+أريد أيضًا مساحة واضحة يستطيع العميل من خلالها تخصيص المساعد.
+
+مثال:
+
+```text
+Customize Thanarah Intelligence
+
+Industry
+Healthcare
+
+Specialization
+Dental Clinic
+
+Response style
+Concise
+
+Language
+Arabic
+
+Focus areas
+Appointments
+Patients
+Insurance
+Operations
+
+Additional instructions
+...
+```
+
+هذه المعلومات تصبح جزءًا من الـ AI Context Profile.
+
+ويجب أن تكون قابلة للتعديل والحذف.
+
+### 8. Onboarding / Popup
+
+للمستخدم الجديد فقط، يمكن إظهار onboarding بسيط:
+
+```text
+خصص ذكاء Thanarah لمؤسستك
+
+اختر المجال الذي تريد أن أركز عليه
+حدد طريقة الرد
+أخبرني بالمهام التي تريد مساعدتك فيها
+```
+
+لكن:
+
+* لا يظهر في كل login.
+* يمكن dismiss.
+* يمكن فتحه لاحقًا من settings.
+* لا يمنع المستخدم من استخدام Chat.
+
+### 9. Suggestions يجب أن تكون Dynamic
+
+نريد architecture تسمح لاحقًا أن تكون الاقتراحات مبنية على:
+
+```text
+Recent conversations
+Frequent topics
+Organization context
+User preferences
+Recent activity
+Available Thanarah capabilities
+```
+
+مثلاً:
+
+```text
+Recent topic:
+Insurance
+
+Suggestion:
+راجع خدمات التأمين المرتبطة بعيادتك
+```
+
+لكن في هذه المرحلة لا نحتاج recommendation engine معقد.
+
+نريد فقط foundation نظيفة يمكن تطويرها لاحقًا.
+
+### 10. لا تجعل Personalization مصدر Hallucination
+
+مهم جدًا:
+
+لا يجوز أن يقول النظام:
+
+"أنت عادةً تفعل كذا"
+
+إلا إذا كان لديه evidence محفوظة فعلًا.
+
+ولا يجوز أن يخترع:
+
+* company information
+* user preferences
+* medical information
+* business facts
+
+Personalization يجب أن تحسن السياق، وليس أن تضيف facts غير مؤكدة.
+
+---
+
+## Architecture
+
+أريد فصل واضح بين:
+
+```text
+Conversation
+        ↓
+Conversation Title
+
+Conversation History
+        ↓
+Memory / Context Extraction
+        ↓
+AI Context Profile
+        ↓
+Personalized Suggestions
+```
+
+مع:
+
+```text
+Tenant Isolation
+User Isolation
+Permissions
+Auditability
+```
+
+ولا تجعل الـ AI Context Profile بديلًا عن Thanarah Core database.
+
+Thanarah Core يظل:
+
+```text
+Source of Truth
+```
+
+والـ AI Core يحتفظ فقط بالسياق اللازم للذكاء والتخصيص.
+
+---
+
+## Streaming
+
+احتفظ بكل متطلبات streaming التي حددناها سابقًا:
+
+```text
+Request
+ ↓
+Processing state
+ ↓
+First token
+ ↓
+Incremental chunks
+ ↓
+Final response
+```
+
+ولا تعرض Chain-of-Thought الداخلي.
+
+يمكن عرض states مثل:
+
+```text
+Analyzing...
+Retrieving...
+Generating...
+```
+
+فقط عندما تكون هذه العمليات تحدث فعليًا.
+
+---
+
+## مهم جدًا
+
+لا تبدأ الآن في:
+
+* Web Search
+* SearXNG
+* Tool Calling
+* Agent
+* Thanarah Core integration
+* Qdrant production activation
+* External AI providers
+
+هذه المرحلة foundation للـ:
+
+**Conversation UX + Personalization + Memory Context**
+
+---
+
+## Testing
+
+أريد tests واضحة لـ:
+
+### Conversation
+
+* automatic title
+* fallback title
+* pin
+* unpin
+* persistence
+* authorization
+
+### Personalization
+
+* profile creation
+* profile update
+* profile retrieval
+* user isolation
+* tenant isolation
+* no cross-tenant retrieval
+
+### Suggestions
+
+* new user fallback
+* personalized suggestions
+* deterministic fallback when insufficient data
+
+### Streaming
+
+* first token
+* incremental chunks
+* done event
+* abort
+* no duplicate chunks
+
+ثم:
+
+* regression
+* compile/typecheck
+* health
+* API tests
+
+وأريد في النهاية تقريرًا واضحًا بالأرقام:
+
+```text
+Tests:
+Passed:
+Failed:
+
+Streaming:
+First token:
+Chunks:
+Done:
+Abort:
+
+Personalization:
+Profile tests:
+Tenant isolation:
+User isolation:
+
+Conversation:
+Title:
+Pin:
+Persistence:
+```
+
+وأيضًا أنشئ documentation للـ architecture والـ data boundaries.
+
+**توقف بعد تنفيذ هذه المرحلة.**
+
+لا تنتقل إلى Phase 3 ولا تضف Web Intelligence أو Tools قبل أن أراجع النتائج.
