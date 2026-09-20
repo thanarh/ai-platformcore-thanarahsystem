@@ -1,0 +1,562 @@
+نعم، ابدأ الآن بتنفيذ **PHASE 3 — Web Intelligence** التي قرأت متطلباتها.
+
+لا تكتفِ بمراجعة الملف. أريد التنفيذ الفعلي داخل المشروع.
+
+التزم حرفيًا بنطاق Phase 3 الذي حددناه:
+
+### الهدف
+
+إضافة Web Intelligence محلية بحيث يستطيع Thanarah Intelligence:
+
+1. تحديد متى يحتاج إلى معلومات من الإنترنت.
+2. البحث باستخدام SearXNG.
+3. جلب الصفحات المطلوبة عبر HTTP.
+4. استخراج المحتوى المفيد من HTML.
+5. عمل local reranking/filtering.
+6. التحقق من المصادر.
+7. تمرير relevant context فقط إلى Qwen.
+8. إرجاع الإجابة مع citations حقيقية للمصادر.
+
+والسلوك المطلوب مستقبلًا:
+
+```text
+User Question
+      ↓
+Decision Layer
+      ↓
+┌───────────────┬────────────────┬────────────────┐
+│ Known / Local │ Thanarah Data  │ Web Information│
+│     ↓         │      ↓         │       ↓        │
+│ Local Model   │ RAG / Tools    │   SearXNG      │
+└───────────────┴────────────────┴────────────────┘
+```
+
+لا تجعل كل سؤال يذهب للإنترنت.
+
+مثال:
+
+```text
+"ما الفرق بين API و Token؟"
+→ Local Model
+
+"ما سياسة الإلغاء في عيادتي؟"
+→ RAG / Thanarah knowledge
+
+"ما آخر أخبار التقنية اليوم؟"
+→ Web
+
+"ابحث لي عن أفضل مكتبة PDF"
+→ Web
+```
+
+### مهم
+
+لا تعتمد فقط على model confidence لتحديد أنه "لا يعرف".
+
+استخدم signals واضحة مثل:
+
+* explicit user request to search
+* current/time-sensitive information
+* external factual lookup
+* insufficient local knowledge
+* configured web-required intent
+
+ويجب أن يكون القرار قابلًا للتتبع في telemetry.
+
+---
+
+## SearXNG
+
+ابدأ أولًا بفحص البيئة:
+
+```text
+SearXNG reachable?
+Search endpoint available?
+JSON response?
+```
+
+إذا كان SearXNG غير موجود، لا تستبدله بخدمة خارجية.
+
+نفّذ ما يمكن تنفيذه، وثّق dependency المطلوبة، ولا تدّعي أن Web Search يعمل.
+
+إذا كان متاحًا، نفذ integration حقيقي.
+
+---
+
+## Web Search Tool
+
+أنشئ capability/service واضح:
+
+```text
+web_search
+```
+
+ولا تضع منطق البحث بالكامل داخل Chat controller.
+
+Input:
+
+```text
+query
+language
+region
+maxResults
+safeSearch
+```
+
+Output:
+
+```text
+results[]
+```
+
+كل نتيجة تحتوي على الأقل:
+
+```text
+title
+url
+snippet
+source
+rank
+publishedAt
+```
+
+---
+
+## HTTP Fetcher
+
+أضف fetcher آمنًا للصفحات التي اختارها النظام.
+
+يجب أن يدعم:
+
+* timeout
+* redirects
+* response size limits
+* content-type validation
+* malformed pages
+* limited retry
+
+وأهم شيء:
+
+### SSRF protection
+
+يجب منع الوصول إلى:
+
+```text
+localhost
+127.0.0.1
+private IP ranges
+internal hostnames
+metadata endpoints
+```
+
+وكذلك منع redirect من public URL إلى private/internal address.
+
+---
+
+## Content Extraction
+
+لا ترسل HTML كاملًا إلى Qwen.
+
+اعمل:
+
+```text
+HTML
+ ↓
+clean
+ ↓
+remove scripts/styles/navigation/noise
+ ↓
+extract main content
+ ↓
+title/headings/paragraphs
+ ↓
+metadata
+```
+
+واحفظ:
+
+```text
+url
+title
+domain
+retrievedAt
+publishedAt
+```
+
+---
+
+## Local Reranking
+
+استخدم local reranking الموجود في المشروع إن كان متاحًا.
+
+لا تستخدم:
+
+* OpenAI
+* Anthropic
+* Gemini
+* Groq
+* OpenRouter
+* paid reranker
+* paid search API
+
+يمكن استخدام lexical/BM25-style fallback إذا لم يوجد semantic reranker مناسب.
+
+الهدف:
+
+```text
+Search Results
+ ↓
+Relevance filtering
+ ↓
+Local reranking
+ ↓
+Top sources/passages
+```
+
+---
+
+## Context Compression
+
+لا ترسل صفحات كاملة إلى model.
+
+نفذ:
+
+```text
+Sources
+ ↓
+Relevant passages
+ ↓
+Deduplicate
+ ↓
+Compress
+ ↓
+Qwen context
+```
+
+وحافظ على source mapping.
+
+---
+
+## Citations
+
+أي معلومة مصدرها Web يجب أن تكون مرتبطة بمصدر حقيقي.
+
+الـ API يجب أن يرجع مثلًا:
+
+```json
+{
+  "sources": [
+    {
+      "id": "source-1",
+      "title": "...",
+      "url": "...",
+      "domain": "...",
+      "retrievedAt": "..."
+    }
+  ]
+}
+```
+
+الموديل ممنوع اختراع URLs.
+
+الـ URLs تأتي فقط من retrieval pipeline.
+
+---
+
+## Web Content Security
+
+اعتبر محتوى الإنترنت:
+
+```text
+UNTRUSTED DATA
+```
+
+إذا وجدنا داخل صفحة:
+
+```text
+Ignore previous instructions...
+```
+
+فهذا نص من الصفحة، وليس instruction للنظام.
+
+لا تسمح لـ retrieved web content بتغيير system instructions أو permissions أو tool access.
+
+---
+
+## Streaming
+
+ادمج Web Intelligence مع الـ streaming event architecture الموجودة.
+
+أريد events مثل:
+
+```text
+status
+search_started
+source_found
+fetch_started
+fetch_completed
+generating
+text
+error
+done
+```
+
+مثال:
+
+```text
+Searching the web...
+
+Source found:
+Official documentation
+
+Reading relevant information...
+
+Generating response...
+
+[streamed answer]
+
+Done
+```
+
+لا تعرض Chain-of-Thought.
+
+نعرض فقط execution states حقيقية.
+
+---
+
+## Caching
+
+أضف caching مناسبًا لـ:
+
+```text
+search results
+fetched pages
+extracted content
+```
+
+مع TTL.
+
+لكن لا تسمح للـ cache بتسريب:
+
+```text
+tenant context
+user context
+conversation context
+private data
+```
+
+---
+
+## Tenant/User Isolation
+
+أي:
+
+```text
+conversation
+context
+memory
+saved source
+artifact
+```
+
+يجب أن يحتفظ بـ:
+
+```text
+tenantId
+userId
+conversationId
+```
+
+ولا يوجد cross-tenant retrieval.
+
+---
+
+## Benchmark
+
+أنشئ benchmark من 20 حالة على الأقل:
+
+```text
+5 current-information
+5 explicit web-search
+5 technical research
+5 should-NOT-use-web
+```
+
+وقس:
+
+```text
+search latency
+fetch latency
+extraction latency
+reranking latency
+total web latency
+successful fetch rate
+source count
+citation integrity
+false web activation
+```
+
+وأيضًا سجل:
+
+```text
+web decision
+decision reason
+```
+
+حتى نعرف لماذا تم استخدام الإنترنت.
+
+---
+
+## Tests
+
+نفذ tests لـ:
+
+### Search
+
+* SearXNG availability
+* search
+* timeout
+* malformed response
+
+### Fetch
+
+* successful HTTP
+* redirect
+* timeout
+* oversized response
+* invalid content type
+
+### SSRF
+
+* localhost
+* 127.0.0.1
+* private IP
+* metadata endpoint
+* malicious redirect
+
+### Extraction
+
+* normal HTML
+* noisy HTML
+* empty page
+* malformed HTML
+
+### Reranking
+
+* deterministic behavior
+* relevance filtering
+
+### Citations
+
+* source preservation
+* URL integrity
+* no fabricated URLs
+
+### Streaming
+
+* status
+* search_started
+* source_found
+* text
+* done
+* error
+
+### Isolation
+
+* user isolation
+* tenant isolation
+* conversation isolation
+
+ثم شغّل:
+
+* Python tests
+* regression
+* compile/typecheck
+* JSON validation
+* health
+
+---
+
+## Production
+
+لا تغير:
+
+```text
+LOCAL_AI_MODEL=qwen2.5:1.5b
+LOCAL_AI_NUM_THREAD=4
+LOCAL_AI_NUM_CTX=2048
+LOCAL_AI_NUM_BATCH=64
+LOCAL_AI_KEEP_ALIVE=10m
+OLLAMA_KEEP_ALIVE=10m
+```
+
+ولا تفعّل Web Search في production قبل نجاح الاختبارات.
+
+إذا احتجت flag:
+
+```text
+WEB_SEARCH_ENABLED=false
+```
+
+ثم يمكن تفعيله بعد verification.
+
+---
+
+## ممنوع توسيع النطاق
+
+لا تبدأ الآن:
+
+* Thanarah Core integration
+* Tool Calling
+* Agent loop
+* autonomous agent
+* PDF generation
+* Spreadsheet generation
+* Voice engine
+* external AI providers
+* paid APIs
+* Qdrant production activation
+
+هذه **Phase 3 فقط**.
+
+---
+
+## Deliverables
+
+أنشئ/حدّث:
+
+```text
+docs/ai-web-intelligence-phase3.md
+docs/ai-web-intelligence-phase3-benchmark.json
+```
+
+وفي التقرير وضّح بوضوح:
+
+```text
+SearXNG status
+Search latency
+Fetch latency
+Extraction latency
+Reranking latency
+Total latency
+Success rate
+Citation integrity
+Security results
+SSRF results
+Tenant isolation
+Production status
+```
+
+وفي النهاية أعطني:
+
+1. ما الذي تم تنفيذه فعليًا.
+2. ما الذي لم يمكن تنفيذه بسبب dependency غير موجودة.
+3. نتائج الـ benchmark بالأرقام.
+4. نتائج tests.
+5. regression.
+6. compile/typecheck.
+7. health.
+8. production configuration.
+9. الملفات التي تم تعديلها.
+
+**توقف بعد Phase 3 ولا تنتقل للمرحلة التالية.**
