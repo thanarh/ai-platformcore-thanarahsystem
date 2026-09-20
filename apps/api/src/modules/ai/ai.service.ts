@@ -33,6 +33,7 @@ export class AiService {
     stream?: boolean;
     inputMode?: 'text' | 'voice';
     voiceMetadata?: Record<string, unknown>;
+    skillId?: string;
   }) {
     const requestId = uuidv4();
     const startTime = Date.now();
@@ -106,6 +107,7 @@ export class AiService {
       stream: data.stream || false,
       inputMode: data.inputMode,
       voiceMetadata: data.voiceMetadata,
+      skillId: data.skillId,
     };
 
     try {
@@ -218,6 +220,7 @@ export class AiService {
     res: any;
     inputMode?: 'text' | 'voice';
     voiceMetadata?: Record<string, unknown>;
+    skillId?: string;
   }) {
     const requestId = uuidv4();
     const startTime = Date.now();
@@ -282,6 +285,7 @@ export class AiService {
       stream: true,
       inputMode: data.inputMode,
       voiceMetadata: data.voiceMetadata,
+      skillId: data.skillId,
     };
 
     // Set SSE headers

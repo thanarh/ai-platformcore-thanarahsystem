@@ -172,6 +172,10 @@ export const useChatStore = create<ChatState>((set) => ({
         next.aiMetadata = { ...(next.aiMetadata || {}), ...meta };
         return next;
       });
+      if (meta.userMessageId && meta.userClientId) {
+        const userMessage = messages.find((message) => message.clientId === meta.userClientId);
+        if (userMessage) userMessage._id = String(meta.userMessageId);
+      }
       return { messages: { ...s.messages, [convId]: messages } };
     }),
   updateMessage: (convId, messageId, data) =>

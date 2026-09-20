@@ -352,6 +352,13 @@ class IntelligenceRouter:
             if medical_mode.get("disclaimer"):
                 system_prompt += f"\nتنبيه مطلوب: {medical_mode['disclaimer']}"
 
+        if chat_request.skillId:
+            system_prompt += (
+                f"\n\n## الأداة المختارة\n"
+                f"الأداة المطلوبة: {chat_request.skillId}. استخدمها كإشارة توجيه فقط، "
+                "ولا تدّعي تنفيذ أداة أو الوصول إلى بيانات خارجية إن لم تكن متاحة."
+            )
+
         if route.backend_id == "thanarah-advanced":
             max_tokens = {
                 "fast": settings.external_ai_max_tokens_fast,

@@ -2,7 +2,7 @@
 export const dynamic = 'force-dynamic';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
-import { Send, Square, Copy, Menu, ThumbsUp, ThumbsDown, Pin, Sparkles, Mic, Type } from 'lucide-react';
+import { Send, Square, Copy, Menu, ThumbsUp, ThumbsDown, Pin, Sparkles, Mic, Type, Wand2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useChatStore, Message } from '@/store/chat';
@@ -20,32 +20,36 @@ export default function ChatPage() {
 
   const { token } = useAuthStore();
   const {
-    messages, addMessage, setMessages, updateLastMessage,
-    finalizeLastMessage, updateMessage,
-    isStreaming, setStreaming, setLoading, isLoading, toggleSidebar,
+    messages, addMessage, setMessages, updateStreamingMessage,
+    finalizeMessage, updateMessage,
+    setStreaming, setLoading, isLoading, toggleSidebar,
     updateConversation,
   } = useChatStore();
 
   const [input, setInput] = useState('');
-  const [abortController, setAbortController] = useState<AbortController | null>(null);
   const [feedback, setFeedback] = useState<Record<string, 'up' | 'down'>>({});
   const [skills, setSkills] = useState<any[]>([]);
   const [executionEvents, setExecutionEvents] = useState<any[]>([]);
-  const [voiceCapabilities, setVoiceCapabilities] = useState<any>(null);
   const [inputMode, setInputMode] = useState<'text' | 'voice'>('text');
   const [voiceState, setVoiceState] = useState<VoiceState>('IDLE');
+  const [voiceError, setVoiceError] = useState('');
+  const [browserSpeechAvailable, setBrowserSpeechAvailable] = useState(false);
+  const [showTools, setShowTools] = useState(false);
+  const [selectedSkillId, setSelectedSkillId] = useState<string | undefined>();
+  const [activeRequestCount, setActiveRequestCount] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const streamControllersRef = useRef(new Map<string, AbortController>());
+  const recognitionRef = useRef<any>(null);
 
   const convMessages: Message[] = messages[convId] || [];
 
   useEffect(() => {
+    const speechWindow = window as any;
+    setBrowserSpeechAvailable(Boolean(speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition));
     aiApi.skills()
       .then((payload) => setSkills(payload?.skills || []))
       .catch(() => setSkills([]));
-    aiApi.voiceCapabilities()
-      .then((payload) => setVoiceCapabilities(payload))
-      .catch(() => setVoiceCapabilities(null));
   }, []);
 
   useEffect(() => {
@@ -76,28 +80,78 @@ export default function ChatPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [convMessages]);
 
-  const handleSend = useCallback(async (overrideContent?: string) => {
+  const speakResponse = useCallback((content: string, language: 'ar' | 'en') => {
+    if (!content || typeof window === 'undefined' || !window.speechSynthesis) {
+      setVoiceState('IDLE');
+      return;
+    }
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(content);
+    utterance.lang = language === 'en' ? 'en-US' : 'ar-SA';
+    utterance.onend = () => setVoiceState('IDLE');
+    utterance.onerror = () => setVoiceState('IDLE');
+    setVoiceState('SPEAKING');
+    window.speechSynthesis.speak(utterance);
+  }, []);
+
+  const handleSend = useCallback(async (
+    overrideContent?: string,
+    requestOptions?: {
+      inputMode?: 'text' | 'voice';
+      voiceMetadata?: Record<string, unknown>;
+      speakResponse?: boolean;
+      language?: 'ar' | 'en';
+      skillId?: string;
+    },
+  ) => {
     const content = (overrideContent || input).trim();
-    if (!content || isStreaming || !token) return;
+    if (!content || !token) return;
 
     setInput('');
-    setExecutionEvents([]);
+    if (streamControllersRef.current.size === 0) setExecutionEvents([]);
     setStreaming(true);
     const controller = new AbortController();
-    setAbortController(controller);
+    const requestId = typeof crypto !== 'undefined' && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `request-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const assistantClientId = `assistant-${requestId}`;
+    streamControllersRef.current.set(requestId, controller);
+    setActiveRequestCount((count) => count + 1);
 
     // Add user message
-    addMessage(convId, { role: 'user', content, createdAt: new Date().toISOString() });
+    addMessage(convId, {
+      role: 'user',
+      content,
+      clientId: `user-${requestId}`,
+      inputMode: requestOptions?.inputMode || inputMode,
+      voiceMetadata: requestOptions?.voiceMetadata,
+      createdAt: new Date().toISOString(),
+    });
 
     // Add an operational placeholder immediately; it is not model reasoning.
     addMessage(convId, {
       role: 'assistant',
       content: '',
+      clientId: assistantClientId,
       isStreaming: true,
       streamStatus: 'analyzing',
     });
 
     let accumulated = '';
+    let finished = false;
+    const finishRequest = () => {
+      if (finished) return;
+      finished = true;
+      streamControllersRef.current.delete(requestId);
+      setActiveRequestCount((count) => Math.max(0, count - 1));
+      setStreaming(streamControllersRef.current.size > 0);
+      if (requestOptions?.speakResponse && accumulated) {
+        speakResponse(accumulated, requestOptions.language || 'ar');
+      } else if (requestOptions?.speakResponse) {
+        setVoiceState('IDLE');
+      }
+      window.dispatchEvent(new Event('thanarah-usage-changed'));
+    };
 
     await streamChat(
       convId,
@@ -105,30 +159,111 @@ export default function ChatPage() {
       token,
       (delta) => {
         accumulated += delta;
-        updateLastMessage(convId, accumulated, false, 'generating');
+        updateStreamingMessage(convId, assistantClientId, accumulated, false, 'generating');
       },
       (meta) => {
-        finalizeLastMessage(convId, accumulated, meta);
+        finalizeMessage(convId, assistantClientId, accumulated, {
+          ...(meta || {}),
+          userClientId: `user-${requestId}`,
+        });
         if (meta?.conversationTitle) {
           updateConversation(convId, { title: meta.conversationTitle });
         }
-        setStreaming(false);
-        setAbortController(null);
-        window.dispatchEvent(new Event('thanarah-usage-changed'));
+        finishRequest();
       },
       (err) => {
-        finalizeLastMessage(convId, err || 'تعذر إكمال الطلب حاليًا. حاول مرة أخرى.');
-        setStreaming(false);
-        setAbortController(null);
-        window.dispatchEvent(new Event('thanarah-usage-changed'));
+        const errorContent = err || 'تعذر إكمال الطلب حاليًا. حاول مرة أخرى.';
+        finalizeMessage(convId, assistantClientId, errorContent);
+        finishRequest();
       },
       (event) => {
         setExecutionEvents((current) => [...current, event].slice(-8));
       },
       controller.signal,
-      { inputMode: 'text' },
+      {
+        inputMode: requestOptions?.inputMode || inputMode,
+        voiceMetadata: requestOptions?.voiceMetadata,
+        skillId: requestOptions?.skillId || selectedSkillId,
+      },
     );
-  }, [input, convId, token, isStreaming, addMessage, finalizeLastMessage, setStreaming, updateLastMessage, updateConversation]);
+  }, [input, convId, token, inputMode, selectedSkillId, addMessage, finalizeMessage, setStreaming, updateStreamingMessage, updateConversation, speakResponse]);
+
+  const startVoiceCapture = useCallback(() => {
+    const speechWindow = window as any;
+    const Recognition = speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition;
+    if (!Recognition) {
+      setVoiceError('التعرف الصوتي غير مدعوم في هذا المتصفح.');
+      setVoiceState('ERROR');
+      return;
+    }
+
+    setInputMode('voice');
+    setVoiceError('');
+    setVoiceState('LISTENING');
+    const recognition = new Recognition();
+    const sessionId = `voice-${Date.now()}`;
+    let finalTranscript = '';
+    let submitted = false;
+    recognition.lang = 'ar-SA';
+    recognition.continuous = false;
+    recognition.interimResults = true;
+    recognition.onresult = (event: any) => {
+      let interimTranscript = '';
+      for (let index = event.resultIndex; index < event.results.length; index += 1) {
+        const transcript = event.results[index][0]?.transcript || '';
+        if (event.results[index].isFinal) finalTranscript += transcript;
+        else interimTranscript += transcript;
+      }
+      const transcript = `${finalTranscript} ${interimTranscript}`.trim();
+      if (transcript) setInput(transcript);
+      if (finalTranscript.trim() && !submitted) {
+        submitted = true;
+        setVoiceState('TRANSCRIBING');
+        recognition.stop();
+        void handleSend(finalTranscript.trim(), {
+          inputMode: 'voice',
+          speakResponse: true,
+          language: 'ar',
+          voiceMetadata: {
+            sessionId,
+            language: 'ar',
+            transcriptionStatus: 'completed',
+          },
+        });
+      }
+    };
+    recognition.onerror = (event: any) => {
+      if (event.error !== 'aborted') {
+        setVoiceError('تعذر الوصول إلى الميكروفون. تحقق من إذن المتصفح.');
+        setVoiceState('ERROR');
+      }
+    };
+    recognition.onend = () => {
+      recognitionRef.current = null;
+      if (!submitted) setVoiceState('IDLE');
+    };
+    recognitionRef.current = recognition;
+    try {
+      recognition.start();
+    } catch {
+      recognitionRef.current = null;
+      setVoiceError('الميكروفون قيد الاستخدام أو يحتاج إلى إذن.');
+      setVoiceState('ERROR');
+    }
+  }, [handleSend]);
+
+  const stopVoiceCapture = useCallback(() => {
+    recognitionRef.current?.stop?.();
+    recognitionRef.current = null;
+    setVoiceState('IDLE');
+  }, []);
+
+  const stopAllStreams = useCallback(() => {
+    streamControllersRef.current.forEach((controller) => controller.abort());
+    if (recognitionRef.current) stopVoiceCapture();
+    window.speechSynthesis?.cancel();
+    setVoiceState('STOPPED');
+  }, [stopVoiceCapture]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -165,29 +300,6 @@ export default function ChatPage() {
         </span>
       </div>
 
-      {skills.length > 0 && (
-        <div className="flex items-center gap-2 overflow-x-auto border-b border-gray-100 bg-white px-3 py-2 sm:px-4" dir="rtl">
-          <span className="inline-flex items-center gap-1 text-[11px] text-gray-500 font-arabic whitespace-nowrap">
-            <Sparkles className="w-3.5 h-3.5 text-thanarah-600" />
-            Skills
-          </span>
-          {skills.slice(0, 8).map((skill) => (
-            <span
-              key={skill.id}
-              title={skill.implementationStatus === 'contract-only' ? 'Contract فقط — غير مفعّلة في هذه المرحلة' : skill.description}
-              className={cn(
-                'rounded-full border px-2.5 py-1 text-[10px] whitespace-nowrap font-arabic',
-                skill.enabled
-                  ? 'border-thanarah-200 bg-thanarah-50 text-thanarah-800'
-                  : 'border-gray-200 bg-gray-50 text-gray-400',
-              )}
-            >
-              {skill.name}
-            </span>
-          ))}
-        </div>
-      )}
-
       {executionEvents.length > 0 && (
         <div className="border-b border-gray-100 bg-gray-50 px-3 py-2 sm:px-4" dir="rtl" aria-live="polite">
           <div className="mx-auto flex max-w-3xl flex-wrap items-center gap-2">
@@ -219,7 +331,7 @@ export default function ChatPage() {
 
         {convMessages.map((msg, idx) => (
           <MessageBubble
-            key={msg._id || idx}
+            key={msg._id || msg.clientId || idx}
             message={msg}
             onCopy={() => handleCopy(msg.content)}
             onPin={async () => {
@@ -268,47 +380,99 @@ export default function ChatPage() {
             </button>
             <button
               type="button"
-              onClick={() => setInputMode('voice')}
+              onClick={() => { setInputMode('voice'); setVoiceError(''); }}
               className={cn(
                 'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-arabic transition',
                 inputMode === 'voice' ? 'bg-thanarah-100 text-thanarah-800' : 'text-gray-500 hover:bg-gray-100',
               )}
               aria-pressed={inputMode === 'voice'}
-              title={voiceCapabilities?.voiceEnabled ? 'Voice mode' : 'Voice foundation فقط — محرك الصوت غير متاح'}
+              title="التحدث بالميكروفون"
             >
               <Mic className="h-3.5 w-3.5" />
               Voice
             </button>
-            {inputMode === 'voice' && (
-              <span className="mr-1 text-[10px] text-gray-400 font-arabic">
-                Foundation فقط: STT/TTS غير مثبت
+            <button
+              type="button"
+              onClick={() => setShowTools((visible) => !visible)}
+              className={cn(
+                'inline-flex h-7 w-7 items-center justify-center rounded-full transition',
+                showTools ? 'bg-thanarah-100 text-thanarah-800' : 'text-gray-500 hover:bg-gray-100',
+              )}
+              aria-label="فتح الأدوات"
+              aria-expanded={showTools}
+              title="اختيار أداة"
+            >
+              <Wand2 className="h-3.5 w-3.5" />
+            </button>
+            {selectedSkillId && (
+              <span className="mr-1 inline-flex items-center gap-1 rounded-full bg-thanarah-50 px-2 py-1 text-[10px] text-thanarah-800 font-arabic">
+                <Sparkles className="h-3 w-3" />
+                {skills.find((skill) => skill.id === selectedSkillId)?.name || selectedSkillId}
               </span>
             )}
           </div>
+
+          {showTools && (
+            <div className="rounded-xl border border-gray-200 bg-white p-2 shadow-sm" role="menu" aria-label="أدوات المحادثة">
+              <div className="mb-1 px-2 text-[10px] text-gray-400 font-arabic">اختر الأداة التي ستستخدمها في هذه الرسالة</div>
+              <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
+                {skills.map((skill) => {
+                  const available = skill.enabled && skill.implementationStatus !== 'contract-only';
+                  return (
+                    <button
+                      key={skill.id}
+                      type="button"
+                      disabled={!available}
+                      onClick={() => { setSelectedSkillId(skill.id); setShowTools(false); }}
+                      className={cn(
+                        'flex items-center justify-between rounded-lg border px-2.5 py-2 text-right text-[11px] font-arabic transition',
+                        available
+                          ? 'border-gray-200 text-gray-700 hover:border-thanarah-300 hover:bg-thanarah-50'
+                          : 'cursor-not-allowed border-gray-100 text-gray-300',
+                      )}
+                      role="menuitem"
+                    >
+                      <span>{skill.name}</span>
+                      <span className="text-[9px]">{available ? 'متاحة' : 'غير متاحة'}</span>
+                    </button>
+                  );
+                })}
+                {skills.length === 0 && (
+                  <span className="px-2 py-1 text-[11px] text-gray-400 font-arabic">لا توجد أدوات متاحة الآن</span>
+                )}
+              </div>
+            </div>
+          )}
 
           {inputMode === 'voice' && (
             <div className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-[11px] text-gray-500 font-arabic">
               <Mic className={cn('h-4 w-4', voiceState === 'LISTENING' ? 'text-red-500' : 'text-gray-400')} />
               <span>
-                {voiceState === 'ERROR'
-                  ? 'Voice غير متاح حاليًا'
+                {voiceError
+                  ? voiceError
                   : voiceState === 'LISTENING'
-                    ? 'Listening...'
+                    ? 'جاري الاستماع...'
                     : voiceState === 'SPEAKING'
-                      ? 'Speaking...'
-                      : 'أدوات Voice متاحة مستقبلًا عبر نفس المحادثة'}
+                      ? 'جاري قراءة الرد...'
+                      : browserSpeechAvailable
+                        ? 'اضغط الميكروفون للتحدث'
+                        : 'التعرف الصوتي غير متاح في هذا المتصفح'}
               </span>
               <span className="mr-auto rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[10px]">
                 {voiceState}
               </span>
               <button
                 type="button"
-                disabled={!voiceCapabilities?.voiceEnabled}
-                onClick={() => setVoiceState('LISTENING')}
-                className="rounded-lg border border-gray-200 px-2 py-1 text-[10px] disabled:cursor-not-allowed disabled:opacity-50"
-                title={voiceCapabilities?.voiceEnabled ? 'بدء الاستماع' : 'Voice foundation فقط — STT غير متاح'}
+                disabled={!browserSpeechAvailable || voiceState === 'SPEAKING'}
+                onClick={voiceState === 'LISTENING' ? stopVoiceCapture : startVoiceCapture}
+                className={cn(
+                  'inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] transition disabled:cursor-not-allowed disabled:opacity-50',
+                  voiceState === 'LISTENING' ? 'border-red-200 bg-red-50 text-red-700' : 'border-gray-200 hover:bg-gray-50',
+                )}
+                title={browserSpeechAvailable ? 'تشغيل الميكروفون' : 'التعرف الصوتي غير مدعوم'}
               >
-                Microphone
+                <Mic className="h-3 w-3" />
+                {voiceState === 'LISTENING' ? 'إيقاف' : 'تحدث'}
               </button>
             </div>
           )}
@@ -328,23 +492,23 @@ export default function ChatPage() {
               style={{ minHeight: '24px' }}
             />
             <div className="flex items-center gap-2 flex-shrink-0">
-              {isStreaming ? (
+              {activeRequestCount > 0 && (
                 <button
-                  onClick={() => abortController?.abort()}
+                  onClick={stopAllStreams}
                   className="w-8 h-8 flex items-center justify-center bg-gray-200 hover:bg-gray-300 rounded-lg transition"
-                  title="إيقاف"
+                  title="إيقاف الردود الجارية"
                 >
                   <Square className="w-3.5 h-3.5 text-gray-600 fill-gray-600" />
                 </button>
-              ) : (
-                <button
-                  onClick={() => handleSend()}
-                  disabled={!input.trim()}
-                  className="w-8 h-8 flex items-center justify-center bg-thanarah-700 hover:bg-thanarah-600 disabled:bg-gray-200 rounded-lg transition disabled:cursor-not-allowed"
-                >
-                  <Send className="w-3.5 h-3.5 text-white disabled:text-gray-400" />
-                </button>
               )}
+              <button
+                onClick={() => handleSend()}
+                disabled={!input.trim()}
+                className="w-8 h-8 flex items-center justify-center bg-thanarah-700 hover:bg-thanarah-600 disabled:bg-gray-200 rounded-lg transition disabled:cursor-not-allowed"
+                title="إرسال رسالة جديدة"
+              >
+                <Send className="w-3.5 h-3.5 text-white disabled:text-gray-400" />
+              </button>
             </div>
           </div>
         </div>

@@ -50,6 +50,7 @@ class ResponseCacheService:
             "knowledgeVersion": tenant_config.get("knowledgeVersion", ""),
             "contextProfile": tenant_config.get("contextProfile", {}),
             "runtimeContext": tenant_config.get("runtimeContext", {}),
+            "skillId": request.skillId or "",
             "model": (
                 settings.external_ai_model
                 if settings.external_ai_enabled

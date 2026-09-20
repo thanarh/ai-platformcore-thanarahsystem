@@ -34,6 +34,7 @@ export class AiController {
       content: string;
       inputMode?: 'text' | 'voice';
       voiceMetadata?: Record<string, unknown>;
+      skillId?: string;
     },
   ) {
     const tenantId = user.tenantId?.toString();
@@ -48,6 +49,7 @@ export class AiController {
         tenantId,
         inputMode: body.inputMode,
         voiceMetadata: body.voiceMetadata,
+        skillId: body.skillId,
       });
     } catch (error) {
       if (!platformAdmin) {
@@ -65,6 +67,7 @@ export class AiController {
       content: string;
       inputMode?: 'text' | 'voice';
       voiceMetadata?: Record<string, unknown>;
+      skillId?: string;
     },
     @Res() res: Response,
   ) {
@@ -79,6 +82,7 @@ export class AiController {
       tenantId,
       inputMode: body.inputMode,
       voiceMetadata: body.voiceMetadata,
+      skillId: body.skillId,
       res,
     });
   }

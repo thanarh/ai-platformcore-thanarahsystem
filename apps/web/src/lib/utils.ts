@@ -41,6 +41,7 @@ function sanitizeStreamText(value: unknown): string {
 export interface StreamChatOptions {
   inputMode?: 'text' | 'voice';
   voiceMetadata?: Record<string, unknown>;
+  skillId?: string;
 }
 
 export async function streamChat(

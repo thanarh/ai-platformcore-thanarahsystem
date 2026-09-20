@@ -18,6 +18,7 @@ class ChatRequest(BaseModel):
     runtimeContext: Dict[str, Any] = Field(default_factory=dict)
     inputMode: str = "text"
     voiceMetadata: Dict[str, Any] = Field(default_factory=dict)
+    skillId: Optional[str] = None
     stream: bool = False
 
 
