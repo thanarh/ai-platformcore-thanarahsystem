@@ -63,7 +63,12 @@ async def chat_stream(request: Request, chat_request: ChatRequest):
     async def event_generator():
         try:
             yield event_frame(StreamEventType.STATUS, {"state": "routing"})
-            stream_gen, route, rag_sources, telemetry, web_events = await tir.stream_route(chat_request)
+            stream_result = await tir.stream_route(chat_request)
+            if len(stream_result) == 4:
+                stream_gen, route, rag_sources, telemetry = stream_result
+                web_events = []
+            else:
+                stream_gen, route, rag_sources, telemetry, web_events = stream_result
             for event in web_events:
                 event_name = event.get("event", "status")
                 payload = {key: value for key, value in event.items() if key != "event"}

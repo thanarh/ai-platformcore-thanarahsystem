@@ -1,13 +1,30 @@
 from __future__ import annotations
 
+import asyncio
+import inspect
 import re
-from typing import Any, Dict, Iterable, List, Optional
+import time
+from datetime import datetime, timezone
+from typing import Any, Awaitable, Callable, Dict, Iterable, List, Optional
 
 from app.foundation.contracts import Task, TaskGroup, TaskState, TaskType
 
 
+TaskHandler = Callable[[Task, Dict[str, Any]], Any]
+TaskEventListener = Callable[[str, Dict[str, Any]], Any]
+
+
 class TaskOrchestrator:
-    """Plans task groups and validates lifecycle transitions without executing tools."""
+    """Finite, dependency-aware task execution with bounded concurrency."""
+
+    def __init__(self, max_concurrency: int = 2, task_timeout_seconds: float = 60.0):
+        if max_concurrency < 1:
+            raise ValueError("max_concurrency must be positive")
+        self.max_concurrency = max_concurrency
+        self.task_timeout_seconds = task_timeout_seconds
+        self._groups: Dict[str, TaskGroup] = {}
+        self._cancel_events: Dict[str, asyncio.Event] = {}
+        self._running_tasks: Dict[str, set[asyncio.Task]] = {}
 
     def decompose(
         self,
@@ -15,33 +32,77 @@ class TaskOrchestrator:
         tenant_id: str,
         user_id: str,
         conversation_id: Optional[str] = None,
+        request_id: Optional[str] = None,
+        request_input: Optional[Dict[str, Any]] = None,
     ) -> TaskGroup:
+        request_id = request_id or f"request-{time.time_ns()}"
+        group = TaskGroup(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            conversation_id=conversation_id,
+            request_id=request_id,
+        )
+        prompt_lower = (prompt or "").lower()
+        file_workflow = (
+            any(token in prompt_lower for token in ("حلل الملف", "analyze the file", "file analysis"))
+            and any(token in prompt_lower for token in ("جدول", "table", "excel", "xlsx", "pdf"))
+        )
+        if file_workflow:
+            source = dict(request_input or {})
+            task_specs = [
+                ("Analyze file", TaskType.FILE_ANALYSIS, [], {"skillId": "file_analysis", **source}),
+                ("Extract structured data", TaskType.EXTRACT, [], {"skillId": "file_analysis"}),
+                ("Generate table", TaskType.TABLE, [], {"skillId": "table_generation"}),
+                ("Generate XLSX", TaskType.SPREADSHEET, [], {"skillId": "spreadsheet_generation"}),
+                ("Generate PDF", TaskType.PDF, [], {"skillId": "pdf_generation"}),
+            ]
+            previous: Optional[str] = None
+            for name, task_type, _, task_input in task_specs:
+                task = self._new_task(group, name, task_type, task_input)
+                if name == "Extract structured data":
+                    task.dependencies = [group.tasks[0].task_id]
+                elif name == "Generate table":
+                    task.dependencies = [group.tasks[1].task_id]
+                elif name in {"Generate XLSX", "Generate PDF"}:
+                    task.dependencies = [group.tasks[2].task_id]
+                group.tasks.append(task)
+                previous = task.task_id
+            return group
+
         parts = [
             part.strip(" \t\n،,.;")
-            for part in re.split(r"\n+|،|;|\s+(?:ثم|وبعد ذلك|وأيضاً|و|then|and also)\s+", prompt or "", flags=re.IGNORECASE)
-            if part.strip(" \t\n،,.;")
-        ]
-        if not parts:
-            parts = ["Process user request"]
-        group = TaskGroup(tenant_id=tenant_id, user_id=user_id, conversation_id=conversation_id)
-        for index, part in enumerate(parts):
-            task_type = TaskType.ARTIFACT if any(word in part.lower() for word in ("pdf", "جدول", "table", "spreadsheet", "مستند")) else TaskType.TEXT
-            group.tasks.append(
-                Task(
-                    name=part[:180],
-                    task_type=task_type,
-                    dependencies=[group.tasks[-1].task_id] if index and self._is_sequential(prompt) else [],
-                    input={"prompt": part},
-                )
+            for part in re.split(
+                r"\n+|،|;|\s+(?:ثم|وبعد ذلك|وأيضاً|و|then|and also)\s+",
+                prompt or "",
+                flags=re.IGNORECASE,
             )
+            if part.strip(" \t\n،,.;")
+        ] or ["Process user request"]
+        sequential = self._is_sequential(prompt)
+        previous = None
+        for part in parts:
+            task_type = TaskType.ARTIFACT if any(
+                word in part.lower() for word in ("pdf", "جدول", "table", "spreadsheet", "مستند", "xlsx")
+            ) else TaskType.SKILL
+            task = self._new_task(group, part[:180], task_type, {"prompt": part})
+            if sequential and previous:
+                task.dependencies = [previous]
+            group.tasks.append(task)
+            previous = task.task_id
         return group
 
-    @staticmethod
-    def _is_sequential(prompt: str) -> bool:
-        return bool(re.search(r"\b(?:ثم|وبعد ذلك|then|after that)\b", prompt or "", flags=re.IGNORECASE))
+    def register(self, group: TaskGroup) -> TaskGroup:
+        self._groups[group.group_id] = group
+        self._cancel_events[group.group_id] = asyncio.Event()
+        return group
+
+    def get(self, group_id: str, tenant_id: str, user_id: str) -> TaskGroup:
+        group = self._groups.get(group_id)
+        if not group or group.tenant_id != tenant_id or group.user_id != user_id:
+            raise PermissionError("Task access denied")
+        return group
 
     def plan(self, group: TaskGroup) -> List[List[Task]]:
-        """Return dependency-safe parallel waves and reject cycles/missing dependencies."""
         task_map = {task.task_id: task for task in group.tasks}
         if len(task_map) != len(group.tasks):
             raise ValueError("Duplicate task id")
@@ -67,6 +128,124 @@ class TaskOrchestrator:
         group.state = TaskState.PLANNING
         return waves
 
+    async def execute(
+        self,
+        group: TaskGroup,
+        handlers: Dict[str, TaskHandler],
+        on_event: Optional[TaskEventListener] = None,
+        concurrency_limit: Optional[int] = None,
+        timeout_seconds: Optional[float] = None,
+    ) -> TaskGroup:
+        self.register(group)
+        self.plan(group)
+        limit = concurrency_limit or self.max_concurrency
+        semaphore = asyncio.Semaphore(max(1, limit))
+        cancel_event = self._cancel_events[group.group_id]
+        timeout = timeout_seconds or self.task_timeout_seconds
+        completed: Dict[str, Any] = {}
+
+        async def run_task(task: Task) -> None:
+            current_runner = asyncio.current_task()
+            if current_runner:
+                self._running_tasks.setdefault(group.group_id, set()).add(current_runner)
+            if cancel_event.is_set():
+                self._safe_transition(task, TaskState.CANCELLED)
+                self._emit(on_event, "task_failed", {"taskId": task.task_id, "reason": "cancelled"})
+                return
+            if any(
+                next(item for item in group.tasks if item.task_id == dependency).state
+                in {TaskState.FAILED, TaskState.CANCELLED, TaskState.BLOCKED}
+                for dependency in task.dependencies
+            ):
+                self._safe_transition(task, TaskState.BLOCKED, "Dependency failed")
+                self._emit(on_event, "task_blocked", {"taskId": task.task_id, "reason": task.error})
+                return
+            self._safe_transition(task, TaskState.READY)
+            self._emit(on_event, "task_ready", {"taskId": task.task_id})
+            async with semaphore:
+                if cancel_event.is_set():
+                    self._safe_transition(task, TaskState.CANCELLED)
+                    return
+                self._safe_transition(task, TaskState.RUNNING)
+                task.started_at = datetime.now(timezone.utc).isoformat()
+                started = time.monotonic()
+                self._emit(on_event, "task_started", {"taskId": task.task_id, "type": task.task_type.value})
+                handler = handlers.get(task.task_type.value) or handlers.get(task.input.get("skillId", ""))
+                if not handler:
+                    self._safe_transition(task, TaskState.FAILED, "No handler registered for task")
+                    self._emit(on_event, "task_failed", {"taskId": task.task_id, "reason": task.error})
+                    return
+                dependency_results = {key: completed.get(key) for key in task.dependencies}
+                task_input = {**task.input, "dependencyResults": dependency_results}
+                try:
+                    result = handler(task, task_input)
+                    if inspect.isawaitable(result):
+                        result = await asyncio.wait_for(result, timeout=timeout)
+                    if cancel_event.is_set():
+                        self._safe_transition(task, TaskState.CANCELLED)
+                        return
+                    task.result = result
+                    if isinstance(result, dict):
+                        task.artifact_ids = list(
+                            result.get("artifactIds")
+                            or ([result["artifactId"]] if result.get("artifactId") else [])
+                        )
+                    completed[task.task_id] = result
+                    task.duration = round(time.monotonic() - started, 4)
+                    task.completed_at = datetime.now(timezone.utc).isoformat()
+                    self._safe_transition(task, TaskState.COMPLETED)
+                    self._emit(
+                        on_event,
+                        "task_completed",
+                        {"taskId": task.task_id, "duration": task.duration, "artifactIds": task.artifact_ids},
+                    )
+                    if task.artifact_ids:
+                        self._emit(
+                            on_event,
+                            "artifact_created",
+                            {"taskId": task.task_id, "artifactIds": task.artifact_ids},
+                        )
+                except asyncio.TimeoutError:
+                    task.duration = round(time.monotonic() - started, 4)
+                    self._safe_transition(task, TaskState.FAILED, "Task timeout")
+                    self._emit(on_event, "task_failed", {"taskId": task.task_id, "reason": task.error})
+                except asyncio.CancelledError:
+                    self._safe_transition(task, TaskState.CANCELLED)
+                    return
+                except Exception as exc:
+                    task.duration = round(time.monotonic() - started, 4)
+                    self._safe_transition(task, TaskState.FAILED, str(exc)[:240])
+                    self._emit(on_event, "task_failed", {"taskId": task.task_id, "reason": task.error})
+
+        waves = self.plan(group)
+        for wave in waves:
+            if cancel_event.is_set():
+                for task in wave:
+                    self._safe_transition(task, TaskState.CANCELLED)
+                break
+            await asyncio.gather(*(run_task(task) for task in wave))
+
+        if cancel_event.is_set():
+            group.state = TaskState.CANCELLED
+        elif any(task.state == TaskState.FAILED for task in group.tasks):
+            group.state = TaskState.FAILED
+            for task in group.tasks:
+                if task.state == TaskState.PENDING:
+                    self._safe_transition(task, TaskState.BLOCKED, "Blocked by failed task")
+        elif any(task.state == TaskState.BLOCKED for task in group.tasks):
+            group.state = TaskState.FAILED
+        else:
+            group.state = TaskState.COMPLETED
+        group.artifact_ids = list(
+            dict.fromkeys(
+                artifact_id
+                for task in group.tasks
+                for artifact_id in task.artifact_ids
+            )
+        )
+        self._running_tasks.pop(group.group_id, None)
+        return group
+
     def transition(self, group: TaskGroup, task_id: str, state: TaskState, error: Optional[str] = None) -> Task:
         task = self._find(group, task_id)
         task.transition(state, error)
@@ -78,13 +257,40 @@ class TaskOrchestrator:
 
     def cancel(self, group: TaskGroup, task_id: Optional[str] = None) -> TaskGroup:
         if task_id:
-            self.transition(group, task_id, TaskState.CANCELLED)
-        else:
-            for task in group.tasks:
-                if task.state not in {TaskState.COMPLETED, TaskState.FAILED, TaskState.CANCELLED}:
-                    task.transition(TaskState.CANCELLED)
-        group.state = TaskState.CANCELLED
+            self._find(group, task_id)
+        self._cancel_events.setdefault(group.group_id, asyncio.Event()).set()
+        for runner in self._running_tasks.get(group.group_id, set()):
+            if not runner.done():
+                runner.cancel()
+        targets = [self._find(group, task_id)] if task_id else group.tasks
+        for task in targets:
+            if task.state not in {TaskState.COMPLETED, TaskState.FAILED, TaskState.CANCELLED, TaskState.BLOCKED}:
+                self._safe_transition(task, TaskState.CANCELLED)
+        if task_id is None:
+            group.state = TaskState.CANCELLED
         return group
+
+    @staticmethod
+    def authorize(required_permissions: Iterable[str], granted_permissions: Iterable[str]) -> None:
+        missing = set(required_permissions) - set(granted_permissions)
+        if missing:
+            raise PermissionError(f"Missing permissions: {', '.join(sorted(missing))}")
+
+    @staticmethod
+    def _is_sequential(prompt: str) -> bool:
+        return bool(re.search(r"\b(?:ثم|وبعد ذلك|then|after that)\b", prompt or "", flags=re.IGNORECASE))
+
+    @staticmethod
+    def _new_task(group: TaskGroup, name: str, task_type: TaskType, task_input: Dict[str, Any]) -> Task:
+        return Task(
+            name=name,
+            task_type=task_type,
+            request_id=group.request_id,
+            conversation_id=group.conversation_id,
+            tenant_id=group.tenant_id,
+            user_id=group.user_id,
+            input=task_input,
+        )
 
     @staticmethod
     def _find(group: TaskGroup, task_id: str) -> Task:
@@ -94,9 +300,22 @@ class TaskOrchestrator:
         raise KeyError(f"Task not found: {task_id}")
 
     @staticmethod
-    def authorize(required_permissions: Iterable[str], granted_permissions: Iterable[str]) -> None:
-        required = set(required_permissions)
-        granted = set(granted_permissions)
-        missing = required - granted
-        if missing:
-            raise PermissionError(f"Missing permissions: {', '.join(sorted(missing))}")
+    def _safe_transition(task: Task, state: TaskState, error: Optional[str] = None) -> None:
+        if task.state == state:
+            if error:
+                task.error = error
+            return
+        try:
+            task.transition(state, error)
+        except ValueError:
+            task.state = state
+            task.error = error
+
+    @staticmethod
+    def _emit(listener: Optional[TaskEventListener], event: str, payload: Dict[str, Any]) -> None:
+        if listener:
+            result = listener(event, payload)
+            if inspect.isawaitable(result):
+                # Event listeners used by HTTP streaming are async generators
+                # managed by the caller; sync execution never awaits callbacks.
+                pass

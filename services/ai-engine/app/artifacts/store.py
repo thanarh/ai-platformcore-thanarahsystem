@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import os
 from datetime import datetime, timezone
-from typing import Dict, List
+from pathlib import Path
+from typing import Dict, List, Optional
 from uuid import uuid4
 
 from app.foundation.contracts import ArtifactReference, StructuredTable
@@ -12,10 +14,12 @@ class ArtifactAccessError(PermissionError):
 
 
 class InMemoryArtifactStore:
-    """Contract-level store for tests and adapters; it never stores binary content."""
+    """Tenant/user-scoped metadata store with optional local artifact bytes."""
 
-    def __init__(self):
+    def __init__(self, storage_dir: Optional[str] = None):
         self._records: Dict[str, ArtifactReference] = {}
+        self.storage_dir = Path(storage_dir or os.getenv("THANARAH_ARTIFACT_DIR", "/tmp/thanarah-artifacts"))
+        self.storage_dir.mkdir(parents=True, exist_ok=True)
 
     def create(
         self,
@@ -25,9 +29,21 @@ class InMemoryArtifactStore:
         name: str,
         conversation_id: str | None = None,
         task_id: str | None = None,
+        content: bytes | None = None,
+        mime_type: str = "application/octet-stream",
+        expires_at: str | None = None,
     ) -> ArtifactReference:
+        artifact_id = f"artifact-{uuid4().hex[:12]}"
+        storage_path = None
+        size = 0
+        if content is not None:
+            safe_name = "".join(char if char.isalnum() or char in "._-" else "_" for char in name)[:120]
+            path = self.storage_dir / f"{artifact_id}-{safe_name or 'artifact'}"
+            path.write_bytes(content)
+            storage_path = str(path)
+            size = len(content)
         reference = ArtifactReference(
-            artifact_id=f"artifact-{uuid4().hex[:12]}",
+            artifact_id=artifact_id,
             type=artifact_type,
             name=name[:160],
             created_by=user_id,
@@ -36,6 +52,10 @@ class InMemoryArtifactStore:
             conversation_id=conversation_id,
             task_id=task_id,
             created_at=datetime.now(timezone.utc).isoformat(),
+            mime_type=mime_type,
+            size=size,
+            storage_path=storage_path,
+            expires_at=expires_at,
         )
         self._records[reference.artifact_id] = reference
         return reference
@@ -63,3 +83,11 @@ class InMemoryArtifactStore:
         if any(len(row) != width for row in table.rows):
             raise ValueError("Every table row must match the column count")
         return table
+
+    @staticmethod
+    def read_bytes(reference: ArtifactReference, tenant_id: str, user_id: str) -> bytes:
+        if reference.tenant_id != tenant_id or reference.user_id != user_id:
+            raise ArtifactAccessError("Artifact access denied")
+        if not reference.storage_path:
+            raise FileNotFoundError("Artifact has no stored content")
+        return Path(reference.storage_path).read_bytes()

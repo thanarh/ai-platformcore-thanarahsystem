@@ -7,3 +7,4 @@
 - [SSE measurement](sse-measurement.md) — use a non-buffering client read such as `read1()` when timing incremental SSE delivery
 - [Phase 2D foundation boundary](phase2d-foundation.md) — task, skill, artifact, and event layers are contracts first; real tool execution remains explicitly gated
 - [Local SearXNG limits](searxng-local-constraints.md) — IPv4 binding and an explicit User-Agent are required; keep the enabled engine set local and verified
+- [Phase 5 persistence boundary](phase5-persistence-boundary.md) — bounded task execution and artifact generation are implemented, but metadata remains in-memory until durable storage is approved
