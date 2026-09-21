@@ -1,0 +1,703 @@
+تم اعتماد Phase 3.1 كـ architecture/security implementation.
+
+ملاحظة البيئة الحالية:
+
+SearXNG reachable locally، لكن upstream engines كلها timeout داخل البيئة الحالية، لذلك:
+
+```text
+WEB_SEARCH_ENABLED=false
+```
+
+يظل مغلقًا.
+
+**لا تعيد benchmark الإنترنت الآن ولا تحاول تجاوز network restrictions.**
+
+ننتقل إلى الخطة الأساسية:
+
+# PHASE 4 — THANARAH AI GATEWAY + TOOL / SKILL FOUNDATION
+
+الهدف:
+
+تحويل Thanarah Intelligence من Chatbot إلى Intelligence Layer يستطيع مستقبلًا استخدام capabilities حقيقية، مع صلاحيات وtenant isolation وaudit.
+
+لكن:
+
+**لا نبني Agent كامل الآن.**
+
+---
+
+# 1. Core Architecture
+
+نفذ:
+
+```text
+User
+ ↓
+Conversation
+ ↓
+AI Orchestrator
+ ↓
+Capability Decision
+ ↓
+┌──────────────┬──────────────┬──────────────┐
+│ Local Model  │ Web Search   │ Thanarah     │
+│              │              │ Core Tools   │
+└──────────────┴──────────────┴──────────────┘
+                       ↓
+                 Validated Result
+                       ↓
+                    Qwen
+                       ↓
+                    Response
+```
+
+ولا تجعل الـ model يتصل مباشرة بأي database أو service.
+
+---
+
+# 2. AI Gateway
+
+أنشئ service/layer واضح باسم:
+
+```text
+AIGateway
+```
+
+مسؤوليته:
+
+* receive request
+* authenticate context
+* resolve tenant/user
+* determine available capabilities
+* validate tool request
+* enforce permissions
+* execute capability
+* normalize result
+* return result to model
+* emit streaming events
+* audit execution
+
+لا تضع كل هذا داخل Chat controller.
+
+---
+
+# 3. Tool Registry
+
+أنشئ:
+
+```text
+ToolRegistry
+```
+
+كل tool لها:
+
+```text
+id
+name
+description
+version
+inputSchema
+outputSchema
+requiredPermissions
+tenantScoped
+userScoped
+enabled
+executor
+```
+
+---
+
+# 4. Initial Thanarah Tools
+
+جهز contracts فقط لـ:
+
+```text
+get_appointments
+get_doctors
+get_services
+get_working_hours
+get_insurance
+get_clinic_information
+```
+
+كلها:
+
+```text
+READ ONLY
+```
+
+لا تضف الآن:
+
+```text
+create
+update
+delete
+cancel
+financial mutations
+medical mutations
+```
+
+---
+
+# 5. لا تخترع Thanarah APIs
+
+هذه نقطة CRITICAL.
+
+إذا لم يوجد API contract حقيقي لـ Thanarah Core في المشروع:
+
+لا تدّعي أن integration حقيقي.
+
+اعمل:
+
+```text
+ThanarahCoreAdapter
+        ↓
+MockThanarahCoreAdapter
+```
+
+والـ mock data يجب أن تكون واضحة على أنها:
+
+```text
+TEST / DEVELOPMENT DATA
+```
+
+ولا تظهر للمستخدم كأنها بيانات حقيقية.
+
+جهز الـ adapter بحيث استبداله بالـ real Thanarah Core API لاحقًا لا يحتاج إعادة بناء الـ AI Core.
+
+---
+
+# 6. Tenant Context
+
+كل execution يجب أن يحصل على server-side context:
+
+```text
+tenantId
+organizationId
+userId
+conversationId
+requestId
+```
+
+ولا تسمح للـ model بإرسال tenantId أو userId ليغير authenticated context.
+
+مثال:
+
+```text
+Model:
+tenantId = clinic-B
+
+Server authenticated context:
+tenantId = clinic-A
+
+Result:
+REJECT
+```
+
+---
+
+# 7. Permissions
+
+أضف permissions:
+
+```text
+appointments.read
+doctors.read
+services.read
+working_hours.read
+insurance.read
+clinic.read
+```
+
+كل Tool تحدد permissions المطلوبة.
+
+مثال:
+
+```text
+get_appointments
+→ appointments.read
+```
+
+إذا لم توجد permission:
+
+```text
+TOOL_FORBIDDEN
+```
+
+ولا يتم التنفيذ.
+
+---
+
+# 8. Tool Execution
+
+الـ flow الإجباري:
+
+```text
+Model proposes tool
+        ↓
+Tool exists?
+        ↓
+Schema validation
+        ↓
+Permission validation
+        ↓
+Tenant validation
+        ↓
+Execute
+        ↓
+Validate result
+        ↓
+Return structured result
+        ↓
+Model generates answer
+```
+
+الموديل لا يستطيع تجاوز أي خطوة.
+
+---
+
+# 9. Tool Calling
+
+لا تعتمد على regex من النص.
+
+استخدم structured tool request.
+
+مثال:
+
+```json
+{
+  "tool": "get_appointments",
+  "arguments": {
+    "date": "2026-09-22"
+  }
+}
+```
+
+ثم backend يتحقق من schema.
+
+إذا arguments غير صحيحة:
+
+```text
+TOOL_INVALID_ARGUMENTS
+```
+
+ولا ينفذ الطلب.
+
+---
+
+# 10. Date / Time
+
+اربط هذا بالـ runtime context الذي بنيناه سابقًا.
+
+مثال:
+
+```text
+"مواعيد بكرة"
+```
+
+يتم تحويلها إلى تاريخ فعلي حسب:
+
+```text
+user timezone
+```
+
+وليس timezone السيرفر.
+
+احتفظ بالـ resolved value في execution metadata.
+
+---
+
+# 11. Routing
+
+ابدأ capability routing بسيطًا:
+
+```text
+General knowledge
+→ Local Qwen
+
+Current external information
+→ Web Intelligence
+
+Explicit web search
+→ Web Intelligence
+
+Thanarah operational data
+→ Thanarah Tool
+```
+
+مثال:
+
+```text
+"اشرح API"
+→ Local
+
+"ابحث عن آخر أخبار التقنية"
+→ Web
+
+"كم موعد عندي بكرة؟"
+→ Thanarah Tool
+```
+
+لكن Web Search حاليًا disabled بسبب البيئة.
+
+لذلك لا تحاول استخدامه أو fake results.
+
+---
+
+# 12. Skills Registry
+
+بعد Tool Registry، أضف مفهوم:
+
+```text
+SkillRegistry
+```
+
+الـ Skill ليست مجرد UI button.
+
+مثال:
+
+```text
+web_search
+file_analysis
+summarization
+writing
+data_analysis
+task_organization
+```
+
+كل Skill:
+
+```text
+id
+name
+description
+requiredTools
+inputSchema
+outputType
+permissions
+enabled
+```
+
+---
+
+# 13. Skills vs Tools
+
+افصل بينهم:
+
+```text
+Skill
+ ↓
+Capability / workflow
+ ↓
+Tool(s)
+ ↓
+Execution
+```
+
+مثال:
+
+```text
+Analyze File
+ ↓
+file parser
+ ↓
+content extraction
+ ↓
+local model
+ ↓
+structured result
+```
+
+ومستقبلًا:
+
+```text
+Research
+ ↓
+web_search
+ ↓
+fetch
+ ↓
+reranking
+ ↓
+report
+```
+
+لا تجعل Skill مجرد prompt.
+
+---
+
+# 14. Streaming Events
+
+ادمجها مع SSE الحالي.
+
+أضف events:
+
+```text
+tool_proposed
+tool_validating
+tool_executing
+tool_completed
+tool_failed
+generating
+text
+done
+```
+
+مثال:
+
+```text
+جاري مراجعة مواعيدك...
+
+✓ تم العثور على 7 مواعيد
+
+جاري إعداد الرد...
+```
+
+هذه execution states فقط.
+
+**لا تعرض Chain-of-Thought.**
+
+---
+
+# 15. Audit
+
+كل Tool execution:
+
+```text
+requestId
+tenantId
+userId
+conversationId
+toolId
+timestamp
+status
+duration
+errorCode
+```
+
+ولا تسجل:
+
+```text
+tokens
+API secrets
+passwords
+authorization headers
+private credentials
+```
+
+---
+
+# 16. Security Tests
+
+يجب أن يكون عندنا tests لـ:
+
+```text
+unknown tool
+disabled tool
+invalid schema
+missing permission
+forged tenantId
+forged userId
+cross-tenant access
+direct unauthorized execution
+malformed arguments
+tool timeout
+tool failure
+```
+
+---
+
+# 17. Mock Thanarah Core
+
+أنشئ mock adapter لاختبار:
+
+```text
+get_appointments
+get_doctors
+get_services
+get_working_hours
+get_insurance
+get_clinic_information
+```
+
+لكن:
+
+**لا تستخدم mock data في production.**
+
+يجب أن يكون هناك flag واضح:
+
+```text
+THANARAH_CORE_TOOLS_ENABLED=false
+```
+
+إذا لم يوجد Core API حقيقي.
+
+---
+
+# 18. Current UI
+
+لا تضف Dashboard جديد.
+
+لا تضف cards كثيرة.
+
+لا تعد تصميم الصفحة الحالية.
+
+الـ Skills الحالية في UI يمكن ربطها لاحقًا بالـ Skill Registry.
+
+الآن نركز على الـ backend architecture والـ contracts.
+
+---
+
+# 19. Tests
+
+نفذ:
+
+### Tool Registry
+
+* register
+* discover
+* enable
+* disable
+
+### Schema
+
+* valid
+* invalid
+* missing fields
+* unexpected fields
+
+### Permission
+
+* allowed
+* forbidden
+
+### Tenant
+
+* valid tenant
+* forged tenant
+* cross-tenant
+
+### Execution
+
+* success
+* failure
+* timeout
+* malformed result
+
+### Routing
+
+* local
+* web
+* Thanarah
+
+### Skills
+
+* register
+* discover
+* required tools
+* permissions
+
+### SSE
+
+* tool proposed
+* executing
+* completed
+* failed
+* text
+* done
+
+### Audit
+
+* success logged
+* failure logged
+* no secrets
+
+ثم:
+
+```text
+Python tests
+Regression
+Compile/typecheck
+API build
+Web build
+Health
+JSON validation
+git diff --check
+```
+
+---
+
+# 20. Production
+
+لا تغير:
+
+```text
+qwen2.5:1.5b
+num_thread=4
+num_ctx=2048
+num_batch=64
+keep_alive=10m
+```
+
+ولا تفعل:
+
+```text
+THANARAH_CORE_TOOLS_ENABLED=true
+```
+
+بدون real API contract.
+
+ويبقى:
+
+```text
+WEB_SEARCH_ENABLED=false
+```
+
+حاليًا بسبب البيئة.
+
+---
+
+# 21. Documentation
+
+أنشئ:
+
+```text
+docs/ai-gateway-phase4.md
+docs/ai-gateway-phase4-benchmark.json
+```
+
+ويجب أن يوضح:
+
+* Gateway architecture
+* Tool Registry
+* Skill Registry
+* Permission model
+* Tenant isolation
+* Mock adapter
+* Routing
+* SSE events
+* Audit
+* Tests
+* Production flags
+
+---
+
+# STOP CONDITION
+
+نفذ Phase 4 فقط.
+
+لا تبدأ:
+
+* Agent loop
+* autonomous execution
+* multi-task planning
+* PDF generation
+* Spreadsheet generation
+* Voice engine
+* write tools
+* destructive actions
+* real Thanarah Core integration
+
+بعد انتهاء Phase 4 توقف وأرسل التقرير كاملًا.
+
+ولا تعتبر أي mock data بيانات Thanarah حقيقية.
