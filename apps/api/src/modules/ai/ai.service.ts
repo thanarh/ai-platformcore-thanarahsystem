@@ -511,6 +511,85 @@ export class AiService {
     }
   }
 
+  async transcribeVoice(data: {
+    conversationId: string;
+    userId: string;
+    tenantId: string;
+    audio: Buffer;
+    mimeType: string;
+    fileName: string;
+    language: string;
+  }) {
+    await this.conversationsService.findById(
+      data.conversationId,
+      data.userId,
+      data.tenantId,
+    );
+    const form = new FormData();
+    form.append(
+      'audio',
+      new Blob([new Uint8Array(data.audio)], { type: data.mimeType }),
+      data.fileName,
+    );
+    form.append('language', data.language);
+    const response = await fetch(`${this.aiEngineUrl}/voice/transcribe`, {
+      method: 'POST',
+      body: form,
+      headers: {
+        'x-thanarah-tenant-id': data.tenantId,
+        'x-thanarah-user-id': data.userId,
+        'x-thanarah-internal': this.configService.get<string>('jwt.secret') || '',
+      },
+      signal: AbortSignal.timeout(70000),
+    });
+    if (!response.ok) {
+      const detail = await response.text().catch(() => '');
+      throw new HttpException(
+        detail || 'Voice transcription failed',
+        response.status,
+      );
+    }
+    return response.json();
+  }
+
+  async synthesizeVoice(data: {
+    conversationId: string;
+    userId: string;
+    tenantId: string;
+    text: string;
+    language: string;
+  }) {
+    await this.conversationsService.findById(
+      data.conversationId,
+      data.userId,
+      data.tenantId,
+    );
+    const response = await fetch(`${this.aiEngineUrl}/voice/synthesize`, {
+      method: 'POST',
+      body: JSON.stringify({ text: data.text, language: data.language }),
+      headers: {
+        'Content-Type': 'application/json',
+        'x-thanarah-tenant-id': data.tenantId,
+        'x-thanarah-user-id': data.userId,
+        'x-thanarah-internal': this.configService.get<string>('jwt.secret') || '',
+      },
+      signal: AbortSignal.timeout(70000),
+    });
+    if (!response.ok) {
+      const detail = await response.text().catch(() => '');
+      throw new HttpException(
+        detail || 'Voice synthesis failed',
+        response.status,
+      );
+    }
+    return {
+      content: Buffer.from(await response.arrayBuffer()),
+      contentType: response.headers.get('content-type') || 'audio/wav',
+      provider: response.headers.get('x-thanarah-voice-provider') || 'local',
+      latencyMs: response.headers.get('x-thanarah-voice-latency-ms') || '',
+    };
+  }
+
   async getVoiceCapabilities() {
     try {
       const response = await axios.get(`${this.aiEngineUrl}/voice/capabilities`, { timeout: 5000 });

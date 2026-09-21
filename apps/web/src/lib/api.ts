@@ -128,6 +128,16 @@ export const aiApi = {
   capabilities: () => api.get('/ai/capabilities').then((r) => r.data),
   skills: () => api.get('/ai/skills').then((r) => r.data),
   voiceCapabilities: () => api.get('/ai/voice/capabilities').then((r) => r.data),
+  voiceTranscribe: (conversationId: string, audio: Blob, language: 'ar' | 'en') => {
+    const formData = new FormData();
+    formData.append('audio', audio, 'voice-input.webm');
+    formData.append('conversationId', conversationId);
+    formData.append('language', language);
+    return api.post('/ai/voice/transcribe', formData).then((r) => r.data);
+  },
+  voiceSynthesize: (conversationId: string, text: string, language: 'ar' | 'en') =>
+    api.post('/ai/voice/synthesize', { conversationId, text, language }, { responseType: 'blob' })
+      .then((r) => r.data as Blob),
   backends: () => api.get('/ai/backends').then((r) => r.data),
   updateBackend: (id: string, data: any) =>
     api.put(`/ai/backends/${id}`, data).then((r) => r.data),

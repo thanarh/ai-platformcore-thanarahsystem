@@ -8,3 +8,4 @@
 - [Phase 2D foundation boundary](phase2d-foundation.md) — task, skill, artifact, and event layers are contracts first; real tool execution remains explicitly gated
 - [Local SearXNG limits](searxng-local-constraints.md) — IPv4 binding and an explicit User-Agent are required; keep the enabled engine set local and verified
 - [Phase 5 persistence boundary](phase5-persistence-boundary.md) — bounded task execution and artifact generation are implemented, but metadata remains in-memory until durable storage is approved
+- [Python 3.13 speech runtime](python313-speech-runtime.md) — pass the faster-whisper Nix closure through VOICE_STT_PYTHONPATH; never glob-scan /nix/store at app startup

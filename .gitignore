@@ -29,4 +29,5 @@ coverage/
 *.gguf
 *.bin
 /models/
+services/ai-engine/models/
 /.ollama/models/

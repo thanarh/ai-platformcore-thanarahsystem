@@ -41,7 +41,7 @@ export default function ChatPage() {
   const [inputMode, setInputMode] = useState<'text' | 'voice'>('text');
   const [voiceState, setVoiceState] = useState<VoiceState>('IDLE');
   const [voiceError, setVoiceError] = useState('');
-  const [browserSpeechAvailable, setBrowserSpeechAvailable] = useState(false);
+  const [voiceAvailable, setVoiceAvailable] = useState(false);
   const [voiceLanguage, setVoiceLanguage] = useState<'ar' | 'en'>('ar');
   const [showTools, setShowTools] = useState(false);
   const [selectedSkillId, setSelectedSkillId] = useState<string | undefined>();
@@ -54,21 +54,26 @@ export default function ChatPage() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const streamControllersRef = useRef(new Map<string, AbortController>());
-  const recognitionRef = useRef<any>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const recordingStreamRef = useRef<MediaStream | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const recordingStartedAtRef = useRef<number | null>(null);
 
   const convMessages: Message[] = messages[convId] || [];
 
   useEffect(() => {
-    const speechWindow = window as any;
-    setBrowserSpeechAvailable(Boolean(speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition));
+    aiApi.voiceCapabilities()
+      .then((capabilities) => setVoiceAvailable(capabilities?.voiceEnabled === true))
+      .catch(() => setVoiceAvailable(false));
     aiApi.skills()
       .then((payload) => setSkills(payload?.skills || []))
       .catch(() => setSkills([]));
   }, []);
 
   useEffect(() => () => {
-    recognitionRef.current?.stop?.();
-    window.speechSynthesis?.cancel();
+    recorderRef.current?.stop?.();
+    recordingStreamRef.current?.getTracks().forEach((track) => track.stop());
+    audioRef.current?.pause();
   }, []);
 
   useEffect(() => {
@@ -99,19 +104,32 @@ export default function ChatPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [convMessages]);
 
-  const speakResponse = useCallback((content: string, language: 'ar' | 'en') => {
-    if (!content || typeof window === 'undefined' || !window.speechSynthesis) {
+  const speakResponse = useCallback(async (content: string, language: 'ar' | 'en') => {
+    if (!content) {
       setVoiceState('IDLE');
       return;
     }
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(content);
-    utterance.lang = language === 'en' ? 'en-US' : 'ar-SA';
-    utterance.onend = () => setVoiceState('IDLE');
-    utterance.onerror = () => setVoiceState('IDLE');
-    setVoiceState('SPEAKING');
-    window.speechSynthesis.speak(utterance);
-  }, []);
+    try {
+      const audioBlob = await aiApi.voiceSynthesize(convId, content, language);
+      const audioUrl = URL.createObjectURL(audioBlob);
+      audioRef.current?.pause();
+      const audio = new Audio(audioUrl);
+      audioRef.current = audio;
+      audio.onended = () => {
+        URL.revokeObjectURL(audioUrl);
+        setVoiceState('IDLE');
+      };
+      audio.onerror = () => {
+        URL.revokeObjectURL(audioUrl);
+        setVoiceState('IDLE');
+      };
+      setVoiceState('SPEAKING');
+      await audio.play();
+    } catch {
+      // Text delivery already succeeded; TTS is deliberately best-effort.
+      setVoiceState('IDLE');
+    }
+  }, [convId]);
 
   const handleSend = useCallback(async (
     overrideContent?: string,
@@ -142,6 +160,7 @@ export default function ChatPage() {
     const assistantClientId = `assistant-${requestId}`;
     streamControllersRef.current.set(requestId, controller);
     setActiveRequestCount((count) => count + 1);
+    if (requestOptions?.inputMode === 'voice') setVoiceState('THINKING');
 
     // Add user message
     addMessage(convId, {
@@ -184,6 +203,7 @@ export default function ChatPage() {
       token,
       (delta) => {
         accumulated += delta;
+        if (requestOptions?.inputMode === 'voice') setVoiceState('GENERATING');
         updateStreamingMessage(convId, assistantClientId, accumulated, false, 'generating');
       },
       (meta) => {
@@ -245,89 +265,95 @@ export default function ChatPage() {
   };
 
   const startVoiceCapture = useCallback(async () => {
-    const speechWindow = window as any;
-    const Recognition = speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition;
-    if (!Recognition) {
-      setVoiceError('هذا المتصفح لا يوفر تحويل الكلام إلى نص. جرّب Chrome أو Edge على جهاز يدعم الميكروفون.');
-      setVoiceState('ERROR');
-      return;
-    }
-
     setInputMode('voice');
     setVoiceError('');
-    setVoiceState('LISTENING');
     try {
-      if (navigator.mediaDevices?.getUserMedia) {
-        const microphone = await navigator.mediaDevices.getUserMedia({ audio: true });
-        microphone.getTracks().forEach((track) => track.stop());
+      if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+        throw new Error('المتصفح لا يدعم تسجيل الصوت المحلي.');
       }
-    } catch {
-      setVoiceError('اسمح للمتصفح باستخدام الميكروفون ثم اضغط «تحدث» مرة أخرى.');
-      setVoiceState('ERROR');
-      return;
-    }
-    const recognition = new Recognition();
-    const sessionId = `voice-${Date.now()}`;
-    let finalTranscript = '';
-    let submitted = false;
-    recognition.lang = voiceLanguage === 'en' ? 'en-US' : 'ar-SA';
-    recognition.continuous = false;
-    recognition.interimResults = true;
-    recognition.onresult = (event: any) => {
-      let interimTranscript = '';
-      for (let index = event.resultIndex; index < event.results.length; index += 1) {
-        const transcript = event.results[index][0]?.transcript || '';
-        if (event.results[index].isFinal) finalTranscript += transcript;
-        else interimTranscript += transcript;
-      }
-      const transcript = `${finalTranscript} ${interimTranscript}`.trim();
-      if (transcript) setInput(transcript);
-      if (finalTranscript.trim() && !submitted) {
-        submitted = true;
-        setVoiceState('TRANSCRIBING');
-        recognition.stop();
-        void handleSend(finalTranscript.trim(), {
-          inputMode: 'voice',
-          speakResponse: true,
-          language: voiceLanguage,
-          voiceMetadata: {
-            sessionId,
-            language: voiceLanguage,
-            transcriptionStatus: 'completed',
-          },
-        });
-      }
-    };
-    recognition.onerror = (event: any) => {
-      if (event.error !== 'aborted') {
-        setVoiceError('تعذر الوصول إلى الميكروفون. تحقق من إذن المتصفح.');
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = [
+        'audio/webm;codecs=opus',
+        'audio/webm',
+        'audio/ogg;codecs=opus',
+        'audio/mp4',
+      ].find((candidate) => MediaRecorder.isTypeSupported(candidate)) || '';
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      const chunks: Blob[] = [];
+      recordingStreamRef.current = stream;
+      recorderRef.current = recorder;
+      recordingStartedAtRef.current = Date.now();
+      setVoiceState('LISTENING');
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) chunks.push(event.data);
+      };
+      recorder.onerror = () => {
+        setVoiceError('تعذر تسجيل الصوت. حاول مرة أخرى.');
         setVoiceState('ERROR');
-      }
-    };
-    recognition.onend = () => {
-      recognitionRef.current = null;
-      if (!submitted) setVoiceState('IDLE');
-    };
-    recognitionRef.current = recognition;
-    try {
-      recognition.start();
-    } catch {
-      recognitionRef.current = null;
-      setVoiceError('الميكروفون قيد الاستخدام أو يحتاج إلى إذن.');
+      };
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((track) => track.stop());
+        recordingStreamRef.current = null;
+        recorderRef.current = null;
+        if (chunks.length === 0) {
+          setVoiceState('IDLE');
+          return;
+        }
+        setVoiceState('TRANSCRIBING');
+        try {
+          const audio = new Blob(chunks, { type: recorder.mimeType || mimeType || 'audio/webm' });
+          const result = await aiApi.voiceTranscribe(convId, audio, voiceLanguage);
+          const transcript = String(result?.transcript || '').trim();
+          if (!transcript) throw new Error('لم يتم العثور على كلام واضح في التسجيل.');
+          setInput(transcript);
+          void handleSend(transcript, {
+            inputMode: 'voice',
+            speakResponse: true,
+            language: voiceLanguage,
+            voiceMetadata: {
+              sessionId: `voice-${Date.now()}`,
+              language: result.language || voiceLanguage,
+              transcriptionStatus: 'completed',
+              audioMimeType: audio.type,
+              durationMs: result.durationMs || Date.now() - (recordingStartedAtRef.current || Date.now()),
+              capturedAt: new Date().toISOString(),
+              audioStored: false,
+              transcriptionLatencyMs: result.latencyMs,
+              languageProbability: result.languageProbability,
+            },
+          });
+        } catch (error: any) {
+          const message = error?.response?.data?.message || error?.message;
+          setVoiceError(Array.isArray(message) ? message.join('، ') : (message || 'تعذر فهم التسجيل الصوتي.'));
+          setVoiceState('ERROR');
+        } finally {
+          recordingStartedAtRef.current = null;
+        }
+      };
+      recorder.start();
+    } catch (error: any) {
+      recordingStreamRef.current?.getTracks().forEach((track) => track.stop());
+      recordingStreamRef.current = null;
+      setVoiceError(error?.message || 'اسمح للمتصفح باستخدام الميكروفون ثم حاول مرة أخرى.');
       setVoiceState('ERROR');
     }
-  }, [handleSend, voiceLanguage]);
+  }, [convId, handleSend, voiceLanguage]);
 
   const stopVoiceCapture = useCallback(() => {
-    recognitionRef.current?.stop?.();
-    recognitionRef.current = null;
-    setVoiceState('IDLE');
+    if (recorderRef.current && recorderRef.current.state !== 'inactive') {
+      recorderRef.current.stop();
+    } else {
+      recordingStreamRef.current?.getTracks().forEach((track) => track.stop());
+      recordingStreamRef.current = null;
+      setVoiceState('IDLE');
+    }
   }, []);
 
   const stopAllStreams = useCallback(() => {
     streamControllersRef.current.forEach((controller) => controller.abort());
-    if (recognitionRef.current) stopVoiceCapture();
-    window.speechSynthesis?.cancel();
+    if (recorderRef.current) stopVoiceCapture();
+    audioRef.current?.pause();
+    audioRef.current = null;
     setVoiceState('STOPPED');
   }, [stopVoiceCapture]);
 
@@ -554,9 +580,9 @@ export default function ChatPage() {
                     ? 'جاري الاستماع...'
                     : voiceState === 'SPEAKING'
                       ? 'جاري قراءة الرد...'
-                      : browserSpeechAvailable
-                        ? 'اضغط الميكروفون للتحدث'
-                        : 'التعرف الصوتي غير متاح في هذا المتصفح'}
+                        : voiceAvailable
+                          ? 'اضغط الميكروفون للتحدث'
+                          : 'الصوت المحلي غير متاح حاليًا'}
               </span>
               <span className="mr-auto rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[10px]">
                 {voiceState}

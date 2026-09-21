@@ -47,6 +47,22 @@ class Settings(BaseSettings):
     response_cache_semantic_scan_limit: int = 250
     response_cache_semantic_min_score: float = 0.92
     task_artifact_ttl_seconds: int = 604800
+    # Phase 6 local voice. These runtimes are intentionally separate from
+    # the Qwen/Ollama generation process and never call an external provider.
+    voice_enabled: bool = True
+    voice_stt_python: str = "python3.13"
+    voice_stt_pythonpath: Optional[str] = None
+    voice_stt_model_path: str = ""
+    voice_stt_model_name: str = "tiny"
+    voice_tts_ar_model_path: str = ""
+    voice_tts_en_model_path: str = ""
+    voice_tts_ar_engine: str = "espeak-ng"
+    voice_tts_en_engine: str = "piper"
+    voice_max_audio_bytes: int = 10_000_000
+    voice_max_duration_seconds: int = 60
+    voice_max_concurrency: int = 2
+    voice_timeout_seconds: float = 60.0
+    voice_tts_max_chars: int = 6000
     rag_max_scan: int = 2000
     rag_default_limit: int = 5
     rag_query_timeout_seconds: float = 15.0

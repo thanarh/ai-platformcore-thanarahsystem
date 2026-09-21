@@ -16,6 +16,7 @@ from app.router.intelligence_router import IntelligenceRouter
 from app.backends.registry import BackendRegistry
 from app.database import init_db
 from app.memory.daily_learning import daily_learning_service
+from app.voice.runtime import voice_runtime
 
 logging.basicConfig(
     level=logging.INFO,
@@ -32,6 +33,7 @@ async def lifespan(app: FastAPI):
     # Initialize database
     await init_db()
     await tasks.initialize_persistence()
+    await voice_runtime.startup()
 
     # Initialize backend registry
     registry = BackendRegistry()
@@ -63,10 +65,12 @@ async def lifespan(app: FastAPI):
 
     logger.info("✅ Thanarah AI Engine ready (modelWarm=%s)", app.state.warmup_status["modelWarm"])
     logger.info(f"   Backends: {registry.count()} configured")
+    logger.info("   Voice: %s", voice_runtime.capabilities()["voiceEnabled"])
 
     yield
 
     logger.info("🛑 Thanarah AI Engine shutting down...")
+    await voice_runtime.shutdown()
     learning_task.cancel()
     try:
         await learning_task

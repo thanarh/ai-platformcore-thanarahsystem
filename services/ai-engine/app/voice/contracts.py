@@ -109,17 +109,17 @@ class VoiceMessageMetadata:
 
 VOICE_CAPABILITIES = {
     "voiceEnabled": False,
-    "executionMode": "contract-only",
+    "executionMode": "push-to-talk",
     "supportedLanguages": list(SUPPORTED_VOICE_LANGUAGES),
     "states": [state.value for state in VoiceState],
     "speechToText": {
         "available": False,
         "provider": None,
-        "reason": "No local STT engine is installed in this phase.",
+        "reason": "Local STT runtime is not initialized.",
     },
     "textToSpeech": {
         "available": False,
         "provider": None,
-        "reason": "No local TTS engine is installed in this phase.",
+        "reason": "Local TTS runtime is not initialized.",
     },
 }
