@@ -1,0 +1,666 @@
+توقف.
+
+التقرير الذي أرسلته هو **Phase 4** مرة أخرى، وPhase 4 تم تنفيذها واعتمادها بالفعل.
+
+لا تعيد Phase 4.
+لا تعيد Gateway.
+لا تعيد ToolRegistry.
+لا تعيد Permission Layer.
+لا تعيد نفس الاختبارات إلا كـ regression.
+
+# ابدأ الآن PHASE 5 فعليًا
+
+## PHASE 5 — TASK ORCHESTRATOR + SKILLS + ARTIFACTS
+
+الهدف الآن هو الانتقال من:
+
+```text
+Chatbot
++
+Gateway
++
+Tool Registry
+```
+
+إلى:
+
+```text
+User Request
+      ↓
+Capability / Skill
+      ↓
+Task Orchestrator
+      ↓
+Task Graph
+      ↓
+Execution
+      ↓
+Structured Result
+      ↓
+Artifact
+      ↓
+Final Response
+```
+
+---
+
+# 1. Task Orchestrator
+
+أنشئ service حقيقي باسم واضح مثل:
+
+```text
+TaskOrchestrator
+```
+
+مسؤوليته:
+
+* إنشاء tasks
+* تحديد dependencies
+* تحديد READY tasks
+* تشغيل tasks
+* تشغيل المستقل منها بالتوازي
+* انتظار dependencies
+* التعامل مع failure
+* cancellation
+* timeout
+* جمع النتائج
+* إنشاء artifacts
+
+لا تستخدم Agent loop لا نهائي.
+
+---
+
+# 2. Task Model
+
+أنشئ model/contract:
+
+```text
+id
+requestId
+conversationId
+tenantId
+userId
+type
+status
+input
+dependencies
+result
+artifactIds
+startedAt
+completedAt
+duration
+error
+```
+
+Statuses:
+
+```text
+PENDING
+READY
+RUNNING
+COMPLETED
+FAILED
+CANCELLED
+BLOCKED
+```
+
+---
+
+# 3. Task Graph
+
+يجب دعم:
+
+```text
+A → B → C
+```
+
+وأيضًا:
+
+```text
+       → B ─┐
+A ─────┤    ├→ D
+       → C ─┘
+```
+
+B وC يمكن تشغيلهما بالتوازي إذا لم توجد dependency بينهما.
+
+ضع:
+
+```text
+concurrency limit
+timeout
+cancellation
+failure propagation
+```
+
+ولا تستخدم unlimited parallel execution.
+
+---
+
+# 4. Skills
+
+فعّل SkillRegistry فعليًا، وليس مجرد UI.
+
+أضف:
+
+```text
+web_search
+file_analysis
+summarization
+writing
+data_analysis
+task_organization
+table_generation
+pdf_generation
+spreadsheet_generation
+```
+
+كل Skill لها:
+
+```text
+id
+name
+description
+version
+inputSchema
+outputSchema
+requiredTools
+requiredPermissions
+enabled
+```
+
+---
+
+# 5. مهم جدًا — Web Search
+
+حاليًا:
+
+```text
+WEB_SEARCH_ENABLED=false
+```
+
+لأن SearXNG upstream engines لا تعمل في البيئة.
+
+لذلك:
+
+```text
+web_search
+```
+
+يجب أن يرجع:
+
+```text
+CAPABILITY_UNAVAILABLE
+```
+
+بشكل منظم.
+
+**ممنوع fake results.**
+**ممنوع mock search results للمستخدم.**
+
+---
+
+# 6. File Analysis
+
+اربط Skill:
+
+```text
+file_analysis
+```
+
+بالـ file foundation الموجود بالفعل.
+
+ادعم:
+
+```text
+PDF
+TXT
+MD
+CSV
+TSV
+JSON
+XML
+HTML
+LOG
+```
+
+Pipeline:
+
+```text
+upload
+ ↓
+validate
+ ↓
+parse
+ ↓
+extract
+ ↓
+normalize
+ ↓
+analyze
+ ↓
+structured result
+```
+
+لا تحفظ الملف بشكل دائم إلا إذا كان Artifact مطلوبًا.
+
+---
+
+# 7. Table Generation
+
+أنشئ structured result:
+
+```json
+{
+  "columns": [],
+  "rows": []
+}
+```
+
+ثم يمكن استخدامه لإنتاج:
+
+```text
+HTML table
+CSV
+XLSX
+PDF
+```
+
+لا تعيد تحليل البيانات لكل format.
+
+---
+
+# 8. PDF Artifact
+
+أنشئ service مستقلة:
+
+```text
+PdfArtifactService
+```
+
+استخدم:
+
+```text
+reportlab
+```
+
+الـ AI لا ينشئ PDF بنفسه.
+
+الـ flow:
+
+```text
+AI
+ ↓
+structured content
+ ↓
+PdfArtifactService
+ ↓
+PDF
+ ↓
+Artifact
+```
+
+---
+
+# 9. Spreadsheet Artifact
+
+أنشئ:
+
+```text
+SpreadsheetArtifactService
+```
+
+باستخدام:
+
+```text
+openpyxl
+```
+
+لـ XLSX.
+
+و:
+
+```text
+pandas
+```
+
+لـ CSV.
+
+---
+
+# 10. Artifact Model
+
+أنشئ:
+
+```text
+id
+tenantId
+userId
+conversationId
+taskId
+type
+name
+mimeType
+size
+storagePath
+createdAt
+expiresAt
+```
+
+Types:
+
+```text
+PDF
+XLSX
+CSV
+TXT
+JSON
+MARKDOWN
+TABLE
+```
+
+يجب تطبيق tenant/user access control.
+
+---
+
+# 11. Example Execution
+
+يجب أن يصبح النظام قادرًا على تمثيل طلب مثل:
+
+```text
+حلل الملف الذي أرسلته،
+استخرج أهم البيانات،
+اعملها في جدول،
+ثم أنشئ Excel وPDF.
+```
+
+إلى:
+
+```text
+Task 1
+File Analysis
+      ↓
+Task 2
+Extract Structured Data
+      ↓
+Task 3
+Generate Table
+      ↓
+     ┌───────┴───────┐
+     ↓               ↓
+Task 4             Task 5
+Generate XLSX      Generate PDF
+```
+
+Task 4 وTask 5 يمكن تشغيلهما بالتوازي.
+
+---
+
+# 12. Multiple Requests
+
+كل request يجب أن يكون منفصلًا:
+
+```text
+requestId
+taskId
+conversationId
+```
+
+إذا أرسل المستخدم أكثر من طلب، لا تخلط executions.
+
+---
+
+# 13. SSE Progress
+
+أضف:
+
+```text
+task_created
+task_ready
+task_started
+task_progress
+task_completed
+task_failed
+task_blocked
+artifact_created
+generating
+text
+done
+```
+
+مثال UI:
+
+```text
+أفهم طلبك...
+
+✓ قسمت المهمة إلى 4 خطوات
+
+✓ حللت الملف
+
+● أنشئ الجدول...
+
+● أنشئ Excel...
+
+● أنشئ PDF...
+```
+
+هذه statuses حقيقية فقط.
+
+لا تعرض Chain-of-Thought.
+
+---
+
+# 14. Cancellation
+
+أضف foundation لإلغاء task:
+
+```text
+POST /tasks/:id/cancel
+```
+
+مع:
+
+* ownership check
+* tenant check
+* cancellation state
+* stopping cancellable work
+
+---
+
+# 15. Security
+
+اختبر:
+
+```text
+cross-tenant task
+cross-user task
+unauthorized artifact
+forged taskId
+forged tenantId
+forged userId
+missing permission
+disabled skill
+unknown skill
+```
+
+الـ authenticated server context هو المصدر الوحيد لـ:
+
+```text
+tenantId
+userId
+permissions
+```
+
+---
+
+# 16. Current UI
+
+لا تعيد تصميم الـ UI الآن.
+
+اربط فقط الـ Skills الموجودة بالـ SkillRegistry الحقيقي.
+
+لا تضف cards أو dashboards جديدة لمجرد الشكل.
+
+---
+
+# 17. Tests
+
+نفذ tests حقيقية لـ:
+
+### Orchestrator
+
+* task creation
+* dependencies
+* linear graph
+* branching graph
+* parallel execution
+* concurrency limit
+* failure propagation
+* cancellation
+* timeout
+
+### Skills
+
+* registration
+* discovery
+* enable/disable
+* permission validation
+
+### Files
+
+* PDF
+* TXT
+* CSV
+* JSON
+* malformed files
+
+### Artifacts
+
+* PDF creation
+* XLSX creation
+* CSV creation
+* metadata
+* access control
+* cross-tenant rejection
+
+### SSE
+
+* task_created
+* task_started
+* task_completed
+* task_failed
+* artifact_created
+* done
+
+### Security
+
+* tenant isolation
+* user isolation
+* permission rejection
+
+ثم شغل:
+
+```text
+Python tests
+Regression
+Compile/typecheck
+API build
+Web build
+Health
+JSON validation
+git diff --check
+```
+
+---
+
+# 18. Production Configuration
+
+لا تغير:
+
+```text
+LOCAL_AI_MODEL=qwen2.5:1.5b
+LOCAL_AI_NUM_THREAD=4
+LOCAL_AI_NUM_CTX=2048
+LOCAL_AI_NUM_BATCH=64
+LOCAL_AI_KEEP_ALIVE=10m
+OLLAMA_KEEP_ALIVE=10m
+```
+
+وحافظ على:
+
+```text
+WEB_SEARCH_ENABLED=false
+THANARAH_CORE_TOOLS_ENABLED=false
+TOOL_MOCK_ENABLED=false
+```
+
+---
+
+# 19. Documentation
+
+أنشئ:
+
+```text
+docs/ai-orchestrator-phase5.md
+docs/ai-orchestrator-phase5-benchmark.json
+```
+
+يجب أن يحتوي التقرير على:
+
+```text
+Task architecture
+Task graph
+Skill Registry
+Parallel execution
+Concurrency
+Cancellation
+File analysis
+PDF
+XLSX
+CSV
+Artifacts
+Security
+SSE
+Tests
+Production status
+```
+
+---
+
+# 20. STOP CONDITION
+
+**نفذ Phase 5 فقط.**
+
+لا تبدأ:
+
+* Phase 6 Voice
+* WhatsApp
+* real Thanarah Core integration
+* write tools
+* destructive actions
+* autonomous infinite agent
+* self-modifying behavior
+
+ولا تعيد Phase 4.
+
+في نهاية التنفيذ أرسل لي:
+
+1. الملفات التي أُنشئت/تعدلت
+2. Task architecture
+3. Skill architecture
+4. مثال Task Graph حقيقي تم اختباره
+5. Parallel execution result
+6. PDF generation result
+7. XLSX generation result
+8. CSV generation result
+9. Artifact security result
+10. SSE result
+11. tests
+12. regression
+13. build
+14. health
+15. production flags
+
+**مهم:** لا تقل "Phase 5 completed" إلا إذا تم تنفيذ Task Orchestrator وArtifacts فعليًا واختبارهما.
+
+ابدأ التنفيذ الآن.
