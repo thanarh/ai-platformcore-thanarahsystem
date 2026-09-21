@@ -17,11 +17,17 @@ TaskEventListener = Callable[[str, Dict[str, Any]], Any]
 class TaskOrchestrator:
     """Finite, dependency-aware task execution with bounded concurrency."""
 
-    def __init__(self, max_concurrency: int = 2, task_timeout_seconds: float = 60.0):
+    def __init__(
+        self,
+        max_concurrency: int = 2,
+        task_timeout_seconds: float = 60.0,
+        persistence: Any = None,
+    ):
         if max_concurrency < 1:
             raise ValueError("max_concurrency must be positive")
         self.max_concurrency = max_concurrency
         self.task_timeout_seconds = task_timeout_seconds
+        self.persistence = persistence
         self._groups: Dict[str, TaskGroup] = {}
         self._cancel_events: Dict[str, asyncio.Event] = {}
         self._running_tasks: Dict[str, set[asyncio.Task]] = {}
@@ -96,6 +102,15 @@ class TaskOrchestrator:
         self._cancel_events[group.group_id] = asyncio.Event()
         return group
 
+    def restore(self, groups: Iterable[TaskGroup]) -> None:
+        for group in groups:
+            self._groups[group.group_id] = group
+            self._cancel_events.setdefault(group.group_id, asyncio.Event())
+
+    async def _persist(self, group: TaskGroup) -> None:
+        if self.persistence is not None:
+            await self.persistence.save_group(group)
+
     def get(self, group_id: str, tenant_id: str, user_id: str) -> TaskGroup:
         group = self._groups.get(group_id)
         if not group or group.tenant_id != tenant_id or group.user_id != user_id:
@@ -150,6 +165,7 @@ class TaskOrchestrator:
                 self._running_tasks.setdefault(group.group_id, set()).add(current_runner)
             if cancel_event.is_set():
                 self._safe_transition(task, TaskState.CANCELLED)
+                await self._persist(group)
                 self._emit(on_event, "task_failed", {"taskId": task.task_id, "reason": "cancelled"})
                 return
             if any(
@@ -158,21 +174,26 @@ class TaskOrchestrator:
                 for dependency in task.dependencies
             ):
                 self._safe_transition(task, TaskState.BLOCKED, "Dependency failed")
+                await self._persist(group)
                 self._emit(on_event, "task_blocked", {"taskId": task.task_id, "reason": task.error})
                 return
             self._safe_transition(task, TaskState.READY)
+            await self._persist(group)
             self._emit(on_event, "task_ready", {"taskId": task.task_id})
             async with semaphore:
                 if cancel_event.is_set():
                     self._safe_transition(task, TaskState.CANCELLED)
+                    await self._persist(group)
                     return
                 self._safe_transition(task, TaskState.RUNNING)
                 task.started_at = datetime.now(timezone.utc).isoformat()
+                await self._persist(group)
                 started = time.monotonic()
                 self._emit(on_event, "task_started", {"taskId": task.task_id, "type": task.task_type.value})
                 handler = handlers.get(task.task_type.value) or handlers.get(task.input.get("skillId", ""))
                 if not handler:
                     self._safe_transition(task, TaskState.FAILED, "No handler registered for task")
+                    await self._persist(group)
                     self._emit(on_event, "task_failed", {"taskId": task.task_id, "reason": task.error})
                     return
                 dependency_results = {key: completed.get(key) for key in task.dependencies}
@@ -183,6 +204,7 @@ class TaskOrchestrator:
                         result = await asyncio.wait_for(result, timeout=timeout)
                     if cancel_event.is_set():
                         self._safe_transition(task, TaskState.CANCELLED)
+                        await self._persist(group)
                         return
                     task.result = result
                     if isinstance(result, dict):
@@ -194,6 +216,7 @@ class TaskOrchestrator:
                     task.duration = round(time.monotonic() - started, 4)
                     task.completed_at = datetime.now(timezone.utc).isoformat()
                     self._safe_transition(task, TaskState.COMPLETED)
+                    await self._persist(group)
                     self._emit(
                         on_event,
                         "task_completed",
@@ -208,16 +231,20 @@ class TaskOrchestrator:
                 except asyncio.TimeoutError:
                     task.duration = round(time.monotonic() - started, 4)
                     self._safe_transition(task, TaskState.FAILED, "Task timeout")
+                    await self._persist(group)
                     self._emit(on_event, "task_failed", {"taskId": task.task_id, "reason": task.error})
                 except asyncio.CancelledError:
                     self._safe_transition(task, TaskState.CANCELLED)
+                    await self._persist(group)
                     return
                 except Exception as exc:
                     task.duration = round(time.monotonic() - started, 4)
                     self._safe_transition(task, TaskState.FAILED, str(exc)[:240])
+                    await self._persist(group)
                     self._emit(on_event, "task_failed", {"taskId": task.task_id, "reason": task.error})
 
         waves = self.plan(group)
+        await self._persist(group)
         for wave in waves:
             if cancel_event.is_set():
                 for task in wave:
@@ -243,6 +270,7 @@ class TaskOrchestrator:
                 for artifact_id in task.artifact_ids
             )
         )
+        await self._persist(group)
         self._running_tasks.pop(group.group_id, None)
         return group
 

@@ -16,3 +16,16 @@ or changing the existing database boundary.
 retention is promised, add tenant-scoped durable task/artifact records,
 ownership checks, expiry cleanup, and restart/recovery tests. Do not silently
 replace the current local store with a different database.
+
+The artifact renderers are provisioned through `replit.nix` Nix packages in
+this workspace. The generic Python package installer may target an unavailable
+managed interpreter, so verify imports in the workflow runtime rather than
+trusting `requirements.txt` alone.
+
+**Why:** The renderer dependencies were present in the project requirements
+but absent from the active Python environment until system-level packages were
+added and imports were verified.
+
+**How to apply:** For future artifact work, keep the Python requirements
+declarations and Nix runtime packages aligned, then verify the actual runtime
+imports and file signatures before declaring production artifact support.

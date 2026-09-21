@@ -31,6 +31,7 @@ async def lifespan(app: FastAPI):
 
     # Initialize database
     await init_db()
+    await tasks.initialize_persistence()
 
     # Initialize backend registry
     registry = BackendRegistry()

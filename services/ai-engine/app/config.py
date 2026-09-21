@@ -46,6 +46,7 @@ class Settings(BaseSettings):
     response_cache_db_timeout_seconds: float = 1.0
     response_cache_semantic_scan_limit: int = 250
     response_cache_semantic_min_score: float = 0.92
+    task_artifact_ttl_seconds: int = 604800
     rag_max_scan: int = 2000
     rag_default_limit: int = 5
     rag_query_timeout_seconds: float = 15.0

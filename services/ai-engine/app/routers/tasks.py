@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
@@ -9,17 +10,41 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.artifacts.store import ArtifactAccessError, InMemoryArtifactStore
+from app.artifacts.store import ArtifactAccessError, MongoArtifactStore
+from app.database import get_db
 from app.foundation.contracts import Task, TaskGroup, TaskType
 from app.orchestration.orchestrator import TaskOrchestrator
+from app.persistence.task_store import MongoTaskStore
 from app.skills.execution import SkillExecutionService
 from app.skills.registry import skill_registry
 from app.streaming.events import event_frame
 
 router = APIRouter()
-artifact_store = InMemoryArtifactStore()
+artifact_store: Any = None
 orchestrator = TaskOrchestrator()
-skill_executor = SkillExecutionService(skill_registry, artifact_store, orchestrator)
+skill_executor: Optional[SkillExecutionService] = None
+task_repository: Optional[MongoTaskStore] = None
+_persistence_ready = False
+
+
+async def initialize_persistence() -> None:
+    """Attach durable stores after the shared Mongo connection is ready."""
+    global artifact_store, skill_executor, task_repository, _persistence_ready
+    if get_db() is None:
+        _persistence_ready = False
+        return
+    task_repository = MongoTaskStore()
+    artifact_store = MongoArtifactStore()
+    await artifact_store.cleanup_expired()
+    orchestrator.persistence = task_repository
+    orchestrator.restore(await task_repository.load_all())
+    skill_executor = SkillExecutionService(skill_registry, artifact_store, orchestrator)
+    _persistence_ready = True
+
+
+def _require_persistence() -> None:
+    if not _persistence_ready or artifact_store is None or skill_executor is None:
+        raise HTTPException(status_code=503, detail="Durable task persistence unavailable")
 
 
 class TaskSpec(BaseModel):
@@ -124,6 +149,7 @@ def _handlers(principal: Dict[str, Any]):
 
 
 async def _run(payload: TaskCreateRequest, principal: Dict[str, Any], on_event=None) -> TaskGroup:
+    _require_persistence()
     group = _group(payload, principal)
     return await orchestrator.execute(
         group,
@@ -183,25 +209,38 @@ async def stream_tasks(payload: TaskCreateRequest, request: Request):
 
 @router.get("/artifacts")
 async def list_artifacts(request: Request):
+    _require_persistence()
     principal = _principal(request)
-    return {"artifacts": [item.to_dict() for item in artifact_store.list(principal["tenantId"], principal["userId"])]}
+    result = artifact_store.list(principal["tenantId"], principal["userId"])
+    if inspect.isawaitable(result):
+        result = await result
+    return {"artifacts": [item.to_dict() for item in result]}
 
 
 @router.get("/artifacts/{artifact_id}")
 async def get_artifact(artifact_id: str, request: Request):
+    _require_persistence()
     principal = _principal(request)
     try:
-        return artifact_store.get(artifact_id, principal["tenantId"], principal["userId"]).to_dict()
+        result = artifact_store.get(artifact_id, principal["tenantId"], principal["userId"])
+        if inspect.isawaitable(result):
+            result = await result
+        return result.to_dict()
     except (KeyError, ArtifactAccessError) as exc:
         raise HTTPException(status_code=404, detail="Artifact not found") from exc
 
 
 @router.get("/artifacts/{artifact_id}/content")
 async def get_artifact_content(artifact_id: str, request: Request):
+    _require_persistence()
     principal = _principal(request)
     try:
         artifact = artifact_store.get(artifact_id, principal["tenantId"], principal["userId"])
+        if inspect.isawaitable(artifact):
+            artifact = await artifact
         content = artifact_store.read_bytes(artifact, principal["tenantId"], principal["userId"])
+        if inspect.isawaitable(content):
+            content = await content
         return Response(content=content, media_type=artifact.mime_type, headers={"Content-Disposition": f'attachment; filename="{artifact.name}"'})
     except (KeyError, ArtifactAccessError, FileNotFoundError) as exc:
         raise HTTPException(status_code=404, detail="Artifact not found") from exc
@@ -209,6 +248,7 @@ async def get_artifact_content(artifact_id: str, request: Request):
 
 @router.get("/{group_id}")
 async def get_tasks(group_id: str, request: Request):
+    _require_persistence()
     principal = _principal(request)
     try:
         return orchestrator.get(group_id, principal["tenantId"], principal["userId"]).to_dict()
@@ -218,9 +258,12 @@ async def get_tasks(group_id: str, request: Request):
 
 @router.post("/{group_id}/cancel")
 async def cancel_tasks(group_id: str, request: Request):
+    _require_persistence()
     principal = _principal(request)
     try:
         group = orchestrator.get(group_id, principal["tenantId"], principal["userId"])
-        return orchestrator.cancel(group).to_dict()
+        cancelled = orchestrator.cancel(group)
+        await orchestrator._persist(cancelled)
+        return cancelled.to_dict()
     except PermissionError as exc:
         raise HTTPException(status_code=404, detail="Task not found") from exc

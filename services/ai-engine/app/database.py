@@ -37,6 +37,14 @@ async def init_db():
         await db.ai_daily_learning.create_index(
             [("tenantId", 1), ("userId", 1), ("day", -1)]
         )
+        await db.ai_task_groups.create_index([("tenantId", 1), ("userId", 1), ("updatedAt", -1)])
+        await db.ai_tasks.create_index([("groupId", 1), ("updatedAt", 1)])
+        await db.ai_tasks.create_index([("tenantId", 1), ("userId", 1), ("updatedAt", -1)])
+        await db.ai_task_dependencies.create_index(
+            [("taskId", 1), ("dependsOn", 1)], unique=True
+        )
+        await db.ai_artifacts.create_index([("tenantId", 1), ("userId", 1), ("createdAt", -1)])
+        await db.ai_artifacts.create_index("expiresAt", expireAfterSeconds=0)
         logger.info("✅ MongoDB connected successfully")
     except Exception as e:
         logger.warning("⚠️  MongoDB not yet reachable — AI engine starting in degraded mode")

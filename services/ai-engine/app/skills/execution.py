@@ -66,7 +66,7 @@ class SkillExecutionService:
             return self._table(values)
         if skill_id == "pdf_generation":
             source = self._dependency_value(values)
-            return self.pdf_service.create(
+            return await self.pdf_service.create(
                 source.get("table") or source.get("structuredResult") or source,
                 context["tenantId"],
                 context["userId"],
@@ -76,7 +76,7 @@ class SkillExecutionService:
             )
         if skill_id == "spreadsheet_generation":
             source = self._dependency_value(values)
-            return self.spreadsheet_service.create(
+            return await self.spreadsheet_service.create(
                 source.get("table") or source.get("structuredResult") or source,
                 context["tenantId"],
                 context["userId"],

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import io
+import inspect
 import zipfile
 from typing import Any, Dict, Iterable, List
 
@@ -45,7 +46,7 @@ class PdfArtifactService:
     def __init__(self, store: InMemoryArtifactStore):
         self.store = store
 
-    def create(
+    async def create(
         self,
         content: Any,
         tenant_id: str,
@@ -74,6 +75,8 @@ class PdfArtifactService:
             tenant_id, user_id, "PDF", name, conversation_id, task_id,
             payload, "application/pdf",
         )
+        if inspect.isawaitable(artifact):
+            artifact = await artifact
         return {"artifactId": artifact.artifact_id, "artifact": artifact.to_dict()}
 
     @staticmethod
@@ -125,7 +128,7 @@ class SpreadsheetArtifactService:
     def __init__(self, store: InMemoryArtifactStore):
         self.store = store
 
-    def create(
+    async def create(
         self,
         table_value: Any,
         tenant_id: str,
@@ -144,12 +147,16 @@ class SpreadsheetArtifactService:
                     tenant_id, user_id, "XLSX", "table.xlsx", conversation_id, task_id,
                     payload, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 )
+                if inspect.isawaitable(artifact):
+                    artifact = await artifact
             elif fmt == "csv":
                 payload = self._csv(table)
                 artifact = self.store.create(
                     tenant_id, user_id, "CSV", "table.csv", conversation_id, task_id,
                     payload, "text/csv",
                 )
+                if inspect.isawaitable(artifact):
+                    artifact = await artifact
             else:
                 raise ValueError(f"Unsupported spreadsheet format: {fmt}")
             artifacts.append(artifact.to_dict())
