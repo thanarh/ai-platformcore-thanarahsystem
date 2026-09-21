@@ -111,6 +111,15 @@ export const messagesApi = {
     api.post(`/messages/${messageId}/pin`, { pinned }).then((r) => r.data),
 };
 
+// ──── Files ─────────────────────────────────────────────────────────────────
+export const filesApi = {
+  extract: (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return api.post('/files/extract', formData).then((r) => r.data);
+  },
+};
+
 // ──── AI ───────────────────────────────────────────────────────────────────
 export const aiApi = {
   chat: (conversationId: string, content: string) =>

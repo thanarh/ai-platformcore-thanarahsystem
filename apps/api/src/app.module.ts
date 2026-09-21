@@ -19,6 +19,7 @@ import { EmailModule } from './modules/email/email.module';
 import { ReportModule } from './modules/email/report.module';
 import { ContextProfileModule } from './modules/context-profile/context-profile.module';
 import { AiGatewayModule } from './modules/ai-gateway/ai-gateway.module';
+import { FilesModule } from './modules/files/files.module';
 
 @Module({
   imports: [
@@ -62,6 +63,7 @@ import { AiGatewayModule } from './modules/ai-gateway/ai-gateway.module';
     ConversationsModule,
     ContextProfileModule,
     AiGatewayModule,
+    FilesModule,
     MessagesModule,
     AiModule,
     ApiKeysModule,

@@ -14,12 +14,15 @@ import {
   Search,
   Send,
   Sparkles,
+  ListTodo,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { ThanarahIcon } from '@/components/ThanarahLogo';
 import { useAuthStore } from '@/store/auth';
 import { useChatStore } from '@/store/chat';
 import { conversationsApi } from '@/lib/api';
+import TaskAssistantPanel, { AssistantTask } from '@/components/TaskAssistantPanel';
+import { cn } from '@/lib/utils';
 
 const shortcuts = [
   {
@@ -53,6 +56,7 @@ export default function ChatHomePage() {
   const { user } = useAuthStore();
   const { setActiveConversation, addConversation } = useChatStore();
   const [input, setInput] = useState('');
+  const [showTaskAssistant, setShowTaskAssistant] = useState(false);
 
   const startChat = async (prompt?: string) => {
     const conv = await conversationsApi.create();
@@ -82,13 +86,30 @@ export default function ChatHomePage() {
             <p className="mt-1 text-[10px] text-[#6f7c84]">{user?.email || 'admin@ai.thanarah.com'}</p>
           </div>
         </div>
-        <button
-          type="button"
-          className="flex h-9 w-9 items-center justify-center rounded-xl border border-[#e5ebee] bg-white/80 text-[#46535d] shadow-[0_3px_12px_rgba(38,71,87,0.05)] transition hover:bg-white"
-          aria-label="بحث"
-        >
-          <Search className="h-4 w-4" />
-        </button>
+        <div className="flex items-center gap-2" dir="ltr">
+          <button
+            type="button"
+            onClick={() => setShowTaskAssistant((visible) => !visible)}
+            className={cn(
+              'inline-flex h-9 items-center gap-1.5 rounded-xl border px-3 text-[11px] font-arabic shadow-[0_3px_12px_rgba(38,71,87,0.05)] transition',
+              showTaskAssistant
+                ? 'border-[#b8ddc7] bg-[#eef8f2] text-[#187b57]'
+                : 'border-[#e5ebee] bg-white/80 text-[#46535d] hover:bg-white',
+            )}
+            aria-expanded={showTaskAssistant}
+            aria-controls="thanarah-home-task-assistant"
+          >
+            <ListTodo className="h-3.5 w-3.5" />
+            مساعد المهام
+          </button>
+          <button
+            type="button"
+            className="flex h-9 w-9 items-center justify-center rounded-xl border border-[#e5ebee] bg-white/80 text-[#46535d] shadow-[0_3px_12px_rgba(38,71,87,0.05)] transition hover:bg-white"
+            aria-label="بحث"
+          >
+            <Search className="h-4 w-4" />
+          </button>
+        </div>
       </header>
 
       <main className="relative z-10 flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-5 pb-28 sm:px-8">
@@ -190,6 +211,17 @@ export default function ChatHomePage() {
         <p className="text-[13px] font-medium leading-4 text-[#26353d]">Work Better</p>
         <span className="mt-2 block h-0.5 w-5 bg-[#20775a]" />
       </div>
+      {showTaskAssistant && (
+        <div id="thanarah-home-task-assistant" className="absolute inset-y-0 left-0 z-30">
+          <TaskAssistantPanel
+            storageKey={`thanarah-assistant-tasks:${(user as any)?._id || (user as any)?.id || 'current'}`}
+            onClose={() => setShowTaskAssistant(false)}
+            onAskAboutTask={(task: AssistantTask) => {
+              void startChat(`ساعدني في تنظيم وتنفيذ هذه المهمة: ${task.title}`);
+            }}
+          />
+        </div>
+      )}
     </div>
   );
 }

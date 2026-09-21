@@ -2,23 +2,31 @@
 export const dynamic = 'force-dynamic';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
-import { Send, Square, Copy, ExternalLink, Globe2, Menu, ThumbsUp, ThumbsDown, Pin, Sparkles, Mic, Type, Wand2 } from 'lucide-react';
+import { Send, Square, Copy, ExternalLink, Globe2, Menu, ThumbsUp, ThumbsDown, Pin, Sparkles, Mic, Type, Wand2, Paperclip, FileText, X, ListTodo, Loader2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useChatStore, Message } from '@/store/chat';
 import { useAuthStore } from '@/store/auth';
-import { aiApi, messagesApi } from '@/lib/api';
+import { aiApi, filesApi, messagesApi } from '@/lib/api';
 import { streamChat, cn, isRTL } from '@/lib/utils';
 import { ThanarahIcon } from '@/components/ThanarahLogo';
+import TaskAssistantPanel, { AssistantTask } from '@/components/TaskAssistantPanel';
 
 type VoiceState = 'IDLE' | 'LISTENING' | 'TRANSCRIBING' | 'THINKING' | 'GENERATING' | 'SPEAKING' | 'STOPPED' | 'ERROR';
+type ChatAttachment = {
+  name: string;
+  type: string;
+  size: number;
+  content: string;
+  truncated?: boolean;
+};
 
 export default function ChatPage() {
   const params = useParams();
   const searchParams = useSearchParams();
   const convId = params.id as string;
 
-  const { token } = useAuthStore();
+  const { token, user } = useAuthStore();
   const {
     messages, addMessage, setMessages, updateStreamingMessage,
     finalizeMessage, updateMessage,
@@ -38,8 +46,13 @@ export default function ChatPage() {
   const [showTools, setShowTools] = useState(false);
   const [selectedSkillId, setSelectedSkillId] = useState<string | undefined>();
   const [activeRequestCount, setActiveRequestCount] = useState(0);
+  const [showTaskAssistant, setShowTaskAssistant] = useState(false);
+  const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
+  const [isExtractingFile, setIsExtractingFile] = useState(false);
+  const [attachmentError, setAttachmentError] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const streamControllersRef = useRef(new Map<string, AbortController>());
   const recognitionRef = useRef<any>(null);
 
@@ -110,10 +123,16 @@ export default function ChatPage() {
       skillId?: string;
     },
   ) => {
-    const content = (overrideContent || input).trim();
+    const typedContent = (overrideContent || input).trim();
+    const attachmentContext = attachments.map((file) => (
+      `\n\n[مرفق للتحليل: ${file.name}]\n${file.content}${file.truncated ? '\n[تم اختصار الملف لطوله الكبير]' : ''}`
+    )).join('');
+    const content = `${typedContent || (attachments.length ? 'حلل الملفات المرفقة واشرح أهم ما ورد فيها.' : '')}${attachmentContext}`.trim();
     if (!content || !token) return;
 
     setInput('');
+    setAttachments([]);
+    setAttachmentError('');
     if (streamControllersRef.current.size === 0) setExecutionEvents([]);
     setStreaming(true);
     const controller = new AbortController();
@@ -192,7 +211,38 @@ export default function ChatPage() {
         skillId: requestOptions?.skillId || selectedSkillId,
       },
     );
-  }, [input, convId, token, inputMode, selectedSkillId, addMessage, finalizeMessage, setStreaming, updateStreamingMessage, updateConversation, speakResponse]);
+  }, [input, attachments, convId, token, inputMode, selectedSkillId, addMessage, finalizeMessage, setStreaming, updateStreamingMessage, updateConversation, speakResponse]);
+
+  const handleFileSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFiles = Array.from(event.target.files || []);
+    event.target.value = '';
+    if (selectedFiles.length === 0) return;
+    if (attachments.length + selectedFiles.length > 3) {
+      setAttachmentError('يمكنك إرفاق 3 ملفات كحد أقصى في الرسالة الواحدة.');
+      return;
+    }
+    setAttachmentError('');
+    setIsExtractingFile(true);
+    try {
+      const extractedFiles = await Promise.all(selectedFiles.map((file) => filesApi.extract(file)));
+      setAttachments((current) => [...current, ...extractedFiles]);
+    } catch (error: any) {
+      const message = error?.response?.data?.message;
+      setAttachmentError(Array.isArray(message) ? message.join('، ') : (message || 'تعذر قراءة الملف. جرّب PDF أو ملفًا نصيًا أصغر.'));
+    } finally {
+      setIsExtractingFile(false);
+    }
+  };
+
+  const removeAttachment = (name: string) => {
+    setAttachments((current) => current.filter((file) => file.name !== name));
+  };
+
+  const askAboutTask = (task: AssistantTask) => {
+    setInput(`ساعدني في تنظيم وتنفيذ هذه المهمة: ${task.title}`);
+    setShowTaskAssistant(false);
+    setTimeout(() => textareaRef.current?.focus(), 0);
+  };
 
   const startVoiceCapture = useCallback(async () => {
     const speechWindow = window as any;
@@ -301,7 +351,8 @@ export default function ChatPage() {
   };
 
   return (
-    <div className="flex flex-col h-full min-h-0">
+    <div className="relative flex h-full min-h-0">
+      <div className="flex min-w-0 flex-1 flex-col">
       {/* Top bar */}
       <div className="flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-3 border-b border-gray-200 bg-white h-14 flex-shrink-0 safe-area-x">
         <button
@@ -311,6 +362,21 @@ export default function ChatPage() {
           <Menu className="w-4 h-4" />
         </button>
         <div className="flex-1" />
+        <button
+          type="button"
+          onClick={() => setShowTaskAssistant((visible) => !visible)}
+          className={cn(
+            'inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-arabic transition',
+            showTaskAssistant
+              ? 'border-[#b8ddc7] bg-[#eef8f2] text-[#187b57]'
+              : 'border-gray-200 text-gray-500 hover:border-[#c9e2d3] hover:bg-[#f5faf7]',
+          )}
+          aria-expanded={showTaskAssistant}
+          aria-controls="thanarah-task-assistant"
+        >
+          <ListTodo className="h-3.5 w-3.5" />
+          مساعد المهام
+        </button>
         <span className="inline-flex items-center rounded-full bg-amber-50 border border-amber-200 px-2.5 py-1 text-[10px] sm:text-xs text-amber-800 font-arabic whitespace-nowrap" dir="rtl">
           نسخة تجريبية · اكتمال المشروع 100%
         </span>
@@ -382,6 +448,24 @@ export default function ChatPage() {
           dir="rtl"
         >
           <div className="flex items-center gap-1">
+            <input
+              ref={fileInputRef}
+              type="file"
+              className="hidden"
+              multiple
+              accept=".txt,.md,.markdown,.csv,.tsv,.json,.xml,.html,.htm,.log,.pdf,text/plain,text/csv,application/json,application/pdf"
+              onChange={handleFileSelected}
+            />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isExtractingFile}
+              className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-arabic text-gray-500 transition hover:bg-gray-100 hover:text-thanarah-700 disabled:cursor-wait disabled:opacity-60"
+              title="إرفاق ملف لتحليله"
+            >
+              {isExtractingFile ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Paperclip className="h-3.5 w-3.5" />}
+              إرفاق ملف
+            </button>
             <button
               type="button"
               onClick={() => { setInputMode('text'); setVoiceState('IDLE'); }}
@@ -502,6 +586,25 @@ export default function ChatPage() {
             </div>
           )}
 
+          {(attachments.length > 0 || attachmentError) && (
+            <div className="rounded-xl border border-gray-200 bg-white px-3 py-2" dir="rtl">
+              {attachments.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {attachments.map((file) => (
+                    <span key={file.name} className="inline-flex max-w-full items-center gap-1.5 rounded-lg bg-thanarah-50 px-2 py-1 text-[10px] text-thanarah-800">
+                      <FileText className="h-3 w-3 flex-shrink-0" />
+                      <span className="max-w-[170px] truncate font-arabic">{file.name}</span>
+                      <button type="button" onClick={() => removeAttachment(file.name)} className="rounded-full p-0.5 hover:bg-thanarah-100" aria-label={`إزالة ${file.name}`}>
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              {attachmentError && <p className="mt-1 text-[10px] text-red-600 font-arabic">{attachmentError}</p>}
+            </div>
+          )}
+
           <div className="flex w-full items-end gap-3">
             <textarea
               ref={textareaRef}
@@ -528,7 +631,7 @@ export default function ChatPage() {
               )}
               <button
                 onClick={() => handleSend()}
-                disabled={!input.trim()}
+                disabled={!input.trim() && attachments.length === 0}
                 className="w-8 h-8 flex items-center justify-center bg-thanarah-700 hover:bg-thanarah-600 disabled:bg-gray-200 rounded-lg transition disabled:cursor-not-allowed"
                 title="إرسال رسالة جديدة"
               >
@@ -541,6 +644,16 @@ export default function ChatPage() {
           ثنارة AI قد يرتكب أخطاء. تحقق من المعلومات المهمة.
         </p>
       </div>
+      </div>
+      {showTaskAssistant && (
+        <div id="thanarah-task-assistant" className="absolute inset-0 z-20 lg:static lg:inset-auto">
+          <TaskAssistantPanel
+            storageKey={`thanarah-assistant-tasks:${(user as any)?._id || (user as any)?.id || 'current'}`}
+            onClose={() => setShowTaskAssistant(false)}
+            onAskAboutTask={askAboutTask}
+          />
+        </div>
+      )}
     </div>
   );
 }
