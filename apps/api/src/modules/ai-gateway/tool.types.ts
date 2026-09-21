@@ -39,6 +39,7 @@ export interface ToolExecutionContext {
   userId: string;
   conversationId: string;
   requestId: string;
+  timezone?: string;
   role?: string;
   permissions: string[];
   isApiKeyAuth: boolean;
@@ -50,6 +51,7 @@ export interface ToolResultMetadata {
   retrievedAt: string;
   requestId: string;
   testData?: true;
+  resolvedArguments?: Record<string, unknown>;
 }
 
 export interface ToolResult {

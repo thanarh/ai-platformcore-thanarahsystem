@@ -10,8 +10,9 @@ const objectSchema = (
   additionalProperties: false,
 });
 
-const emptyOutput = objectSchema({
-  data: { type: 'object', additionalProperties: true },
+const objectOutput = (): JsonSchema => ({
+  type: 'object',
+  additionalProperties: true,
 });
 
 export const TOOL_CONTRACTS: readonly ToolContract[] = [
@@ -31,7 +32,7 @@ export const TOOL_CONTRACTS: readonly ToolContract[] = [
       },
       ['date'],
     ),
-    outputSchema: emptyOutput,
+    outputSchema: objectOutput(),
     requiredPermissions: ['appointments.read'],
     tenantScoped: true,
     userScoped: true,
@@ -47,7 +48,7 @@ export const TOOL_CONTRACTS: readonly ToolContract[] = [
       specialty: { type: 'string', minLength: 1 },
       active: { type: 'boolean' },
     }),
-    outputSchema: emptyOutput,
+    outputSchema: objectOutput(),
     requiredPermissions: ['doctors.read'],
     tenantScoped: true,
     userScoped: true,
@@ -63,7 +64,7 @@ export const TOOL_CONTRACTS: readonly ToolContract[] = [
       category: { type: 'string', minLength: 1 },
       active: { type: 'boolean' },
     }),
-    outputSchema: emptyOutput,
+    outputSchema: objectOutput(),
     requiredPermissions: ['services.read'],
     tenantScoped: true,
     userScoped: true,
@@ -79,7 +80,7 @@ export const TOOL_CONTRACTS: readonly ToolContract[] = [
       { date: { type: 'string', format: 'date' } },
       ['date'],
     ),
-    outputSchema: emptyOutput,
+    outputSchema: objectOutput(),
     requiredPermissions: ['working_hours.read'],
     tenantScoped: true,
     userScoped: true,
@@ -95,7 +96,7 @@ export const TOOL_CONTRACTS: readonly ToolContract[] = [
       provider: { type: 'string', minLength: 1 },
       planId: { type: 'string', minLength: 1 },
     }),
-    outputSchema: emptyOutput,
+    outputSchema: objectOutput(),
     requiredPermissions: ['insurance.read'],
     tenantScoped: true,
     userScoped: true,
@@ -113,7 +114,7 @@ export const TOOL_CONTRACTS: readonly ToolContract[] = [
         enum: ['general', 'contact', 'location', 'policies'],
       },
     }),
-    outputSchema: emptyOutput,
+    outputSchema: objectOutput(),
     requiredPermissions: ['clinic.read'],
     tenantScoped: true,
     userScoped: true,

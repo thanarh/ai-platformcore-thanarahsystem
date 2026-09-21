@@ -22,3 +22,13 @@ and verified before benchmarking. Treat a live JSON probe as dependency
 reachability only; verify search, fetch, extraction, citations, and SSE
 end-to-end before changing any production flag. Keep production disabled when
 the healthy-engine list is empty.
+
+Workflow environment flags require a full workflow restart to reach the AI
+Engine process; hot reload can keep the prior inherited value.
+
+**Why:** After changing the workflow from enabled to disabled, the running
+process continued reporting the old flag until the workflow was explicitly
+restarted.
+
+**How to apply:** Verify the runtime capabilities endpoint after every
+workflow environment change instead of relying on the configured command text.

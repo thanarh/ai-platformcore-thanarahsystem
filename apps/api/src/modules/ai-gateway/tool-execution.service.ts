@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { ToolAuditService } from './audit.service';
 import { MockThanarahCoreAdapter, ThanarahCoreAdapter, ToolExecutionError } from './adapters';
 import { ToolPermissionService } from './permission.service';
+import { CapabilityRoutingService } from './routing.service';
 import { ToolRegistryService } from './tool-registry.service';
 import { ToolValidationService } from './tool-validation.service';
 import {
@@ -25,6 +26,7 @@ export class ToolExecutionService {
     private readonly registry: ToolRegistryService,
     private readonly validator: ToolValidationService,
     private readonly permissions: ToolPermissionService,
+    private readonly routing: CapabilityRoutingService,
     private readonly audit: ToolAuditService,
     private readonly coreAdapter: ThanarahCoreAdapter,
     private readonly mockAdapter: MockThanarahCoreAdapter,
@@ -60,7 +62,8 @@ export class ToolExecutionService {
     }
 
     emit('tool_validating', 'pending');
-    const argumentErrors = this.validator.validateArguments(tool.inputSchema, request.arguments);
+    const normalizedArguments = this.normalizeArguments(request.arguments, context);
+    const argumentErrors = this.validator.validateArguments(tool.inputSchema, normalizedArguments);
     if (argumentErrors.length) {
       return this.fail(
         context,
@@ -112,7 +115,14 @@ export class ToolExecutionService {
     const adapter = this.selectAdapter();
     emit('tool_executing', 'pending');
     try {
-      const data = await adapter.execute(tool, request.arguments, context);
+      const data = await adapter.execute(tool, normalizedArguments, context);
+      const resultErrors = this.validator.validateResult(tool.outputSchema, data);
+      if (resultErrors.length) {
+        throw new ToolExecutionError(
+          'TOOL_INVALID_RESULT',
+          'Tool returned a result that does not match its output contract',
+        );
+      }
       const durationMs = Date.now() - started;
       const result: ToolResult = {
         success: true,
@@ -123,6 +133,7 @@ export class ToolExecutionService {
           retrievedAt: new Date().toISOString(),
           requestId: context.requestId,
           ...(adapter.source === 'mock_thanarah_core' ? { testData: true as const } : {}),
+          ...this.resolvedArgumentMetadata(request.arguments, normalizedArguments),
         },
       };
       this.audit.record({
@@ -157,6 +168,28 @@ export class ToolExecutionService {
     if (coreEnabled) return this.coreAdapter;
     if (mockEnabled) return this.mockAdapter;
     return new ThanarahCoreAdapter();
+  }
+
+  private normalizeArguments(
+    args: Record<string, unknown>,
+    context: ToolExecutionContext,
+  ): Record<string, unknown> {
+    const normalized = { ...args };
+    if (typeof normalized.date === 'string') {
+      normalized.date = this.routing.resolveCalendarDate(
+        normalized.date,
+        context.timezone || 'UTC',
+      );
+    }
+    return normalized;
+  }
+
+  private resolvedArgumentMetadata(
+    original: Record<string, unknown>,
+    normalized: Record<string, unknown>,
+  ): { resolvedArguments?: Record<string, unknown> } {
+    if (original.date === normalized.date) return {};
+    return { resolvedArguments: { date: normalized.date } };
   }
 
   private fail(

@@ -27,17 +27,32 @@ export class CapabilityRoutingService {
   resolveCalendarDate(value: string, timezone: string, now = new Date()): string {
     const normalized = value.trim().toLocaleLowerCase();
     if (!['tomorrow', 'بكرة', 'غداً', 'غدا'].includes(normalized)) return value;
-    const parts = new Intl.DateTimeFormat('en-CA', {
-      timeZone: timezone,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    })
-      .formatToParts(now)
-      .reduce<Record<string, string>>((result, part) => {
-        if (part.type !== 'literal') result[part.type] = part.value;
-        return result;
-      }, {});
+    let parts: Record<string, string>;
+    try {
+      parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone: timezone || 'UTC',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      })
+        .formatToParts(now)
+        .reduce<Record<string, string>>((result, part) => {
+          if (part.type !== 'literal') result[part.type] = part.value;
+          return result;
+        }, {});
+    } catch {
+      parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'UTC',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      })
+        .formatToParts(now)
+        .reduce<Record<string, string>>((result, part) => {
+          if (part.type !== 'literal') result[part.type] = part.value;
+          return result;
+        }, {});
+    }
     const date = new Date(
       Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day) + 1),
     );

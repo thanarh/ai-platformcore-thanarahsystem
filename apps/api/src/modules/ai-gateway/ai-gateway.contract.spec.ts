@@ -20,12 +20,14 @@ const validator = new ToolValidationService();
 const registry = new ToolRegistryService(validator);
 registry.onModuleInit();
 const permissions = new ToolPermissionService();
+const routing = new CapabilityRoutingService();
 const audit = new ToolAuditService();
 const execution = new ToolExecutionService(
   config,
   registry,
   validator,
   permissions,
+  routing,
   audit,
   new ThanarahCoreAdapter(),
   new MockThanarahCoreAdapter(),
@@ -39,7 +41,14 @@ const context: ToolExecutionContext = {
   requestId: 'request-a',
   permissions: ['appointments.read'],
   isApiKeyAuth: false,
+  timezone: 'Asia/Riyadh',
 };
+
+class MalformedMockAdapter extends MockThanarahCoreAdapter {
+  override async execute(): Promise<unknown> {
+    return [];
+  }
+}
 
 async function main() {
   assert.equal(registry.discover().length, 6);
@@ -50,6 +59,14 @@ async function main() {
   );
   assert.equal(valid.success, true);
   assert.equal(valid.metadata.source, 'mock_thanarah_core');
+
+  const relativeDate = await execution.execute(
+    { toolId: 'get_appointments', arguments: { date: 'tomorrow' } },
+    context,
+  );
+  assert.equal(relativeDate.success, true);
+  assert.equal(relativeDate.metadata.resolvedArguments?.date, '2026-09-22');
+  assert.equal((relativeDate.data as any).appointments[0].date, '2026-09-22');
 
   const invalid = await execution.execute(
     { toolId: 'get_appointments', arguments: { date: '21-09-2026' } },
@@ -70,6 +87,12 @@ async function main() {
   );
   assert.equal(unknownField.error?.code, 'TOOL_INVALID_ARGUMENTS');
 
+  const forgedUserField = await execution.execute(
+    { toolId: 'get_appointments', arguments: { date: '2026-09-21', userId: 'forged' } },
+    context,
+  );
+  assert.equal(forgedUserField.error?.code, 'TOOL_INVALID_ARGUMENTS');
+
   registry.disable('get_services');
   assert.equal(registry.discover().length, 5);
   const disabled = await execution.execute(
@@ -86,6 +109,7 @@ async function main() {
     registry,
     validator,
     permissions,
+    routing,
     audit,
     new ThanarahCoreAdapter(),
     new MockThanarahCoreAdapter(),
@@ -94,6 +118,27 @@ async function main() {
     context,
   );
   assert.equal(unavailable.error?.code, 'CORE_CONTRACT_UNAVAILABLE');
+
+  const malformedResult = await new ToolExecutionService(
+    config,
+    registry,
+    validator,
+    permissions,
+    routing,
+    audit,
+    new ThanarahCoreAdapter(),
+    new MalformedMockAdapter(),
+  ).execute(
+    { toolId: 'get_appointments', arguments: { date: '2026-09-21' } },
+    context,
+  );
+  assert.equal(malformedResult.error?.code, 'TOOL_INVALID_RESULT');
+
+  const apiKeyOwner = await execution.execute(
+    { toolId: 'get_doctors', arguments: {} },
+    { ...context, role: 'OWNER', isApiKeyAuth: true, permissions: [] },
+  );
+  assert.equal(apiKeyOwner.error?.code, 'TOOL_FORBIDDEN');
 
   const events: string[] = [];
   await execution.execute(
@@ -108,7 +153,6 @@ async function main() {
     'tool_completed',
   ]);
 
-  const routing = new CapabilityRoutingService();
   assert.equal(routing.decide('كم موعد عندي غدًا؟').route, 'thanarah_tool');
   assert.equal(routing.decide('ما آخر أخبار التقنية؟').route, 'web');
   assert.equal(routing.decide('اشرح API').route, 'local');

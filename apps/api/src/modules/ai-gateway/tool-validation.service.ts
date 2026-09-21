@@ -91,6 +91,10 @@ export class ToolValidationService {
     return errors;
   }
 
+  validateResult(schema: JsonSchema, value: unknown): string[] {
+    return this.validateArguments(schema, value, 'result');
+  }
+
   private isPlainObject(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
   }

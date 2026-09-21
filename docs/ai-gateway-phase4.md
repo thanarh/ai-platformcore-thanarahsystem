@@ -30,7 +30,7 @@ The following were not added:
 Authenticated Thanarah Intelligence request
                 |
                 v
-        AI Gateway Controller
+         AiGatewayService
                 |
                 v
           Tool Registry
@@ -51,8 +51,10 @@ Authenticated Thanarah Intelligence request
    (disabled/unavailable)  (local fixture only)
 ```
 
-The API module lives under `apps/api/src/modules/ai-gateway`. It is separate
-from the Python AI engine and does not give the model direct database access.
+The API module lives under `apps/api/src/modules/ai-gateway`. The controller is
+transport-only; `AiGatewayService` owns authenticated capability discovery,
+routing, context construction, and execution delegation. It is separate from
+the Python AI engine and does not give the model direct database access.
 The future Core adapter is the only intended integration boundary.
 
 ## Tool contracts
@@ -113,7 +115,7 @@ structured tool proposal
   -> permission check
   -> authenticated context validation
   -> adapter selection
-  -> structured result validation boundary
+   -> output schema validation
   -> audit record
 ```
 
@@ -215,9 +217,10 @@ Thanarah operational data -> thanarah_tool
 It does not execute a route or ask Qwen to call a tool. It only returns a
 capability decision for the future orchestrator.
 
-Relative dates such as “tomorrow” and “بكرة” are resolved using the supplied
-user timezone, not the server timezone. The resolved date is intended to be
-placed explicitly into a future structured tool request.
+Relative dates such as “tomorrow” and “بكرة” are resolved during execution
+using the authenticated user's timezone, not the server timezone. The
+normalized date is passed to the adapter and recorded as safe execution
+metadata.
 
 ## Streaming events
 
@@ -294,12 +297,15 @@ Executed:
 - AI Gateway contract tests: passed
 - six-tool registry discovery: passed
 - schema validation, required fields, date validation, and unknown fields: passed
+- output schema validation and malformed-result rejection: passed
 - permission allow/deny paths: passed
+- API-key privileged-role bypass rejection: passed
 - registry enable/disable: passed
 - mock structured result and explicit test-data marker: passed
 - missing Core contract failure: passed
 - routing local/web/Thanarah decisions: passed
 - user-timezone relative date resolution: passed
+- relative date normalization inside tool execution: passed
 - tool execution event sequence: passed
 - API unauthenticated Gateway requests return `401`: passed
 - API build: passed
@@ -314,6 +320,7 @@ The complete machine-readable record is in
 Added:
 
 - `apps/api/src/modules/ai-gateway/`
+- `apps/api/src/modules/ai-gateway/ai-gateway.service.ts`
 - `docs/ai-gateway-phase4.md`
 - `docs/ai-gateway-phase4-benchmark.json`
 
