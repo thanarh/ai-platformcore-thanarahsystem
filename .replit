@@ -45,7 +45,7 @@ outputType = "webview"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "WEB_SEARCH_ENABLED=true SEARXNG_URL=http://127.0.0.1:8080 bash start-dev.sh"
+args = "WEB_SEARCH_ENABLED=false SEARXNG_URL=http://127.0.0.1:8080 bash start-dev.sh"
 waitForPort = 5000
 
 [[ports]]

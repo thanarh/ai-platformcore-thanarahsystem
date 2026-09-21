@@ -264,7 +264,7 @@ class IntelligenceRouter:
             tenant_id=chat_request.tenantId,
             user_id=chat_request.userId,
         )
-        return await web_intelligence_pipeline.run(
+        result = await web_intelligence_pipeline.run(
             last_user_msg,
             tenant_id=chat_request.tenantId,
             user_id=chat_request.userId,
@@ -274,6 +274,9 @@ class IntelligenceRouter:
             region=chat_request.runtimeContext.get("region"),
             telemetry=telemetry,
         )
+        if telemetry is not None:
+            telemetry.set("webCategory", result.decision.category)
+        return result
 
     async def _load_context_sources(
         self,

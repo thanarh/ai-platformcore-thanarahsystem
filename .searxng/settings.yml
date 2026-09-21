@@ -2,6 +2,12 @@ use_default_settings:
   engines:
     keep_only:
       - wikipedia
+      - arxiv
+      - github
+      - stackoverflow
+      - wikidata
+      - duckduckgo
+      - duckduckgo news
 
 general:
   instance_name: "Thanarah Local SearXNG"
@@ -12,6 +18,7 @@ server:
   secret_key: "thanarah-local-development-searxng-key"
   image_proxy: false
   http_protocol_version: "1.1"
+  limiter: false
 
 search:
   safe_search: 1

@@ -6,11 +6,15 @@ from unittest.mock import patch
 import httpx
 
 from app.config import settings
-from app.web_intelligence.decision import decide_web
+from app.web_intelligence.decision import classify_search_category, decide_web
 from app.web_intelligence.extractor import extract_html
 from app.web_intelligence.fetcher import FetchedPage, SafeHTTPFetcher, UnsafeURL, validate_public_url
 from app.web_intelligence.pipeline import WebIntelligencePipeline
-from app.web_intelligence.search import SearXNGClient
+from app.web_intelligence.search import (
+    SearXNGClient,
+    filter_and_score_results,
+    select_diverse_results,
+)
 
 
 class WebIntelligencePhase3Tests(unittest.IsolatedAsyncioTestCase):
@@ -25,6 +29,27 @@ class WebIntelligencePhase3Tests(unittest.IsolatedAsyncioTestCase):
             enabled = decide_web("ابحث عن آخر أخبار التقنية اليوم")
         self.assertTrue(enabled.use_web)
         self.assertEqual(enabled.reason, "web_signal_detected")
+
+    def test_category_selection_is_deterministic(self):
+        self.assertEqual(classify_search_category("آخر أخبار التقنية اليوم"), "news")
+        self.assertEqual(classify_search_category("ابحث عن توثيق FastAPI"), "documentation")
+        self.assertEqual(classify_search_category("ابحث عن مقارنة REST و GraphQL"), "technical")
+        self.assertEqual(classify_search_category("ابحث عن متحف في الرياض"), "general")
+
+    def test_search_results_are_deduplicated_and_diversified(self):
+        from app.web_intelligence.search import SearchResult
+
+        results = filter_and_score_results("Python", [
+            SearchResult("A", "https://a.example/page?b=2&a=1#top", "Python docs", "a", 2),
+            SearchResult("A duplicate", "https://a.example/page?a=1&b=2", "Python docs", "a", 1),
+            SearchResult("B", "https://b.example/page", "Python guide", "b", 3),
+        ])
+        selected = select_diverse_results(results, 2)
+        self.assertEqual(len(selected), 2)
+        self.assertEqual(
+            {item.url.split("/")[2] for item in selected},
+            {"a.example", "b.example"},
+        )
 
     def test_extractor_removes_noise_and_keeps_metadata(self):
         html = b"""

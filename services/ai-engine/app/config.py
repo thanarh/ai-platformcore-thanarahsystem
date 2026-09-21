@@ -82,6 +82,12 @@ class Settings(BaseSettings):
     web_fetch_retries: int = 1
     web_fetch_user_agent: str = "ThanarahLocalWebIntelligence/1.0"
     web_safe_search: int = 1
+    # Comma-separated SearXNG engine ids. They are candidates only; the
+    # capability probe must verify them before the search path uses them.
+    web_search_engines: str = "wikipedia,arxiv,github,stackoverflow,wikidata,duckduckgo,duckduckgo news"
+    web_search_blocked_domains: str = ""
+    web_search_capability_cache_seconds: int = 60
+    web_max_domains: int = 3
 
     # Local embeddings for semantic RAG. Sentence Transformers is optional;
     # the service falls back to deterministic hashing embeddings automatically.
