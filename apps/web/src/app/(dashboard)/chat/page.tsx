@@ -2,230 +2,193 @@
 
 export const dynamic = 'force-dynamic';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import {
-  ArrowLeft,
+  ChevronDown,
   FileText,
+  Globe2,
+  Lightbulb,
   MessageSquare,
   Mic,
-  ShieldCheck,
-  SlidersHorizontal,
+  Paperclip,
+  Search,
+  Send,
   Sparkles,
-  Wand2,
-  X,
-  Zap,
 } from 'lucide-react';
-import { ThanarahIcon } from '@/components/ThanarahLogo';
-import { useChatStore } from '@/store/chat';
 import { useRouter } from 'next/navigation';
-import { aiApi, contextProfilesApi, conversationsApi } from '@/lib/api';
+import { ThanarahIcon } from '@/components/ThanarahLogo';
+import { useAuthStore } from '@/store/auth';
+import { useChatStore } from '@/store/chat';
+import { conversationsApi } from '@/lib/api';
+
+const shortcuts = [
+  {
+    title: 'تحليل مستند',
+    description: 'ارفع ملفًا واحصل على ملخص',
+    icon: FileText,
+    iconClass: 'bg-[#e9f8f0] text-[#17815b]',
+  },
+  {
+    title: 'البحث في الإنترنت',
+    description: 'معلومات محدثة من مصادر موثوقة',
+    icon: Globe2,
+    iconClass: 'bg-[#f1eaff] text-[#7548dc]',
+  },
+  {
+    title: 'مساعدة في الكتابة',
+    description: 'محتوى احترافي وسريع',
+    icon: Sparkles,
+    iconClass: 'bg-[#e7f2ff] text-[#3289dc]',
+  },
+  {
+    title: 'أفكار ومقترحات',
+    description: 'لتحسين عملك وإنتاجيتك',
+    icon: Lightbulb,
+    iconClass: 'bg-[#fff8e6] text-[#dca726]',
+  },
+];
 
 export default function ChatHomePage() {
   const router = useRouter();
+  const { user } = useAuthStore();
   const { setActiveConversation, addConversation } = useChatStore();
-  const [personalization, setPersonalization] = useState<any>(null);
-  const [loadingProfile, setLoadingProfile] = useState(true);
-  const [skills, setSkills] = useState<any[]>([]);
-
-  useEffect(() => {
-    contextProfilesApi.suggestions()
-      .then(setPersonalization)
-      .catch(() => setPersonalization({ mode: 'welcome', isNewUser: true, suggestions: [] }))
-      .finally(() => setLoadingProfile(false));
-  }, []);
-
-  useEffect(() => {
-    aiApi.skills()
-      .then((payload) => setSkills(payload?.skills || []))
-      .catch(() => setSkills([]));
-  }, []);
+  const [input, setInput] = useState('');
 
   const startChat = async (prompt?: string) => {
     const conv = await conversationsApi.create();
     addConversation(conv);
     setActiveConversation(conv._id);
-    router.push(prompt ? `/chat/${conv._id}?prompt=${encodeURIComponent(prompt)}` : `/chat/${conv._id}`);
+    router.push(prompt?.trim()
+      ? `/chat/${conv._id}?prompt=${encodeURIComponent(prompt.trim())}`
+      : `/chat/${conv._id}`);
   };
 
-  const readySkills = skills.filter(
-    (skill) => skill.enabled && skill.implementationStatus !== 'contract-only',
-  );
-  const toolIcons: Record<string, any> = {
-    summarize: FileText,
-    write: Wand2,
+  const handleSubmit = () => {
+    if (input.trim()) void startChat(input);
   };
-  const visibleSkills = (readySkills.length
-    ? readySkills
-    : [
-        { id: 'summarize', name: 'تلخيص', description: 'تلخيص النصوص والمحادثات' },
-        { id: 'write', name: 'كتابة', description: 'كتابة وإعادة صياغة النصوص' },
-      ]
-  ).slice(0, 2);
-  const prompts = personalization?.mode === 'personalized' && personalization?.suggestions?.length
-    ? personalization.suggestions.slice(0, 4)
-    : ['لخّص هذا النص لي', 'اكتب لي مسودة احترافية', 'حلّل هذه الفكرة', 'ساعدني في تنظيم يومي'];
+
+  const initials = `${user?.firstName?.[0] || 'T'}${user?.lastName?.[0] || 'A'}`;
+  const displayName = `${user?.firstName || 'Thanarah'} ${user?.lastName || 'Admin'}`;
 
   return (
-    <div className="flex-1 overflow-y-auto bg-[#f7faf8] px-3 py-3.5" dir="rtl">
-      <div className="mx-auto max-w-[780px]">
-        <header className="flex flex-col items-center text-center">
-          <div className="flex items-center gap-2">
-            <ThanarahIcon className="h-7 w-7" size={28} />
-            <p className="font-arabic text-[10px] font-bold tracking-[0.12em] text-[#397862]">
-              THANARAH INTELLIGENCE
-            </p>
+    <div className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-[#f8fbfc]" dir="rtl">
+      <header className="relative z-20 flex h-[76px] flex-shrink-0 items-center justify-between px-6 sm:px-8" dir="ltr">
+        <div className="flex items-center gap-3" dir="ltr">
+          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#1f7659] text-[11px] font-semibold text-white">
+            {initials}
           </div>
-          <p className="font-arabic -mt-1 text-[10px] text-[#9aaaa2]">مساحة عملك الذكية</p>
-        </header>
+          <div className="leading-tight">
+            <p className="text-[12px] font-semibold text-[#17232c]">{displayName}</p>
+            <p className="mt-1 text-[10px] text-[#6f7c84]">{user?.email || 'admin@ai.thanarah.com'}</p>
+          </div>
+        </div>
+        <button
+          type="button"
+          className="flex h-9 w-9 items-center justify-center rounded-xl border border-[#e5ebee] bg-white/80 text-[#46535d] shadow-[0_3px_12px_rgba(38,71,87,0.05)] transition hover:bg-white"
+          aria-label="بحث"
+        >
+          <Search className="h-4 w-4" />
+        </button>
+      </header>
 
-        <section className="mt-4 rounded-[22px] bg-gradient-to-br from-[#16885d] via-[#309e6d] to-[#79c99c] px-5 py-4 text-white shadow-[0_14px_28px_-18px_rgba(22,136,93,0.65)] sm:px-7 sm:py-6">
-          <div className="font-arabic flex items-center justify-start gap-1.5 text-[9px] text-white/90">
-            <span>مساحة العمل جاهزة</span>
-            <Sparkles className="h-3 w-3" />
-          </div>
-          <div className="mt-5 text-center">
-            <h1 className="font-arabic text-[21px] font-bold leading-8 sm:text-3xl">
-              {personalization?.mode === 'personalized'
-                ? 'ماذا تريد أن ننجز اليوم؟'
-                : 'مرحبًا بك في ذكاء Thanarah'}
+      <main className="relative z-10 flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-5 pb-28 sm:px-8">
+        <div className="w-full max-w-[660px] pt-3 sm:pt-5">
+          <section className="flex flex-col items-center text-center">
+            <div className="flex h-[66px] w-[66px] items-center justify-center rounded-[19px] bg-white shadow-[0_10px_26px_rgba(57,112,95,0.12)]">
+              <ThanarahIcon size={40} className="h-10 w-10" />
+            </div>
+            <h1 className="font-arabic mt-5 text-[30px] font-bold leading-[1.45] tracking-[-0.04em] text-[#17232c] sm:text-[37px]">
+              مرحبًا بك في <span className="text-[#157855]">ثنارة AI</span>
             </h1>
-            <p className="font-arabic mx-auto mt-1 max-w-[620px] text-[10px] leading-6 text-white/85 sm:text-sm">
-              تحدث مع نفس الذكاء في الكتابة والصوت، واختر الأداة المناسبة من داخل المحادثة بدون تشتيت.
+            <p className="font-arabic mt-1.5 text-[14px] text-[#69767e] sm:text-[16px]">
+              مساعدك الذكي للعمل، المعرفة، والتحليل.
             </p>
-          </div>
-          <div className="mt-4 flex items-center justify-center gap-2">
-            <button
-              onClick={() => startChat()}
-              className="font-arabic inline-flex h-9 items-center gap-1.5 rounded-lg bg-white px-3.5 text-[10px] font-semibold text-[#1a6e4b] shadow-sm transition hover:bg-[#f1fff6]"
-            >
-              <MessageSquare className="h-3.5 w-3.5" />
-              ابدأ محادثة
-              <ArrowLeft className="h-3 w-3" />
-            </button>
-            <button
-              onClick={() => startChat('أريد أن أستخدم الصوت في هذه المحادثة')}
-              className="font-arabic inline-flex h-9 items-center gap-1.5 rounded-lg border border-white/20 bg-white/10 px-3.5 text-[10px] text-white transition hover:bg-white/15"
-            >
-              <Mic className="h-3.5 w-3.5" />
-              جرّب الصوت
-            </button>
-          </div>
-        </section>
+          </section>
 
-        <section className="mt-3 grid gap-3">
-          <div className="relative rounded-[15px] border border-[#e1e9e4] bg-white px-4 py-3.5 shadow-[0_3px_12px_rgba(31,72,50,0.04)]">
-            <span className="font-arabic absolute left-4 top-3.5 text-[9px] text-[#3a9a70]">متصل</span>
-            <div className="rounded-lg bg-[#eff9f2] p-2 text-[#388c68]">
-              <ShieldCheck className="h-4 w-4" />
-            </div>
-            <div className="mt-2 text-right">
-              <h2 className="font-arabic text-[12px] font-bold text-[#26342d]">ذكاء مؤسستك</h2>
-              <p className="font-arabic mt-1 text-[9px] leading-5 text-[#87948e]">
-                السياق والتخصيص يعملان داخل نفس مساحة المحادثة.
-              </p>
-            </div>
-          </div>
-          <div className="relative rounded-[15px] border border-[#e1e9e4] bg-white px-4 py-3.5 shadow-[0_3px_12px_rgba(31,72,50,0.04)]">
-            <span className="font-arabic absolute left-4 top-3.5 text-[9px] text-[#a9b2ad]">محلي</span>
-            <div className="rounded-lg bg-[#fff9eb] p-2 text-[#dfa93e]">
-              <Zap className="h-4 w-4" />
-            </div>
-            <div className="mt-2 text-right">
-              <h2 className="font-arabic text-[12px] font-bold text-[#26342d]">استجابة محلية</h2>
-              <p className="font-arabic mt-1 text-[9px] leading-5 text-[#87948e]">
-                يعمل الذكاء المحلي بدون تبديل نموذج أو مسار محادثة.
-              </p>
-            </div>
-          </div>
-        </section>
-
-        <section className="mt-3 rounded-[15px] border border-[#e1e9e4] bg-white p-3.5 shadow-[0_3px_12px_rgba(31,72,50,0.04)]">
-          <div className="flex items-start justify-between">
-            <div className="text-right">
-              <h2 className="font-arabic text-[12px] font-bold text-[#26342d]">ابدأ من هنا</h2>
-              <p className="font-arabic mt-0.5 text-[9px] text-[#96a19c]">أسئلة سريعة تفتح محادثة جديدة.</p>
-            </div>
-            <MessageSquare className="mt-0.5 h-4 w-4 text-[#4a9f7a]" />
-          </div>
-          <div className="mt-3 grid gap-1.5">
-            {prompts.map((prompt: string) => (
+          <section className="mt-7">
+            <div className="flex min-h-[62px] items-center gap-2 rounded-[17px] border border-[#edf1f2] bg-white px-3 py-2 shadow-[0_8px_26px_rgba(40,75,91,0.08)]" dir="rtl">
               <button
-                key={prompt}
-                onClick={() => startChat(prompt)}
-                className="font-arabic flex h-8 items-center justify-between rounded-lg bg-[#f7f9fa] px-2.5 text-[9px] text-[#65716c] transition hover:bg-[#f0f8f3]"
+                type="button"
+                onClick={handleSubmit}
+                disabled={!input.trim()}
+                className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-[#16815b] text-white transition hover:bg-[#116e4d] disabled:cursor-not-allowed disabled:bg-[#dce9e4]"
+                aria-label="إرسال الرسالة"
               >
-                <span>{prompt}</span>
-                <ArrowLeft className="h-3 w-3 text-[#b0b9b5]" />
+                <Send className="h-[18px] w-[18px]" />
+              </button>
+              <textarea
+                value={input}
+                onChange={(event) => setInput(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && !event.shiftKey) {
+                    event.preventDefault();
+                    handleSubmit();
+                  }
+                }}
+                placeholder="اكتب رسالتك هنا..."
+                rows={1}
+                className="min-h-[40px] flex-1 resize-none bg-transparent px-2 py-2.5 text-right text-[13px] text-[#2b3940] outline-none placeholder:text-[#8e989e] font-arabic"
+                aria-label="رسالتك"
+              />
+              <div className="flex flex-shrink-0 items-center gap-1" dir="ltr">
+                <button
+                  type="button"
+                  onClick={() => void startChat()}
+                  className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#f8fafb] text-[#69767e] transition hover:bg-[#eef5f2] hover:text-[#16815b]"
+                  aria-label="إرفاق ملف"
+                  title="إرفاق ملف من داخل المحادثة"
+                >
+                  <Paperclip className="h-[18px] w-[18px]" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void startChat()}
+                  className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#f8fafb] text-[#69767e] transition hover:bg-[#eef5f2] hover:text-[#16815b]"
+                  aria-label="استخدام الصوت"
+                  title="استخدام الصوت من داخل المحادثة"
+                >
+                  <Mic className="h-[18px] w-[18px]" />
+                </button>
+              </div>
+            </div>
+          </section>
+
+          <section className="mt-6 grid grid-cols-2 gap-2.5 sm:grid-cols-4 sm:gap-2.5" dir="ltr">
+            {shortcuts.map(({ title, description, icon: Icon, iconClass }) => (
+              <button
+                key={title}
+                type="button"
+                onClick={() => void startChat(title)}
+                className="flex min-h-[121px] flex-col items-center rounded-[15px] border border-[#edf1f2] bg-white px-2.5 py-4 text-center shadow-[0_4px_15px_rgba(40,75,91,0.035)] transition hover:-translate-y-0.5 hover:border-[#cde8dc] hover:shadow-[0_8px_22px_rgba(40,110,82,0.1)]"
+                dir="rtl"
+              >
+                <span className={`flex h-10 w-10 items-center justify-center rounded-xl ${iconClass}`}>
+                  <Icon className="h-[21px] w-[21px]" strokeWidth={1.8} />
+                </span>
+                <span className="font-arabic mt-3 text-[12px] font-bold text-[#202d35]">{title}</span>
+                <span className="font-arabic mt-1 text-[9px] leading-4 text-[#7f8b91]">{description}</span>
               </button>
             ))}
-          </div>
-        </section>
-
-        <section className="mt-3 rounded-[15px] border border-[#e1e9e4] bg-white p-3.5 shadow-[0_3px_12px_rgba(31,72,50,0.04)]">
-          <div className="flex items-start justify-between gap-3">
-            <button
-              onClick={() => startChat()}
-              className="font-arabic inline-flex h-7 items-center gap-1 rounded-lg bg-[#172532] px-2.5 text-[9px] text-white transition hover:bg-[#253744]"
-            >
-              فتح المحادثة
-              <ArrowLeft className="h-3 w-3" />
-            </button>
-            <div className="text-right">
-              <h2 className="font-arabic text-[12px] font-bold text-[#26342d]">الأدوات</h2>
-              <p className="font-arabic mt-0.5 text-[9px] text-[#96a19c]">الأدوات المتاحة تظهر أولًا داخل المحادثة.</p>
-            </div>
-          </div>
-          <div className="mt-3 grid gap-1.5 sm:grid-cols-2">
-            {visibleSkills.map((skill) => {
-              const Icon = toolIcons[skill.id] || Wand2;
-              return (
-                <div key={skill.id} className="flex items-center gap-2 rounded-lg border border-[#d8f1e2] bg-[#f0fbf5] px-2 py-2">
-                  <span className="rounded-md bg-white p-1.5 text-[#509578]">
-                    <Icon className="h-3.5 w-3.5" />
-                  </span>
-                  <div className="min-w-0 flex-1 text-right">
-                    <p className="font-arabic text-[10px] font-bold text-[#40554b]">{skill.name}</p>
-                    <p className="font-arabic mt-0.5 truncate text-[8px] text-[#8b9b93]">{skill.description}</p>
-                  </div>
-                  <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-[#25b77b]" />
-                </div>
-              );
-            })}
-          </div>
-        </section>
-
-        {!loadingProfile && personalization?.isNewUser && !personalization?.profile?.onboardingDismissed && (
-          <section className="font-arabic mt-3 flex items-center justify-between gap-3 rounded-[15px] border border-[#d8eee1] bg-[#eef9f2] px-3.5 py-3.5">
-            <div className="min-w-0 text-right">
-              <h2 className="text-[11px] font-bold text-[#3e5b4d]">خصّص مساحة العمل</h2>
-              <p className="mt-1 text-[8px] leading-5 text-[#779084]">
-                اختر المجال وأسلوب الرد والمهام التي تريدها من ثنارة.
-              </p>
-            </div>
-            <div className="flex flex-shrink-0 items-center gap-2">
-              <button
-                onClick={() => router.push('/settings/intelligence')}
-                className="rounded-lg bg-[#20794f] px-2.5 py-2 text-[9px] font-semibold text-white transition hover:bg-[#176d46]"
-              >
-                تخصيص الآن
-              </button>
-              <button
-                onClick={() => {
-                  contextProfilesApi.update({ onboardingDismissed: true }).catch(() => {});
-                  setPersonalization((current: any) => ({
-                    ...current,
-                    profile: { ...(current?.profile || {}), onboardingDismissed: true },
-                  }));
-                }}
-                className="flex items-center gap-0.5 text-[9px] text-[#8b9891]"
-              >
-                <X className="h-3 w-3" />
-                لاحقًا
-              </button>
-            </div>
-            <SlidersHorizontal className="h-4 w-4 flex-shrink-0 text-[#4c9d78]" />
           </section>
-        )}
+
+          <button
+            type="button"
+            className="font-arabic mx-auto mt-8 flex items-center gap-1 text-[11px] text-[#74828a] transition hover:text-[#16815b]"
+            onClick={() => void startChat()}
+          >
+            مزيد من القدرات
+            <ChevronDown className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </main>
+
+      <div className="pointer-events-none absolute bottom-[-90px] left-[-110px] z-0 h-[255px] w-[72%] rotate-[-7deg] rounded-[50%] border-t border-[#dceced] bg-[#edf5f6]/90 sm:h-[300px]" />
+      <div className="pointer-events-none absolute bottom-[-125px] left-[-55px] z-0 h-[230px] w-[68%] rotate-[8deg] rounded-[50%] border-t border-[#d5e8ea] bg-[#e5f0f1]/80" />
+      <div className="pointer-events-none absolute bottom-[-170px] left-[17%] z-0 h-[225px] w-[58%] rotate-[-5deg] rounded-[50%] border-t border-[#d7e8e9] bg-[#f0f6f7]/90" />
+      <div className="pointer-events-none absolute bottom-6 left-8 z-10 hidden text-left sm:block" dir="ltr">
+        <p className="text-[13px] font-medium leading-4 text-[#26353d]">Think Smarter</p>
+        <p className="text-[13px] font-medium leading-4 text-[#26353d]">Work Better</p>
+        <span className="mt-2 block h-0.5 w-5 bg-[#20775a]" />
       </div>
     </div>
   );

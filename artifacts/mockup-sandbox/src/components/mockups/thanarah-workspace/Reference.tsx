@@ -1,143 +1,143 @@
 import './_group.css';
 import {
-  ArrowLeft,
+  BookOpen,
+  ChevronDown,
+  ChevronLeft,
   FileText,
+  Globe2,
+  Grid2X2,
+  HelpCircle,
+  KeyRound,
+  Lightbulb,
+  LogOut,
   MessageSquare,
   Mic,
-  ShieldCheck,
-  SlidersHorizontal,
+  Paperclip,
+  Plus,
+  Search,
+  Send,
+  Settings,
   Sparkles,
-  Wand2,
-  X,
-  Zap,
 } from 'lucide-react';
 
-function Mark() {
+const shortcuts = [
+  { title: 'تحليل مستند', description: 'ارفع ملفًا واحصل على ملخص', icon: FileText, color: 'bg-[#e9f8f0] text-[#17815b]' },
+  { title: 'البحث في الإنترنت', description: 'معلومات محدثة من مصادر موثوقة', icon: Globe2, color: 'bg-[#f1eaff] text-[#7548dc]' },
+  { title: 'مساعدة في الكتابة', description: 'محتوى احترافي وسريع', icon: Sparkles, color: 'bg-[#e7f2ff] text-[#3289dc]' },
+  { title: 'أفكار ومقترحات', description: 'لتحسين عملك وإنتاجيتك', icon: Lightbulb, color: 'bg-[#fff8e6] text-[#dca726]' },
+];
+
+function Sidebar() {
+  const items = [
+    { label: 'المحادثات', icon: MessageSquare, active: true },
+    { label: 'البحث في الإنترنت', icon: Globe2 },
+    { label: 'أدوات AI', icon: Grid2X2 },
+    { label: 'مفاتيح API', icon: KeyRound },
+    { label: 'قاعدة المعرفة', icon: BookOpen },
+    { label: 'الإعدادات', icon: Settings },
+  ];
+
   return (
-    <div className="relative h-7 w-7">
-      <div className="absolute left-[34%] top-0 h-[44%] w-[36%] rounded-full bg-[#17855b]" />
-      <div className="absolute left-0 top-[32%] h-[42%] w-[42%] rounded-full bg-[#2aa36f]" />
-      <div className="absolute right-0 top-[36%] h-[42%] w-[42%] rounded-full bg-[#7bcba0]" />
-      <div className="absolute left-[35%] top-[45%] h-[25%] w-[25%] rounded-full bg-[#dbf3e5]" />
-    </div>
+    <aside className="flex h-full w-[204px] flex-shrink-0 flex-col border-l border-[#edf0f1] bg-[#fbfcfc] p-2.5" dir="rtl">
+      <div className="flex h-[58px] items-center justify-between border-b border-[#eff2f2] px-1">
+        <div className="flex items-center gap-2">
+          <div className="relative h-8 w-8">
+            <span className="absolute left-[34%] top-0 h-[45%] w-[36%] rounded-full bg-[#16845b]" />
+            <span className="absolute left-0 top-[32%] h-[42%] w-[42%] rounded-full bg-[#2aa36f]" />
+            <span className="absolute right-0 top-[36%] h-[42%] w-[42%] rounded-full bg-[#7bcba0]" />
+            <span className="absolute left-[35%] top-[45%] h-[25%] w-[25%] rounded-full bg-[#dbf3e5]" />
+          </div>
+          <div className="font-arabic text-right leading-none">
+            <p className="text-[15px] font-bold text-[#1d7658]">ثنارة</p>
+            <p className="mt-1 text-[6px] tracking-[0.22em] text-[#64726e]">THANARAH AI</p>
+          </div>
+        </div>
+        <ChevronLeft className="h-4 w-4 text-[#26363e]" />
+      </div>
+      <button className="font-arabic mt-3 flex h-11 items-center justify-between rounded-xl bg-[#187b57] px-3 text-[12px] text-white">
+        <Plus className="h-5 w-5" />
+        <span>محادثة جديدة</span>
+        <MessageSquare className="h-[18px] w-[18px]" />
+      </button>
+      <nav className="mt-3 space-y-0.5">
+        {items.map(({ label, icon: Icon, active }) => (
+          <div key={label} className={`font-arabic flex items-center gap-3 rounded-lg px-2.5 py-2.5 text-[11px] ${active ? 'bg-[#eef7f2] text-[#167854]' : 'text-[#53616a]'}`}>
+            <Icon className="h-[18px] w-[18px]" strokeWidth={1.7} />
+            {label}
+          </div>
+        ))}
+      </nav>
+      <div className="mt-auto border-t border-[#e8eded] pt-2">
+        <div className="font-arabic flex items-center gap-3 rounded-lg px-2.5 py-2.5 text-[11px] text-[#59656c]"><HelpCircle className="h-[18px] w-[18px]" />المساعدة</div>
+        <div className="font-arabic flex items-center gap-3 rounded-lg px-2.5 py-2.5 text-[11px] text-[#59656c]"><LogOut className="h-[18px] w-[18px]" />تسجيل الخروج</div>
+        <div className="font-arabic mt-2 rounded-xl bg-[#f3f8f7] px-2 py-3 text-center">
+          <p className="text-[12px] font-bold text-[#1e2b32]">Thanarah AI</p>
+          <p className="mt-1 text-[8px] text-[#78868b]">ذكاء عملي لنتائج حقيقية</p>
+        </div>
+      </div>
+    </aside>
   );
 }
 
 export function Reference() {
-  const prompts = ['لخّص هذا النص لي', 'اكتب لي مسودة احترافية', 'حلّل هذه الفكرة', 'ساعدني في تنظيم يومي'];
-  const tools = [
-    { icon: FileText, title: 'تلخيص', description: 'تلخيص النصوص والمحادثات' },
-    { icon: Wand2, title: 'كتابة', description: 'كتابة وإعادة صياغة النصوص' },
-  ];
-
   return (
-    <main className="min-h-screen bg-[#f7faf8] px-3 py-3.5" dir="rtl">
-      <div className="mx-auto max-w-[780px]">
-        <header className="flex flex-col items-center text-center">
-          <div className="flex items-center gap-2">
-            <Mark />
-            <p className="font-arabic text-[10px] font-bold tracking-[0.12em] text-[#397862]">THANARAH INTELLIGENCE</p>
+    <main className="flex min-h-screen overflow-hidden bg-[#f8fbfc]" dir="rtl">
+      <Sidebar />
+      <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
+        <header className="relative z-10 flex h-[68px] flex-shrink-0 items-center justify-between px-7" dir="ltr">
+          <div className="flex items-center gap-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#1f7659] text-[10px] text-white">TA</div>
+            <div className="leading-tight">
+              <p className="text-[11px] font-semibold text-[#17232c]">Thanarah Admin</p>
+              <p className="mt-1 text-[8px] text-[#6f7c84]">admin@ai.thanarah.com</p>
+            </div>
           </div>
-          <p className="font-arabic -mt-1 text-[10px] text-[#9aaaa2]">مساحة عملك الذكية</p>
+          <div className="flex h-8 w-8 items-center justify-center rounded-xl border border-[#e5ebee] bg-white text-[#46535d]"><Search className="h-3.5 w-3.5" /></div>
         </header>
 
-        <section className="mt-4 rounded-[22px] bg-gradient-to-br from-[#16885d] via-[#309e6d] to-[#79c99c] px-5 py-4 text-white shadow-[0_14px_28px_-18px_rgba(22,136,93,0.65)] sm:px-7 sm:py-6">
-          <div className="font-arabic flex items-center justify-start gap-1.5 text-[9px] text-white/90">
-            <span>مساحة العمل جاهزة</span>
-            <Sparkles className="h-3 w-3" />
-          </div>
-          <div className="mt-5 text-center">
-            <h1 className="font-arabic text-[21px] font-bold leading-8 sm:text-3xl">مرحبًا بك في ذكاء Thanarah</h1>
-            <p className="font-arabic mx-auto mt-1 max-w-[620px] text-[10px] leading-6 text-white/85 sm:text-sm">
-              تحدث مع نفس الذكاء في الكتابة والصوت، واختر الأداة المناسبة من داخل المحادثة بدون تشتيت.
-            </p>
-          </div>
-          <div className="mt-4 flex items-center justify-center gap-2">
-            <button className="font-arabic inline-flex h-9 items-center gap-1.5 rounded-lg bg-white px-3.5 text-[10px] font-semibold text-[#1a6e4b] shadow-sm transition hover:bg-[#f1fff6]">
-              <MessageSquare className="h-3.5 w-3.5" />
-              ابدأ محادثة
-              <ArrowLeft className="h-3 w-3" />
-            </button>
-            <button className="font-arabic inline-flex h-9 items-center gap-1.5 rounded-lg border border-white/20 bg-white/10 px-3.5 text-[10px] text-white transition hover:bg-white/15">
-              <Mic className="h-3.5 w-3.5" />
-              جرّب الصوت
-            </button>
-          </div>
-        </section>
-
-        <section className="mt-3 grid gap-3">
-          <div className="relative rounded-[15px] border border-[#e1e9e4] bg-white px-4 py-3.5 shadow-[0_3px_12px_rgba(31,72,50,0.04)]">
-            <span className="font-arabic absolute left-4 top-3.5 text-[9px] text-[#3a9a70]">متصل</span>
-            <div className="rounded-lg bg-[#eff9f2] p-2 text-[#388c68]"><ShieldCheck className="h-4 w-4" /></div>
-            <div className="mt-2 text-right">
-              <h2 className="font-arabic text-[12px] font-bold text-[#26342d]">ذكاء مؤسستك</h2>
-              <p className="font-arabic mt-1 text-[9px] leading-5 text-[#87948e]">السياق والتخصيص يعملان داخل نفس مساحة المحادثة.</p>
-            </div>
-          </div>
-          <div className="relative rounded-[15px] border border-[#e1e9e4] bg-white px-4 py-3.5 shadow-[0_3px_12px_rgba(31,72,50,0.04)]">
-            <span className="font-arabic absolute left-4 top-3.5 text-[9px] text-[#a9b2ad]">محلي</span>
-            <div className="rounded-lg bg-[#fff9eb] p-2 text-[#dfa93e]"><Zap className="h-4 w-4" /></div>
-            <div className="mt-2 text-right">
-              <h2 className="font-arabic text-[12px] font-bold text-[#26342d]">استجابة محلية</h2>
-              <p className="font-arabic mt-1 text-[9px] leading-5 text-[#87948e]">يعمل الذكاء المحلي بدون تبديل نموذج أو مسار محادثة.</p>
-            </div>
-          </div>
-        </section>
-
-        <section className="mt-3 rounded-[15px] border border-[#e1e9e4] bg-white p-3.5 shadow-[0_3px_12px_rgba(31,72,50,0.04)]">
-          <div className="flex items-start justify-between">
-            <div className="text-right">
-              <h2 className="font-arabic text-[12px] font-bold text-[#26342d]">ابدأ من هنا</h2>
-              <p className="font-arabic mt-0.5 text-[9px] text-[#96a19c]">أسئلة سريعة تفتح محادثة جديدة.</p>
-            </div>
-            <MessageSquare className="mt-0.5 h-4 w-4 text-[#4a9f7a]" />
-          </div>
-          <div className="mt-3 grid gap-1.5">
-            {prompts.map((prompt) => (
-              <button key={prompt} className="font-arabic flex h-8 items-center justify-between rounded-lg bg-[#f7f9fa] px-2.5 text-[9px] text-[#65716c]">
-                <span>{prompt}</span>
-                <ArrowLeft className="h-3 w-3 text-[#b0b9b5]" />
-              </button>
-            ))}
-          </div>
-        </section>
-
-        <section className="mt-3 rounded-[15px] border border-[#e1e9e4] bg-white p-3.5 shadow-[0_3px_12px_rgba(31,72,50,0.04)]">
-          <div className="flex items-start justify-between gap-3">
-            <button className="font-arabic inline-flex h-7 items-center gap-1 rounded-lg bg-[#172532] px-2.5 text-[9px] text-white">
-              فتح المحادثة
-              <ArrowLeft className="h-3 w-3" />
-            </button>
-            <div className="text-right">
-              <h2 className="font-arabic text-[12px] font-bold text-[#26342d]">الأدوات</h2>
-              <p className="font-arabic mt-0.5 text-[9px] text-[#96a19c]">الأدوات المتاحة تظهر أولًا داخل المحادثة.</p>
-            </div>
-          </div>
-          <div className="mt-3 grid gap-1.5 sm:grid-cols-2">
-            {tools.map(({ icon: Icon, title, description }) => (
-              <div key={title} className="flex items-center gap-2 rounded-lg border border-[#d8f1e2] bg-[#f0fbf5] px-2 py-2">
-                <span className="rounded-md bg-white p-1.5 text-[#509578]"><Icon className="h-3.5 w-3.5" /></span>
-                <div className="min-w-0 flex-1 text-right">
-                  <p className="font-arabic text-[10px] font-bold text-[#40554b]">{title}</p>
-                  <p className="font-arabic mt-0.5 truncate text-[8px] text-[#8b9b93]">{description}</p>
+        <div className="relative z-10 flex flex-1 flex-col items-center overflow-hidden px-5">
+          <div className="w-full max-w-[660px] pt-4">
+            <section className="flex flex-col items-center text-center">
+              <div className="flex h-[62px] w-[62px] items-center justify-center rounded-[18px] bg-white shadow-[0_10px_26px_rgba(57,112,95,0.12)]">
+                <div className="relative h-9 w-9">
+                  <span className="absolute left-[34%] top-0 h-[45%] w-[36%] rounded-full bg-[#16845b]" />
+                  <span className="absolute left-0 top-[32%] h-[42%] w-[42%] rounded-full bg-[#2aa36f]" />
+                  <span className="absolute right-0 top-[36%] h-[42%] w-[42%] rounded-full bg-[#7bcba0]" />
+                  <span className="absolute left-[35%] top-[45%] h-[25%] w-[25%] rounded-full bg-[#dbf3e5]" />
                 </div>
-                <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-[#25b77b]" />
               </div>
-            ))}
-          </div>
-        </section>
+              <h1 className="font-arabic mt-4 text-[29px] font-bold tracking-[-0.04em] text-[#17232c]">مرحبًا بك في <span className="text-[#157855]">ثنارة AI</span></h1>
+              <p className="font-arabic mt-1 text-[12px] text-[#69767e]">مساعدك الذكي للعمل، المعرفة، والتحليل.</p>
+            </section>
 
-        <section className="font-arabic mt-3 flex items-center justify-between gap-3 rounded-[15px] border border-[#d8eee1] bg-[#eef9f2] px-3.5 py-3.5">
-          <div className="min-w-0 text-right">
-            <h2 className="text-[11px] font-bold text-[#3e5b4d]">خصّص مساحة العمل</h2>
-            <p className="mt-1 text-[8px] leading-5 text-[#779084]">اختر المجال وأسلوب الرد والمهام التي تريدها من ثنارة.</p>
+            <div className="mt-6 flex h-[58px] items-center gap-2 rounded-[16px] border border-[#edf1f2] bg-white px-3 shadow-[0_8px_26px_rgba(40,75,91,0.08)]" dir="rtl">
+              <button className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#16815b] text-white"><Send className="h-4 w-4" /></button>
+              <span className="font-arabic flex-1 text-right text-[11px] text-[#8e989e]">اكتب رسالتك هنا...</span>
+              <div className="flex gap-1" dir="ltr">
+                <button className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#f8fafb] text-[#69767e]"><Paperclip className="h-4 w-4" /></button>
+                <button className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#f8fafb] text-[#69767e]"><Mic className="h-4 w-4" /></button>
+              </div>
+            </div>
+
+            <div className="mt-5 grid grid-cols-4 gap-2.5" dir="ltr">
+              {shortcuts.map(({ title, description, icon: Icon, color }) => (
+                <div key={title} className="flex min-h-[112px] flex-col items-center rounded-[14px] border border-[#edf1f2] bg-white px-2 py-3.5 text-center" dir="rtl">
+                  <span className={`flex h-9 w-9 items-center justify-center rounded-xl ${color}`}><Icon className="h-5 w-5" /></span>
+                  <span className="font-arabic mt-2.5 text-[10px] font-bold text-[#202d35]">{title}</span>
+                  <span className="font-arabic mt-1 text-[8px] leading-3.5 text-[#7f8b91]">{description}</span>
+                </div>
+              ))}
+            </div>
+            <div className="font-arabic mx-auto mt-6 flex w-fit items-center gap-1 text-[9px] text-[#74828a]">مزيد من القدرات <ChevronDown className="h-3 w-3" /></div>
           </div>
-          <div className="flex flex-shrink-0 items-center gap-2">
-            <button className="rounded-lg bg-[#20794f] px-2.5 py-2 text-[9px] font-semibold text-white">تخصيص الآن</button>
-            <button className="flex items-center gap-0.5 text-[9px] text-[#8b9891]"><X className="h-3 w-3" /> لاحقًا</button>
-          </div>
-          <SlidersHorizontal className="h-4 w-4 flex-shrink-0 text-[#4c9d78]" />
-        </section>
+        </div>
+
+        <div className="pointer-events-none absolute bottom-[-80px] left-[-70px] h-[190px] w-[75%] rotate-[-7deg] rounded-[50%] border-t border-[#dceced] bg-[#edf5f6]/90" />
+        <div className="pointer-events-none absolute bottom-[-110px] left-[-35px] h-[170px] w-[70%] rotate-[8deg] rounded-[50%] border-t border-[#d5e8ea] bg-[#e5f0f1]/80" />
+        <div className="font-arabic absolute bottom-5 left-7 text-left text-[10px] leading-3.5 text-[#26353d]" dir="ltr">
+          Think Smarter<br />Work Better
+          <span className="mt-1.5 block h-0.5 w-4 bg-[#20775a]" />
+        </div>
       </div>
     </main>
   );
