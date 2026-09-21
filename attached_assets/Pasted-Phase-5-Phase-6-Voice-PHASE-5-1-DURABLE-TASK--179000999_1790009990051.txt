@@ -1,0 +1,407 @@
+Phase 5 تم اعتمادها.
+
+لكن قبل Phase 6 Voice، لدينا متابعة ضرورية واحدة:
+
+# PHASE 5.1 — DURABLE TASK & ARTIFACT PERSISTENCE
+
+لا تعيد بناء Task Orchestrator.
+
+لا تغير Skill architecture.
+
+لا تبدأ Voice.
+
+الهدف فقط إزالة الـprocess-local persistence boundary.
+
+---
+
+## 1. المشكلة الحالية
+
+حاليًا:
+
+```text
+Task metadata
+Artifact metadata
+```
+
+process-local.
+
+وهذا يعني أن restart للـAI Engine قد يؤدي إلى فقدان:
+
+* task state
+* task result metadata
+* artifact metadata
+* artifact ownership mapping
+
+هذا غير مقبول للإنتاج.
+
+---
+
+# 2. Persistence
+
+استخدم قاعدة البيانات الموجودة بالفعل في المشروع.
+
+لا تضف قاعدة بيانات جديدة.
+
+لا تستخدم paid service.
+
+احفظ:
+
+```text
+Task
+TaskDependency
+Artifact
+```
+
+مع:
+
+```text
+tenantId
+userId
+conversationId
+requestId
+```
+
+---
+
+# 3. Task Persistence
+
+حالة Task يجب أن تبقى بعد restart:
+
+```text
+PENDING
+READY
+RUNNING
+COMPLETED
+FAILED
+CANCELLED
+BLOCKED
+```
+
+وعند restart:
+
+```text
+database
+ ↓
+recover tasks
+ ↓
+restore state
+```
+
+لا تعيد تشغيل Task مكتملة.
+
+ولا تعيد تنفيذ Task مرتين بسبب restart.
+
+---
+
+# 4. Artifact Persistence
+
+احفظ metadata بشكل durable:
+
+```text
+id
+tenantId
+userId
+conversationId
+taskId
+type
+name
+mimeType
+size
+storagePath
+createdAt
+expiresAt
+```
+
+مع ownership checks.
+
+---
+
+# 5. Artifact Files
+
+لا تستخدم process memory كـ source of truth للملف.
+
+استخدم filesystem/storage abstraction واضحة.
+
+مثال:
+
+```text
+ArtifactStore
+├── create
+├── save
+├── getMetadata
+├── getContent
+├── delete
+└── authorize
+```
+
+لا تربط الـcontroller مباشرة بالـfilesystem.
+
+---
+
+# 6. Restart Test
+
+هذا أهم اختبار في Phase 5.1.
+
+نفذ:
+
+```text
+Create Task
+ ↓
+Execute
+ ↓
+Generate PDF
+ ↓
+Generate XLSX
+ ↓
+Save metadata
+ ↓
+RESTART AI ENGINE
+ ↓
+GET Task
+ ↓
+GET Artifact
+ ↓
+Download Artifact
+```
+
+ويجب أن تنجح جميعها بعد restart.
+
+---
+
+# 7. Dependency Verification
+
+تحقق من الـruntime الفعلي، وليس requirements.txt فقط.
+
+يجب إثبات أن environment الذي يعمل عليه الـworkflow يستطيع import:
+
+```text
+reportlab
+openpyxl
+pandas
+```
+
+واختبر فعليًا:
+
+```text
+PDF creation
+XLSX creation
+CSV creation
+```
+
+من نفس runtime المستخدم في التطبيق.
+
+إذا كانت المكتبات غير متاحة، أصلح environment/dependency installation.
+
+لا تعتمد على fallback لإنشاء production artifacts إذا كانت المكتبات المطلوبة جزءًا من التصميم.
+
+ولا تقل إن dependency موجودة لمجرد وجودها في requirements.txt.
+
+---
+
+# 8. Artifact Integrity
+
+بعد إنشاء كل artifact:
+
+### PDF
+
+تحقق من:
+
+```text
+file exists
+mimeType correct
+size correct
+valid PDF signature
+```
+
+### XLSX
+
+تحقق من:
+
+```text
+file exists
+mimeType correct
+valid XLSX/ZIP structure
+```
+
+### CSV
+
+تحقق من:
+
+```text
+file exists
+correct encoding
+valid rows/columns
+```
+
+---
+
+# 9. Security
+
+أعد اختبار:
+
+```text
+User A → own artifact ✓
+User B → User A artifact ✗
+
+Tenant A → Tenant B artifact ✗
+
+forged artifactId ✗
+forged tenantId ✗
+forged userId ✗
+```
+
+ولا تعتمد على ID secrecy.
+
+---
+
+# 10. Cleanup
+
+ضع سياسة واضحة للـartifact lifecycle:
+
+```text
+expiresAt
+```
+
+ولا تحذف artifact ما زال referenced إذا كانت السياسة الحالية تمنع ذلك.
+
+نفذ cleanup آمن للـexpired artifacts.
+
+---
+
+# 11. Concurrency
+
+اختبر:
+
+```text
+Task A → Artifact
+Task B → Artifact
+Task C → Artifact
+```
+
+بالتوازي، وتأكد أن:
+
+* IDs unique
+* files don't overwrite each other
+* metadata doesn't mix
+* tenant ownership remains correct
+
+---
+
+# 12. Tests
+
+أضف tests لـ:
+
+```text
+persistence
+restart recovery
+artifact persistence
+artifact download after restart
+PDF integrity
+XLSX integrity
+CSV integrity
+cross-tenant access
+cross-user access
+expired artifact
+concurrent artifact generation
+```
+
+ثم شغل:
+
+```text
+Python tests
+Regression
+Compile
+API build
+Web build
+Health
+JSON validation
+git diff --check
+```
+
+---
+
+# 13. Production Configuration
+
+لا تغير:
+
+```text
+LOCAL_AI_MODEL=qwen2.5:1.5b
+LOCAL_AI_NUM_THREAD=4
+LOCAL_AI_NUM_CTX=2048
+LOCAL_AI_NUM_BATCH=64
+LOCAL_AI_KEEP_ALIVE=10m
+OLLAMA_KEEP_ALIVE=10m
+
+WEB_SEARCH_ENABLED=false
+THANARAH_CORE_TOOLS_ENABLED=false
+TOOL_MOCK_ENABLED=false
+```
+
+---
+
+# 14. Documentation
+
+أنشئ:
+
+```text
+docs/ai-orchestrator-phase5-1-persistence.md
+docs/ai-orchestrator-phase5-1-benchmark.json
+```
+
+وسجل بوضوح:
+
+```text
+Before:
+process-local
+
+After:
+durable persistence
+
+Restart recovery:
+PASS/FAIL
+
+PDF runtime:
+PASS/FAIL
+
+XLSX runtime:
+PASS/FAIL
+
+CSV runtime:
+PASS/FAIL
+
+Artifact authorization:
+PASS/FAIL
+```
+
+---
+
+# STOP
+
+هذه Phase 5.1 فقط.
+
+لا تبدأ:
+
+* Voice
+* Realtime voice
+* WhatsApp
+* Thanarah Core integration
+* Write tools
+* Agent loop
+
+بعدها توقف وأرسل التقرير.
+
+مهم جدًا:
+
+لا تكتفِ بأن الـtests تقول PASS.
+
+أريد إثباتًا فعليًا أن:
+
+```text
+create
+→ persist
+→ restart
+→ retrieve
+→ download
+```
+
+يعمل بنجاح.
