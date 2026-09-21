@@ -1,0 +1,370 @@
+نريد الآن العودة إلى المسار الأساسي للـ AI Core.
+
+الـ UI الحالي للمهام والملفات مقبول كـ foundation، لكن لا نريد إضافة UI features عشوائية الآن.
+
+الترتيب القادم:
+
+```text
+Phase 3 Live Web Search
+        ↓
+Web Source Expansion
+        ↓
+Phase 4 AI Gateway
+        ↓
+Tool Registry
+        ↓
+Skills Architecture
+        ↓
+Task Orchestrator
+        ↓
+Artifacts
+        ↓
+Voice
+        ↓
+Advanced Agent
+```
+
+ابدأ الآن بالخطوة الأولى فقط:
+
+# PHASE 3.1 — WEB SOURCE EXPANSION
+
+## الهدف
+
+نقل Web Intelligence من:
+
+```text
+SearXNG
+└── Wikipedia only
+```
+
+إلى Web Search حقيقي متعدد المصادر من خلال SearXNG.
+
+ممنوع إضافة:
+
+* Google paid API
+* SerpAPI
+* Tavily
+* Bing paid API
+* OpenAI
+* Anthropic
+* Gemini
+* Groq
+* OpenRouter
+* أي AI/search provider مدفوع
+
+SearXNG يظل طبقة البحث الوحيدة.
+
+---
+
+## 1. SearXNG Engines
+
+افحص الـ SearXNG الحالي واكتشف الـ engines المتاحة فعليًا.
+
+لا تفترض أنها موجودة.
+
+اعرض capability واضحة:
+
+```text
+GET /web/capabilities
+```
+
+مثل:
+
+```json
+{
+  "enabled": true,
+  "engines": [],
+  "categories": [],
+  "healthy": true
+}
+```
+
+استخدم فقط engines التي تعمل فعليًا في البيئة.
+
+لا تسجل engine على أنه متاح لمجرد وجوده في configuration.
+
+---
+
+## 2. Search Categories
+
+جهز architecture تدعم:
+
+```text
+general
+news
+technical
+documentation
+```
+
+بحيث السؤال يختار نوع البحث المناسب.
+
+مثال:
+
+```text
+"آخر أخبار الذكاء الاصطناعي"
+→ news
+
+"كيف أستخدم React Server Actions؟"
+→ technical/documentation
+
+"ما سعر X الحالي؟"
+→ general/current
+
+"ابحث لي عن..."
+→ general
+```
+
+لا تجعل Qwen مسؤولًا وحده عن تحديد category.
+
+استخدم deterministic signals + model assistance عند الحاجة.
+
+---
+
+## 3. Google-like Search
+
+المستخدم عندما يقول:
+
+```text
+ابحث في جوجل عن...
+```
+
+لا نحتاج Google API مباشرة.
+
+حوّل الطلب إلى:
+
+```text
+Web Search
+→ SearXNG
+```
+
+مع إرجاع نتائج متعددة المصادر.
+
+لا تقول للمستخدم إنه تم استخدام Google إذا لم يكن Google هو المصدر الفعلي.
+
+---
+
+## 4. Search Quality
+
+لا ترسل كل النتائج إلى Qwen.
+
+Pipeline:
+
+```text
+SearXNG
+ ↓
+Deduplicate
+ ↓
+Domain filtering
+ ↓
+Lexical relevance
+ ↓
+Local reranking
+ ↓
+Top sources
+ ↓
+Fetch
+ ↓
+Extract
+ ↓
+Context compression
+ ↓
+Qwen
+```
+
+---
+
+## 5. Source Diversity
+
+حاول الحصول على أكثر من domain عندما يكون ذلك مناسبًا.
+
+مثال:
+
+```text
+source 1 → official
+source 2 → documentation
+source 3 → reputable secondary source
+```
+
+ولا تكرر نفس الموقع 5 مرات إذا توجد مصادر مستقلة أفضل.
+
+---
+
+## 6. Citations
+
+استمر في النظام الحالي:
+
+```text
+[source-1]
+[source-2]
+[source-3]
+```
+
+ويجب أن يكون كل source حقيقيًا من retrieval pipeline.
+
+الموديل ممنوع اختراع:
+
+* URL
+* domain
+* title
+* source
+
+---
+
+## 7. Security
+
+احتفظ بكل SSRF protections الموجودة.
+
+لا تضعف أي protection لإضافة engines جديدة.
+
+Web content يظل:
+
+```text
+UNTRUSTED DATA
+```
+
+ولا يستطيع تغيير system prompt أو permissions أو tools.
+
+---
+
+## 8. Benchmark
+
+استخدم 20 query حقيقية:
+
+```text
+5 general
+5 technical
+5 news/current
+5 explicit search requests
+```
+
+وقس:
+
+```text
+search latency
+fetch latency
+extraction latency
+reranking latency
+total latency
+successful fetch rate
+source diversity
+citation integrity
+```
+
+قارن النتائج بالـ Phase 3 benchmark.
+
+لا تستخدم fixture numbers بدل live numbers.
+
+---
+
+## 9. Production
+
+لا تفعّل production تلقائيًا.
+
+احتفظ:
+
+```text
+WEB_SEARCH_ENABLED=false
+```
+
+حتى تنجح الـ live tests.
+
+---
+
+# بعد Phase 3.1 فقط
+
+توقف.
+
+لا تبدأ Phase 4 في نفس التنفيذ.
+
+أرسل:
+
+1. engines التي تعمل فعليًا
+2. categories
+3. benchmark
+4. source diversity
+5. citation verification
+6. failed searches
+7. security tests
+8. health
+9. production status
+
+---
+
+# المرحلة التالية بعد اعتماد Phase 3.1
+
+سنبدأ:
+
+# PHASE 4 — THANARAH AI GATEWAY + SKILLS FOUNDATION
+
+لكن لا تنفذها الآن.
+
+في Phase 4 سنبني:
+
+```text
+AI Gateway
+     ↓
+Tool Registry
+     ↓
+Permission Layer
+     ↓
+Tenant Context
+     ↓
+Tool Execution
+```
+
+ثم:
+
+```text
+Skills
+├── Web Search
+├── File Analysis
+├── Summarization
+├── Writing
+├── Data Analysis
+├── PDF
+├── Spreadsheet
+└── Thanarah Tools
+```
+
+ثم بعد ذلك:
+
+```text
+Task Orchestrator
+```
+
+الذي يسمح بطلب مركب واحد ويتحول إلى عدة Tasks.
+
+مثال مستقبلي:
+
+```text
+"ابحث عن 5 حلول للعيادات
+وقارنهم
+واعرض النتائج في جدول
+ثم اعمل تقرير PDF"
+```
+
+ويتم تقسيمه إلى:
+
+```text
+Task 1 → Search
+Task 2 → Fetch
+Task 3 → Analyze
+Task 4 → Build table
+Task 5 → Generate PDF
+```
+
+مع عرض execution status للمستخدم، وليس Chain-of-Thought.
+
+**مهم جدًا:** لا نريد عرض "تفكير النموذج الداخلي". نعرض فقط حالات تنفيذ حقيقية مثل:
+
+```text
+يبحث في الإنترنت...
+وجد 4 مصادر...
+يحلل النتائج...
+ينشئ الجدول...
+أنشأ الملف...
+```
+
+ولا تعرض reasoning داخلي أو Chain-of-Thought.
+
+نفذ الآن Phase 3.1 فقط وتوقف.
