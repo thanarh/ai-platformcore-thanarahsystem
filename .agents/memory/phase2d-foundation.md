@@ -8,6 +8,11 @@ execution events separate from actual tool execution. Contract-only skills may
 be discoverable in the UI, but they must be visibly unavailable and cannot be
 represented as completed work.
 
+Phase 4 follows the same boundary: the Gateway and six read-only tool contracts
+may be exercised with an explicitly marked local fixture, but the Core adapter
+must fail closed when the authoritative Thanarah Core contract is unavailable.
+Never report fixture data as operational Core data.
+
 **Why:** The product needs a clean path from model proposal to orchestrator,
 permission check, tool adapter, and validated result without allowing a model
 to grant itself permissions or exposing chain-of-thought.

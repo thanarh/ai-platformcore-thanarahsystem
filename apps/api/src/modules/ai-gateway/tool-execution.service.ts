@@ -26,8 +26,8 @@ export class ToolExecutionService {
     private readonly validator: ToolValidationService,
     private readonly permissions: ToolPermissionService,
     private readonly audit: ToolAuditService,
-    private readonly coreAdapter = new ThanarahCoreAdapter(),
-    private readonly mockAdapter = new MockThanarahCoreAdapter(),
+    private readonly coreAdapter: ThanarahCoreAdapter,
+    private readonly mockAdapter: MockThanarahCoreAdapter,
   ) {}
 
   async execute(

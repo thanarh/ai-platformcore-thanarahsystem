@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { AiGatewayController } from './ai-gateway.controller';
+import { MockThanarahCoreAdapter, ThanarahCoreAdapter } from './adapters';
 import { ToolAuditService } from './audit.service';
 import { ToolPermissionService } from './permission.service';
 import { CapabilityRoutingService } from './routing.service';
@@ -18,6 +19,8 @@ import { ToolValidationService } from './tool-validation.service';
     ToolAuditService,
     ToolExecutionService,
     CapabilityRoutingService,
+    ThanarahCoreAdapter,
+    MockThanarahCoreAdapter,
   ],
   exports: [
     ToolRegistryService,

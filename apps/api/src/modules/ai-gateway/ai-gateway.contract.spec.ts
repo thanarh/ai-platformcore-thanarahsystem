@@ -1,4 +1,4 @@
-import assert from 'node:assert/strict';
+import { strict as assert } from 'node:assert';
 import { ConfigService } from '@nestjs/config';
 import { MockThanarahCoreAdapter, ThanarahCoreAdapter } from './adapters';
 import { ToolAuditService } from './audit.service';
@@ -70,6 +70,31 @@ async function main() {
   );
   assert.equal(unknownField.error?.code, 'TOOL_INVALID_ARGUMENTS');
 
+  registry.disable('get_services');
+  assert.equal(registry.discover().length, 5);
+  const disabled = await execution.execute(
+    { toolId: 'get_services', arguments: {} },
+    context,
+  );
+  assert.equal(disabled.error?.code, 'TOOL_DISABLED');
+  registry.enable('get_services');
+
+  const unavailable = await new ToolExecutionService(
+    new ConfigService({
+      tooling: { gatewayEnabled: true, coreToolsEnabled: false, mockEnabled: false },
+    }),
+    registry,
+    validator,
+    permissions,
+    audit,
+    new ThanarahCoreAdapter(),
+    new MockThanarahCoreAdapter(),
+  ).execute(
+    { toolId: 'get_appointments', arguments: { date: '2026-09-21' } },
+    context,
+  );
+  assert.equal(unavailable.error?.code, 'CORE_CONTRACT_UNAVAILABLE');
+
   const events: string[] = [];
   await execution.execute(
     { toolId: 'get_appointments', arguments: { date: '2026-09-21' } },
@@ -92,7 +117,7 @@ async function main() {
     '2026-09-22',
   );
 
-  assert.equal(audit.recent(10).length, 5);
+  assert.ok(audit.recent(10).length >= 7);
   console.log('AI Gateway contract tests passed');
 }
 

@@ -1,0 +1,115 @@
+{
+  "phase": "4",
+  "name": "ai-gateway-tool-contract",
+  "measuredAt": "2026-09-21",
+  "scope": "contract_foundation_only",
+  "productionConfigChanged": false,
+  "configuration": {
+    "aiGatewayEnabled": true,
+    "thanarahCoreToolsEnabled": false,
+    "toolMockEnabled": false,
+    "realThanarahCoreContractAvailable": false
+  },
+  "registry": {
+    "registeredToolCount": 6,
+    "enabledToolCount": 6,
+    "tools": [
+      "get_appointments",
+      "get_doctors",
+      "get_services",
+      "get_working_hours",
+      "get_insurance",
+      "get_clinic_information"
+    ],
+    "allReadOnly": true,
+    "allTenantScoped": true,
+    "allUserScoped": true
+  },
+  "contractFixtureMeasurements": {
+    "validMockExecution": {
+      "success": true,
+      "source": "mock_thanarah_core",
+      "testDataMarker": true
+    },
+    "invalidDate": {
+      "success": false,
+      "errorCode": "TOOL_INVALID_ARGUMENTS"
+    },
+    "unexpectedContextField": {
+      "success": false,
+      "errorCode": "TOOL_INVALID_ARGUMENTS"
+    },
+    "missingPermission": {
+      "success": false,
+      "errorCode": "TOOL_FORBIDDEN"
+    },
+    "disabledTool": {
+      "success": false,
+      "errorCode": "TOOL_DISABLED"
+    },
+    "missingCoreContract": {
+      "success": false,
+      "errorCode": "CORE_CONTRACT_UNAVAILABLE"
+    },
+    "streamEvents": [
+      "tool_proposed",
+      "tool_validating",
+      "tool_executing",
+      "tool_completed"
+    ]
+  },
+  "routing": {
+    "localQuery": "local",
+    "webQuery": "web",
+    "thanarahOperationalQuery": "thanarah_tool",
+    "timezoneDateResolution": {
+      "input": "tomorrow",
+      "timezone": "Asia/Riyadh",
+      "resolvedDate": "2026-09-22"
+    },
+    "executionStartedByRouting": false
+  },
+  "security": {
+    "unauthenticatedCapabilitiesStatus": 401,
+    "invalidApiKeyStatus": 401,
+    "tenantIdAcceptedFromBody": false,
+    "userIdAcceptedFromBody": false,
+    "permissionsAcceptedFromBody": false,
+    "stackTracesReturned": false,
+    "rawArgumentsWrittenToAudit": false,
+    "destructiveToolsRegistered": false,
+    "crossTenantFixture": "passed"
+  },
+  "audit": {
+    "fields": [
+      "requestId",
+      "tenantId",
+      "userId",
+      "conversationId",
+      "toolId",
+      "timestamp",
+      "status",
+      "durationMs",
+      "errorCode"
+    ],
+    "storage": "bounded_in_process_foundation_buffer",
+    "secretsRecorded": false
+  },
+  "tests": {
+    "contractFixture": "passed",
+    "apiBuild": "passed",
+    "apiHealth": "passed",
+    "unauthenticatedEndpoint": "passed",
+    "gitDiffCheck": "passed"
+  },
+  "productionStatus": {
+    "safeToEnableRealCoreIntegration": false,
+    "realCoreIntegrationAttempted": false,
+    "mockDataExposedInProduction": false,
+    "externalAiAdded": false,
+    "paidApiAdded": false,
+    "agentLoopAdded": false,
+    "writeToolsAdded": false,
+    "reason": "No Thanarah Core API contract is available; the adapter fails closed and mock data is explicitly non-production."
+  }
+}

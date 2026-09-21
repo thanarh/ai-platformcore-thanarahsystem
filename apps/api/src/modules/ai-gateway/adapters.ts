@@ -1,3 +1,4 @@
+import { Injectable } from '@nestjs/common';
 import { ToolAdapter, ToolContract, ToolExecutionContext, ToolId } from './tool.types';
 
 export class ToolExecutionError extends Error {
@@ -10,6 +11,7 @@ export class ToolExecutionError extends Error {
   }
 }
 
+@Injectable()
 export class ThanarahCoreAdapter implements ToolAdapter {
   readonly name = 'ThanarahCoreAdapter';
   readonly source = 'thanarah_core' as const;
@@ -26,6 +28,7 @@ export class ThanarahCoreAdapter implements ToolAdapter {
   }
 }
 
+@Injectable()
 export class MockThanarahCoreAdapter implements ToolAdapter {
   readonly name = 'MockThanarahCoreAdapter';
   readonly source = 'mock_thanarah_core' as const;

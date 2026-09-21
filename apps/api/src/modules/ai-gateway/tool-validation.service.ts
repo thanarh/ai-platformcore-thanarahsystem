@@ -77,13 +77,16 @@ export class ToolValidationService {
     if (schema.format === 'date' && typeof value === 'string' && !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
       errors.push(`${path} must use YYYY-MM-DD`);
     }
-    if (
-      schema.format === 'date' &&
-      typeof value === 'string' &&
-      /^\d{4}-\d{2}-\d{2}$/.test(value) &&
-      Number.isNaN(Date.parse(`${value}T00:00:00Z`))
-    ) {
-      errors.push(`${path} must be a valid calendar date`);
+    if (schema.format === 'date' && typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      const [year, month, day] = value.split('-').map(Number);
+      const parsed = new Date(Date.UTC(year, month - 1, day));
+      if (
+        parsed.getUTCFullYear() !== year ||
+        parsed.getUTCMonth() !== month - 1 ||
+        parsed.getUTCDate() !== day
+      ) {
+        errors.push(`${path} must be a valid calendar date`);
+      }
     }
     return errors;
   }

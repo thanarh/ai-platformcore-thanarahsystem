@@ -85,7 +85,7 @@ export class AiGatewayController {
     const write = (event: string, data: unknown) => {
       response.write(`event: ${event}\n`);
       response.write(`data: ${JSON.stringify(data)}\n\n`);
-      response.flush?.();
+      (response as any).flush?.();
     };
     write('status', { state: 'tool_proposed', requestId: context.requestId });
     const result = await this.execution.execute(
