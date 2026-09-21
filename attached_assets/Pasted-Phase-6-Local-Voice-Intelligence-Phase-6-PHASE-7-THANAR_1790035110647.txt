@@ -1,0 +1,432 @@
+Phase 6 — Local Voice Intelligence تم اعتمادها.
+
+لا نعيد Phase 6.
+
+نبدأ الآن:
+
+# PHASE 7 — THANARAH CORE INTEGRATION AUDIT
+
+هذه المرحلة ليست تنفيذ integration وهمي.
+
+الهدف هو اكتشاف وبناء **العقد الحقيقي** الذي سيستخدمه AI Core للتعامل مع Thanarah Core.
+
+لدينا حاليًا:
+
+```text
+AI Gateway ✓
+Tool Registry ✓
+Permissions ✓
+Tenant Isolation ✓
+Task Orchestrator ✓
+Skills ✓
+Artifacts ✓
+Voice ✓
+```
+
+لكن:
+
+```text
+THANARAH_CORE_TOOLS_ENABLED=false
+```
+
+لأنه لا يوجد contract موثق ومصادق عليه لـ Thanarah Core حتى الآن.
+
+---
+
+# 1. IMPORTANT
+
+لا تخترع:
+
+* API endpoints
+* database collections
+* authentication scheme
+* tenant identifiers
+* field names
+* appointment schemas
+* doctor schemas
+* service schemas
+
+إذا لم تكن موجودة فعليًا في Thanarah Core، لا تنشئها من التخمين.
+
+---
+
+# 2. Audit Thanarah Core
+
+افحص فقط ما هو موجود فعليًا في المشروع/البيئة المتاحة.
+
+ابحث عن:
+
+```text
+API routes
+controllers
+services
+schemas
+DTOs
+database models
+authentication
+authorization
+tenant model
+organization model
+user model
+appointment model
+doctor model
+service model
+working-hours model
+insurance model
+clinic model
+```
+
+وحدد العلاقة بينها.
+
+---
+
+# 3. Existing API Contract
+
+إذا وجدت APIs حقيقية، وثق لكل endpoint:
+
+```text id="1a9d4f"
+method
+path
+authentication
+required role
+required permission
+tenant scope
+request schema
+response schema
+errors
+pagination
+filters
+date/time behavior
+timezone behavior
+```
+
+ولا تنفذ أي تغييرات على Core في هذه المرحلة.
+
+---
+
+# 4. AI Tool Mapping
+
+قارن الموجود فعليًا مع الـTools التي جهزناها:
+
+```text id="x8k3m2"
+get_appointments
+get_doctors
+get_services
+get_working_hours
+get_insurance
+get_clinic_information
+```
+
+لكل Tool:
+
+```text
+AI Tool
+   ↓
+Thanarah Core endpoint
+   ↓
+Real request
+   ↓
+Real response
+```
+
+إذا لم يوجد endpoint مناسب:
+
+```text
+NOT AVAILABLE
+```
+
+ولا تعمل mock replacement.
+
+---
+
+# 5. Tenant Context
+
+حدد من Thanarah Core الحقيقي:
+
+```text id="q7r2w8"
+tenantId
+organizationId
+clinicId
+userId
+```
+
+وأي واحد منها هو الـsource of truth.
+
+نريد إجابة واضحة عن:
+
+```text id="b4m6n1"
+AI tenant
+       ↓
+Core tenant
+```
+
+وكيف نمنع:
+
+```text
+Tenant A
+   ↓
+AI
+   ↓
+Tenant B data
+```
+
+---
+
+# 6. Authentication
+
+حدد طريقة authentication الحقيقية بين:
+
+```text id="m5v8c2"
+AI Core
+        ↓
+Thanarah Core
+```
+
+هل هي:
+
+```text
+service token?
+JWT?
+internal API key?
+OAuth?
+session?
+```
+
+لا تخترع واحدة.
+
+إذا لا يوجد service-to-service authentication حاليًا:
+
+```text
+NOT IMPLEMENTED
+```
+
+وثق المطلوب فقط.
+
+ولا تنشئ secrets عشوائية.
+
+---
+
+# 7. Permissions Mapping
+
+اربط:
+
+```text id="p3d7k9"
+AI permissions
+```
+
+مع:
+
+```text
+Thanarah Core permissions
+```
+
+مثال فقط إذا كان موجودًا فعليًا:
+
+```text
+appointments.read
+doctors.read
+```
+
+لا تفترض أسماء permissions.
+
+---
+
+# 8. Date / Time / Timezone
+
+هذه نقطة مهمة جدًا.
+
+تحقق من كيفية تخزين Thanarah Core:
+
+```text id="h2j5m7"
+appointment date
+appointment time
+timezone
+working hours
+```
+
+وكيف يتم تفسير:
+
+```text
+بكرة
+غدًا
+today
+tomorrow
+next week
+```
+
+يجب ألا يكون هناك اختلاف بين:
+
+```text
+AI timezone
+Core timezone
+database timezone
+clinic timezone
+```
+
+وثق الـsource of truth.
+
+---
+
+# 9. Error Contract
+
+اكتشف كيف يرجع Core:
+
+```text id="c8f2v4"
+401
+403
+404
+409
+422
+429
+500
+```
+
+وما شكل error response.
+
+ثم جهز mapping:
+
+```text id="n4q6s8"
+Core Error
+ ↓
+AI Tool Error
+ ↓
+User-safe message
+```
+
+بدون كشف:
+
+* stack traces
+* internal URLs
+* database errors
+* secrets
+
+---
+
+# 10. Read-only First
+
+في هذه المرحلة نريد فقط:
+
+```text id="k6p8r1"
+READ
+```
+
+ولا نفعّل:
+
+```text
+create
+update
+delete
+cancel
+financial
+medical mutation
+```
+
+حتى بعد اكتمال contract.
+
+---
+
+# 11. Integration Plan
+
+في نهاية الـaudit، أنشئ mapping واضح:
+
+```text id="u3y5t7"
+Tool                  Core endpoint
+------------------------------------------------
+get_appointments      ?
+get_doctors           ?
+get_services          ?
+get_working_hours     ?
+get_insurance         ?
+get_clinic_information?
+```
+
+كل `?` يجب أن يكون إما:
+
+```text
+FOUND
+```
+
+أو:
+
+```text
+NOT AVAILABLE
+```
+
+لا تخمن.
+
+---
+
+# 12. Do Not Enable Production
+
+حافظ على:
+
+```text id="r9w1e3"
+THANARAH_CORE_TOOLS_ENABLED=false
+```
+
+ولا تغير:
+
+```text
+WEB_SEARCH_ENABLED=false
+```
+
+ولا تغير:
+
+```text
+qwen2.5:1.5b
+```
+
+ولا تغير Voice configuration.
+
+---
+
+# 13. Deliverables
+
+أنشئ:
+
+```text id="d5f7h9"
+docs/thanarah-core-ai-integration-audit.md
+docs/thanarah-core-ai-integration-contract.json
+```
+
+ويجب أن يحتوي التقرير على:
+
+```text
+Core architecture
+Real endpoints
+Authentication
+Authorization
+Tenant model
+User model
+Timezone model
+Tool mapping
+Error contract
+Missing contracts
+Security gaps
+Integration blockers
+Recommended next implementation step
+```
+
+---
+
+# 14. STOP
+
+هذه المرحلة **Audit فقط**.
+
+لا تعدل Thanarah Core.
+
+لا تبني fake endpoints.
+
+لا تعمل mock integration جديد.
+
+لا تفعل:
+
+```text
+THANARAH_CORE_TOOLS_ENABLED=true
+```
+
+بعد الانتهاء توقف وأرسل التقرير كاملًا.
+
+إذا كان Thanarah Core API موجودًا فعليًا، سنستخدم العقد الحقيقي في المرحلة التالية.
+
+إذا لم يكن موجودًا، نحدد بالضبط ما الذي يجب بناؤه في Core بدل اختراعه داخل AI.
