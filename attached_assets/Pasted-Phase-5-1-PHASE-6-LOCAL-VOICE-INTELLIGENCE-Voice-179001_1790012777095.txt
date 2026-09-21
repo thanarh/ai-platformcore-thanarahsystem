@@ -1,0 +1,679 @@
+Phase 5.1 تم اعتمادها بنجاح.
+
+نبدأ الآن:
+
+# PHASE 6 — LOCAL VOICE INTELLIGENCE
+
+الهدف هو إضافة Voice حقيقي إلى Thanarah Intelligence، مع استخدام نفس AI Core الحالي.
+
+لا نبني chatbot صوتي منفصل.
+
+الصوت مجرد channel فوق الـexisting conversation/AI gateway/orchestrator.
+
+---
+
+# 1. Architecture
+
+نفذ:
+
+```text id="wq2p5d"
+Microphone
+    ↓
+Voice Input
+    ↓
+Speech-to-Text
+    ↓
+Existing Conversation
+    ↓
+AI Gateway
+    ↓
+Skills / Tools / Tasks
+    ↓
+Text Response
+    ↓
+Text-to-Speech
+    ↓
+Audio Response
+```
+
+Voice يجب أن يستخدم نفس:
+
+* authentication
+* tenant isolation
+* user context
+* conversation
+* permissions
+* skills
+* tools
+* task orchestrator
+* artifacts
+
+لا تنشئ AI logic ثانية للصوت.
+
+---
+
+# 2. Local Only
+
+ممنوع:
+
+* OpenAI Whisper API
+* Google Speech API
+* Azure Speech
+* AWS Transcribe
+* ElevenLabs
+* Google TTS
+* أي paid speech API
+* أي external AI provider
+
+نريد:
+
+```text id="q5l6m1"
+LOCAL STT
++
+LOCAL TTS
+```
+
+إذا كانت مكتبة/موديل غير موجود، افحص أولًا ما هو متاح حاليًا في البيئة.
+
+لا تحمل موديلات ضخمة عشوائيًا.
+
+---
+
+# 3. STT Model Discovery
+
+افحص البيئة الحالية أولًا.
+
+ابحث عن local/open-source options مناسبة لـ:
+
+```text id="3b4gqp"
+Arabic
+English
+CPU inference
+24GB RAM
+12 CPU
+```
+
+ولا تغير production قبل benchmark.
+
+إذا كان هناك أكثر من خيار صغير مناسب، اختبر عددًا محدودًا فقط.
+
+لا تنزل عدة موديلات كبيرة.
+
+---
+
+# 4. TTS Model Discovery
+
+نفس الشيء.
+
+نحتاج TTS محلي يدعم:
+
+```text id="1w9q4p"
+Arabic
+English
+low latency
+CPU
+```
+
+افحص الموجود أولًا.
+
+ثم اختبر أفضل الخيارات الصغيرة المناسبة.
+
+لا تستخدم external service.
+
+---
+
+# 5. Voice Modes
+
+جهز architecture تدعم:
+
+```text id="u6d8jp"
+push-to-talk
+```
+
+ثم لاحقًا يمكن إضافة:
+
+```text id="6xknp9"
+continuous conversation
+```
+
+لكن في Phase 6 الأولى:
+
+**Push-to-talk هو الأساس.**
+
+---
+
+# 6. Voice API
+
+أنشئ endpoints واضحة، مثل:
+
+```text id="2xjq1q"
+POST /api/voice/transcribe
+POST /api/voice/synthesize
+```
+
+وإذا كان streaming مناسبًا للـarchitecture الحالية:
+
+```text id="kjl12m"
+voice streaming
+```
+
+لا تجعل frontend يتصل مباشرة بالموديل.
+
+---
+
+# 7. Conversation Integration
+
+عندما يرسل المستخدم صوتًا:
+
+```text id="j8x5x3"
+Audio
+ ↓
+STT
+ ↓
+Transcript
+ ↓
+Existing chat pipeline
+```
+
+والـtranscript يظهر كرسالة مستخدم عادية.
+
+مثال:
+
+```text id="7g9p2v"
+🎙 "احسب لي مواعيد بكرة"
+```
+
+ثم نفس الـAI pipeline.
+
+---
+
+# 8. Response
+
+الـAI response يجب أن يكون:
+
+```text id="k2w8j1"
+Text
++
+Optional Audio
+```
+
+لا تجعل Voice response منفصلة عن text response.
+
+إذا TTS فشل:
+
+```text id="7wz3sl"
+Text response still succeeds
+```
+
+ولا يفشل الـchat بالكامل.
+
+---
+
+# 9. Streaming
+
+أريد architecture تسمح:
+
+```text id="z6k8l3"
+STT
+ ↓
+AI response streaming
+ ↓
+TTS chunks
+ ↓
+Audio playback
+```
+
+لكن لا تدخل في full duplex/interruptions المعقدة الآن إذا كانت ستزيد complexity بشكل كبير.
+
+Push-to-talk أولًا.
+
+---
+
+# 10. Arabic
+
+يجب اختبار:
+
+### Arabic
+
+```text id="k2g7u8"
+"السلام عليكم، عندي موعد بكرة الساعة خمسة."
+```
+
+### Arabic + English
+
+```text id="x1a2m9"
+"أريد أعمل PDF report عن المواعيد."
+```
+
+### English
+
+```text id="v8b3n4"
+"Summarize this document for me."
+```
+
+لا يكفي أن STT يعيد نصًا غير فارغ.
+
+نحتاج تسجيل:
+
+```text id="n4p5r6"
+transcription latency
+transcription result
+language detection
+```
+
+ولا تسجل raw audio في logs.
+
+---
+
+# 11. Audio Privacy
+
+لا تحفظ raw audio دائمًا.
+
+الـdefault:
+
+```text id="9f8e7d"
+process
+→ transcribe
+→ discard audio
+```
+
+إذا احتجنا persistence لاحقًا ستكون feature منفصلة.
+
+لا تضع recordings في MongoDB.
+
+---
+
+# 12. Voice Security
+
+اختبر:
+
+* unauthenticated voice request
+* cross-tenant conversation
+* oversized audio
+* invalid MIME type
+* malformed audio
+* duration limit
+* request timeout
+* concurrent voice requests
+
+ضع limits واضحة على:
+
+```text id="1a3b5c"
+file size
+duration
+concurrency
+```
+
+---
+
+# 13. UI
+
+لا تعيد تصميم chat.
+
+داخل chat فقط:
+
+```text id="0q8w9e"
+[ 🎙 ]
+```
+
+ويكون واضحًا:
+
+```text id="2k5m7n"
+اضغط وتحدث
+```
+
+أثناء التسجيل:
+
+```text id="5r7t9y"
+جاري الاستماع...
+```
+
+بعد التسجيل:
+
+```text id="8u1i3o"
+جاري فهم كلامك...
+```
+
+ثم:
+
+```text id="4p6s8d"
+جاري الرد...
+```
+
+ثم audio playback.
+
+التصميم:
+
+* minimal
+* formal
+* Thanarah green
+* no clutter
+* no giant cards
+* no unnecessary animation
+
+---
+
+# 14. Interruption
+
+Phase 6 الأولى لا تحتاج full duplex.
+
+لكن يجب أن يكون هناك:
+
+```text id="7d3f2a"
+Stop audio
+```
+
+إذا المستخدم ضغط stop:
+
+```text
+audio playback stops
+```
+
+ولا يفسد conversation state.
+
+---
+
+# 15. Voice + Skills
+
+اختبر أن Voice لا يعمل كنظام منفصل.
+
+مثلاً:
+
+```text id="h7j4k2"
+User voice:
+"حلل الملف ده"
+```
+
+يجب أن يصل إلى:
+
+```text id="m6n8p1"
+Voice
+→ STT
+→ file_analysis skill
+→ task
+→ result
+```
+
+مثال آخر:
+
+```text id="r4t6y8"
+User voice:
+"نظم لي المهام دي"
+```
+
+يذهب إلى:
+
+```text id="s2d5f7"
+task_organization
+```
+
+---
+
+# 16. Voice + Web
+
+لا تفعل Web Search حاليًا.
+
+لذلك:
+
+```text id="w2e4r6"
+Voice:
+"ابحث في الإنترنت عن..."
+```
+
+يجب أن يرجع capability unavailable بسبب:
+
+```text id="u9i1o3"
+WEB_SEARCH_ENABLED=false
+```
+
+ولا fake result.
+
+---
+
+# 17. Voice + Thanarah
+
+لا تفعل real Thanarah Core tools.
+
+إذا المستخدم قال:
+
+```text id="p5l7k9"
+"كم موعد عندي بكرة؟"
+```
+
+لا تستخدم mock data.
+
+إذا Core integration disabled:
+
+```text id="a1s3d5"
+CORE_CONTRACT_UNAVAILABLE
+```
+
+ويجب أن يظل ذلك آمنًا.
+
+---
+
+# 18. Benchmark
+
+أنشئ benchmark منفصل:
+
+```text id="q7w9e1"
+docs/ai-voice-phase6-benchmark.json
+```
+
+اختبر على الأقل:
+
+### Arabic
+
+5 samples
+
+### English
+
+5 samples
+
+### Mixed
+
+3 samples
+
+### Short commands
+
+3 samples
+
+### Longer sentence
+
+2 samples
+
+قِس:
+
+```text id="z3x5c7"
+STT latency
+TTS latency
+total voice latency
+audio duration
+CPU
+RAM
+```
+
+---
+
+# 19. Quality
+
+لا تعطِ score عشوائي.
+
+سجل actual transcripts.
+
+اختبر:
+
+* Arabic recognition
+* English recognition
+* mixed language
+* punctuation
+* numbers
+* dates
+* times
+* names
+
+خصوصًا:
+
+```text id="v4b6n8"
+بكرة
+غدًا
+الساعة خمسة
+5 PM
+2026
+```
+
+---
+
+# 20. Tests
+
+أضف tests لـ:
+
+### STT
+
+* valid audio
+* invalid audio
+* unsupported MIME
+* oversized audio
+* timeout
+
+### TTS
+
+* Arabic
+* English
+* empty text
+* long text
+* timeout
+
+### Security
+
+* unauthenticated
+* tenant isolation
+* user isolation
+
+### Conversation
+
+* transcript becomes user message
+* response remains normal chat response
+
+### Fallback
+
+* STT failure
+* TTS failure
+* AI failure
+
+ثم:
+
+```text id="y6u8i0"
+Python tests
+Regression
+Compile
+API build
+Web build
+Health
+JSON validation
+git diff --check
+```
+
+---
+
+# 21. Production Safety
+
+لا تغير:
+
+```text id="a2s4d6"
+LOCAL_AI_MODEL=qwen2.5:1.5b
+LOCAL_AI_NUM_THREAD=4
+LOCAL_AI_NUM_CTX=2048
+LOCAL_AI_NUM_BATCH=64
+LOCAL_AI_KEEP_ALIVE=10m
+OLLAMA_KEEP_ALIVE=10m
+```
+
+ولا تفعل:
+
+```text id="f7g9h1"
+WEB_SEARCH_ENABLED=true
+THANARAH_CORE_TOOLS_ENABLED=true
+```
+
+---
+
+# 22. Important
+
+قبل اختيار STT/TTS production:
+
+أريدك أن تعمل benchmark للموجود/المرشحين أولًا.
+
+لا تغير production model أو AI runtime بسبب Voice.
+
+Voice runtime منفصل عن Qwen قدر الإمكان.
+
+---
+
+# 23. Documentation
+
+أنشئ:
+
+```text id="j1k3l5"
+docs/ai-voice-phase6.md
+docs/ai-voice-phase6-benchmark.json
+```
+
+ويجب أن يحتوي:
+
+```text id="m7n9p1"
+STT model
+TTS model
+model sizes
+runtime
+Arabic result
+English result
+latency
+CPU
+RAM
+privacy
+security
+fallback
+production status
+```
+
+---
+
+# STOP CONDITION
+
+نفذ Phase 6 فقط.
+
+لا تبدأ:
+
+* WhatsApp
+* real Thanarah Core
+* write tools
+* destructive actions
+* autonomous agent
+* full duplex realtime agent
+
+بعد الانتهاء توقف وأرسل التقرير كاملًا.
+
+مهم جدًا:
+
+لا تختار موديل STT/TTS بناءً على الحجم فقط.
+
+نريد قياس:
+
+```text
+quality
++
+latency
++
+RAM
++
+CPU
++
+Arabic
++
+English
+```
+
+ثم نقرر من الأرقام.
+
+ولا تحفظ raw voice recordings في logs أو MongoDB.
