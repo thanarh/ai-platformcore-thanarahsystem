@@ -22,4 +22,11 @@ export default () => ({
     baseUrl: process.env.LOCAL_AI_BASE_URL || 'http://localhost:8080',
     model: process.env.LOCAL_AI_MODEL || '',
   },
+  tooling: {
+    gatewayEnabled: process.env.AI_GATEWAY_ENABLED !== 'false',
+    coreToolsEnabled: process.env.THANARAH_CORE_TOOLS_ENABLED === 'true',
+    mockEnabled:
+      process.env.NODE_ENV !== 'production' &&
+      process.env.TOOL_MOCK_ENABLED === 'true',
+  },
 });

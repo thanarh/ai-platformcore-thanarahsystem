@@ -18,6 +18,7 @@ import { HealthModule } from './modules/health/health.module';
 import { EmailModule } from './modules/email/email.module';
 import { ReportModule } from './modules/email/report.module';
 import { ContextProfileModule } from './modules/context-profile/context-profile.module';
+import { AiGatewayModule } from './modules/ai-gateway/ai-gateway.module';
 
 @Module({
   imports: [
@@ -60,6 +61,7 @@ import { ContextProfileModule } from './modules/context-profile/context-profile.
     TenantsModule,
     ConversationsModule,
     ContextProfileModule,
+    AiGatewayModule,
     MessagesModule,
     AiModule,
     ApiKeysModule,
