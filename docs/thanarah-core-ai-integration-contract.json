@@ -1,0 +1,263 @@
+{
+  "contractName": "thanarah-core-ai-integration",
+  "contractVersion": "0.1.0-audit-only",
+  "status": "NOT_IMPLEMENTED",
+  "auditDate": "2026-09-22",
+  "productionEnabled": false,
+  "featureFlags": {
+    "THANARAH_CORE_TOOLS_ENABLED": false,
+    "WEB_SEARCH_ENABLED": false,
+    "localAiModel": "qwen2.5:1.5b"
+  },
+  "observedArchitecture": {
+    "api": {
+      "framework": "NestJS",
+      "toolGatewayBasePath": "/ai/v1/tools",
+      "source": "apps/api/src/modules/ai-gateway"
+    },
+    "aiEngine": {
+      "framework": "FastAPI",
+      "source": "services/ai-engine"
+    },
+    "coreApplication": {
+      "status": "NOT_FOUND_IN_AVAILABLE_WORKSPACE",
+      "baseUrl": null,
+      "routes": null,
+      "database": null
+    }
+  },
+  "identity": {
+    "aiTenantId": {
+      "source": "Authenticated User.tenantId or ApiKey.tenantId",
+      "coreField": null,
+      "status": "NOT_ESTABLISHED"
+    },
+    "organizationId": {
+      "source": "Derived in AI Gateway as user.organizationId || user.tenantId",
+      "coreField": null,
+      "status": "NOT_ESTABLISHED"
+    },
+    "clinicId": {
+      "source": null,
+      "coreField": null,
+      "status": "NOT_AVAILABLE"
+    },
+    "userId": {
+      "source": "Authenticated user _id or ApiKey.createdBy",
+      "coreField": null,
+      "status": "NOT_ESTABLISHED"
+    },
+    "sourceOfTruth": null
+  },
+  "authentication": {
+    "aiToCore": {
+      "mechanism": null,
+      "credentialName": null,
+      "audience": null,
+      "status": "NOT_IMPLEMENTED"
+    },
+    "existingAiAuthentication": {
+      "user": "Bearer JWT",
+      "api": "Tenant-bound x-api-key",
+      "note": "These are application authentication mechanisms, not a confirmed Core service contract."
+    }
+  },
+  "authorization": {
+    "coreRoleMapping": null,
+    "corePermissionMapping": null,
+    "status": "NOT_ESTABLISHED",
+    "aiPermissions": [
+      "appointments.read",
+      "doctors.read",
+      "services.read",
+      "working_hours.read",
+      "insurance.read",
+      "clinic.read"
+    ]
+  },
+  "dateTime": {
+    "aiInputRepresentation": "Calendar date string for tools that require date",
+    "relativeDateValuesCurrentlyResolved": [
+      "tomorrow",
+      "بكرة",
+      "غداً",
+      "غدا"
+    ],
+    "aiFallbackTimezone": "UTC",
+    "coreDateFormat": null,
+    "coreTimezoneSource": null,
+    "coreWorkingHoursRepresentation": null,
+    "status": "NOT_ESTABLISHED"
+  },
+  "toolMappings": [
+    {
+      "toolId": "get_appointments",
+      "mode": "read",
+      "aiContract": {
+        "requiredPermissions": [
+          "appointments.read"
+        ],
+        "requiredArguments": [
+          "date"
+        ],
+        "optionalArguments": [
+          "doctorId",
+          "status"
+        ],
+        "statusValues": [
+          "scheduled",
+          "confirmed",
+          "completed",
+          "cancelled",
+          "no_show"
+        ]
+      },
+      "core": {
+        "method": null,
+        "path": null,
+        "requestSchema": null,
+        "responseSchema": null,
+        "status": "NOT AVAILABLE"
+      }
+    },
+    {
+      "toolId": "get_doctors",
+      "mode": "read",
+      "aiContract": {
+        "requiredPermissions": [
+          "doctors.read"
+        ],
+        "optionalArguments": [
+          "specialty",
+          "active"
+        ]
+      },
+      "core": {
+        "method": null,
+        "path": null,
+        "requestSchema": null,
+        "responseSchema": null,
+        "status": "NOT AVAILABLE"
+      }
+    },
+    {
+      "toolId": "get_services",
+      "mode": "read",
+      "aiContract": {
+        "requiredPermissions": [
+          "services.read"
+        ],
+        "optionalArguments": [
+          "category",
+          "active"
+        ]
+      },
+      "core": {
+        "method": null,
+        "path": null,
+        "requestSchema": null,
+        "responseSchema": null,
+        "status": "NOT AVAILABLE"
+      }
+    },
+    {
+      "toolId": "get_working_hours",
+      "mode": "read",
+      "aiContract": {
+        "requiredPermissions": [
+          "working_hours.read"
+        ],
+        "requiredArguments": [
+          "date"
+        ]
+      },
+      "core": {
+        "method": null,
+        "path": null,
+        "requestSchema": null,
+        "responseSchema": null,
+        "status": "NOT AVAILABLE"
+      }
+    },
+    {
+      "toolId": "get_insurance",
+      "mode": "read",
+      "aiContract": {
+        "requiredPermissions": [
+          "insurance.read"
+        ],
+        "optionalArguments": [
+          "provider",
+          "planId"
+        ]
+      },
+      "core": {
+        "method": null,
+        "path": null,
+        "requestSchema": null,
+        "responseSchema": null,
+        "status": "NOT AVAILABLE"
+      }
+    },
+    {
+      "toolId": "get_clinic_information",
+      "mode": "read",
+      "aiContract": {
+        "requiredPermissions": [
+          "clinic.read"
+        ],
+        "optionalArguments": [
+          "section"
+        ],
+        "sectionValues": [
+          "general",
+          "contact",
+          "location",
+          "policies"
+        ]
+      },
+      "core": {
+        "method": null,
+        "path": null,
+        "requestSchema": null,
+        "responseSchema": null,
+        "status": "NOT AVAILABLE"
+      }
+    }
+  ],
+  "errors": {
+    "coreEnvelope": null,
+    "statusMappings": {
+      "401": "NOT_ESTABLISHED",
+      "403": "NOT_ESTABLISHED",
+      "404": "NOT_ESTABLISHED",
+      "409": "NOT_ESTABLISHED",
+      "422": "NOT_ESTABLISHED",
+      "429": "NOT_ESTABLISHED",
+      "500": "NOT_ESTABLISHED"
+    },
+    "currentAdapterError": {
+      "code": "CORE_CONTRACT_UNAVAILABLE",
+      "status": "The placeholder adapter fails closed and performs no Core request."
+    }
+  },
+  "mutations": {
+    "create": false,
+    "update": false,
+    "delete": false,
+    "cancel": false,
+    "financial": false,
+    "medical": false
+  },
+  "blockers": [
+    "No verified Core application or endpoint catalog",
+    "No Core request/response schemas",
+    "No AI-to-Core service authentication contract",
+    "No tenant, organization, clinic, and user mapping contract",
+    "No Core authorization mapping",
+    "No Core date/time/timezone contract",
+    "No Core error envelope or retry/rate-limit contract",
+    "No non-production Core integration environment"
+  ],
+  "nextStep": "Obtain an approved read-only Core contract before implementing or enabling ThanarahCoreAdapter."
+}
