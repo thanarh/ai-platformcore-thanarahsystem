@@ -1,0 +1,100 @@
+We have completed Phase 7 of the AI Core.
+
+Do NOT implement anything yet.
+
+The Phase 7 audit confirmed that the current AI Core environment does not contain the real Thanarah Core API or its contracts.
+
+I now need you to inspect the ACTUAL Thanarah Core project if it is available in this workspace.
+
+Your task is READ-ONLY discovery only.
+
+Find and document the real implementation for:
+
+1. Authentication
+2. Authorization / roles / permissions
+3. Tenant / organization / clinic identity
+4. User identity
+5. Timezone / date handling
+6. Appointments
+7. Doctors
+8. Services
+9. Working hours
+10. Insurance
+11. Clinic information
+
+Search the actual source code for:
+- controllers
+- routes
+- services
+- DTOs
+- schemas
+- database models
+- auth guards/middleware
+- permission checks
+- tenant resolution
+- API documentation
+- environment configuration
+
+For every discovered API, record:
+- HTTP method
+- real route
+- required authentication
+- required permissions
+- tenant/organization/clinic context
+- request parameters/body
+- response shape
+- error shape
+- pagination/filtering
+- date/time/timezone behavior
+- source file and relevant code location
+
+CRITICAL:
+
+DO NOT invent endpoints.
+DO NOT invent DTO fields.
+DO NOT invent authentication mechanisms.
+DO NOT create mock production contracts.
+DO NOT modify Thanarah Core.
+DO NOT modify AI Core implementation yet.
+
+If something cannot be verified from the actual source code, mark it NOT_VERIFIED.
+
+Then create:
+
+docs/thanarah-core-real-api-map.md
+docs/thanarah-core-real-api-contract.json
+
+Also create a concise mapping:
+
+get_appointments
+get_doctors
+get_services
+get_working_hours
+get_insurance
+get_clinic_information
+
+For each tool, mark:
+
+AVAILABLE
+PARTIALLY_AVAILABLE
+NOT_AVAILABLE
+
+and explain exactly why.
+
+Keep:
+
+THANARAH_CORE_TOOLS_ENABLED=false
+WEB_SEARCH_ENABLED=false
+
+At the end, run only validation for the generated documentation/JSON.
+
+STOP after the audit and report:
+- whether the real Thanarah Core was found
+- how many real endpoints were verified
+- how many of the six AI tools can be mapped
+- authentication mechanism
+- tenant mechanism
+- major blockers
+- exact next implementation step
+
+Do not implement Phase 8 yet.

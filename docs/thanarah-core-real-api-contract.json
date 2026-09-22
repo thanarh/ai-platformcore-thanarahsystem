@@ -1,0 +1,225 @@
+{
+  "auditType": "read-only-source-discovery",
+  "auditDate": "2026-09-22",
+  "realThanarahCoreFound": false,
+  "verifiedEndpointCount": 0,
+  "mappedAiToolCount": 0,
+  "totalAiToolCount": 6,
+  "productionEnabled": false,
+  "requiredFlags": {
+    "THANARAH_CORE_TOOLS_ENABLED": false,
+    "WEB_SEARCH_ENABLED": false
+  },
+  "searchResult": {
+    "workspaceContainsSeparateCoreProject": false,
+    "coreBaseUrl": null,
+    "coreApiDocumentation": null,
+    "coreSourceStatus": "NOT_FOUND_IN_AVAILABLE_WORKSPACE",
+    "notes": [
+      "The available workspace contains the AI application, not a verified Thanarah Core implementation.",
+      "The ThanarahCoreAdapter is a fail-closed placeholder and performs no network or database operation."
+    ]
+  },
+  "verifiedAiApplicationContext": {
+    "userAuthentication": {
+      "mechanism": "Bearer JWT",
+      "source": "apps/api/src/modules/auth/strategies/jwt.strategy.ts:8-32"
+    },
+    "apiKeyAuthentication": {
+      "mechanism": "Tenant-bound x-api-key",
+      "source": "apps/api/src/common/guards/jwt-auth.guard.ts:17-46"
+    },
+    "localRoles": [
+      "OWNER",
+      "ADMIN",
+      "AI_ADMIN",
+      "DEVELOPER",
+      "STAFF",
+      "USER"
+    ],
+    "localTenantField": "User.tenantId",
+    "localOrganizationContext": "user.organizationId || user.tenantId",
+    "localClinicField": null,
+    "localUserField": "User._id"
+  },
+  "coreAuthentication": {
+    "mechanism": null,
+    "serviceToken": null,
+    "jwtAudience": null,
+    "apiKey": null,
+    "oauth": null,
+    "status": "NOT_VERIFIED"
+  },
+  "coreAuthorization": {
+    "roleMapping": null,
+    "permissionMapping": null,
+    "status": "NOT_VERIFIED"
+  },
+  "coreIdentity": {
+    "tenantId": {
+      "field": null,
+      "sourceOfTruth": null,
+      "status": "NOT_VERIFIED"
+    },
+    "organizationId": {
+      "field": null,
+      "sourceOfTruth": null,
+      "status": "NOT_VERIFIED"
+    },
+    "clinicId": {
+      "field": null,
+      "sourceOfTruth": null,
+      "status": "NOT_VERIFIED"
+    },
+    "userId": {
+      "field": null,
+      "sourceOfTruth": null,
+      "status": "NOT_VERIFIED"
+    }
+  },
+  "coreDateTime": {
+    "appointmentDateField": null,
+    "appointmentTimeField": null,
+    "timezoneField": null,
+    "workingHoursRepresentation": null,
+    "relativeDateBehavior": null,
+    "databaseTimezoneBehavior": null,
+    "status": "NOT_VERIFIED"
+  },
+  "realEndpoints": [],
+  "domainImplementations": {
+    "appointments": {
+      "status": "NOT_VERIFIED",
+      "controllers": [],
+      "routes": [],
+      "services": [],
+      "dtos": [],
+      "schemas": [],
+      "models": []
+    },
+    "doctors": {
+      "status": "NOT_VERIFIED",
+      "controllers": [],
+      "routes": [],
+      "services": [],
+      "dtos": [],
+      "schemas": [],
+      "models": []
+    },
+    "services": {
+      "status": "NOT_VERIFIED",
+      "controllers": [],
+      "routes": [],
+      "services": [],
+      "dtos": [],
+      "schemas": [],
+      "models": []
+    },
+    "workingHours": {
+      "status": "NOT_VERIFIED",
+      "controllers": [],
+      "routes": [],
+      "services": [],
+      "dtos": [],
+      "schemas": [],
+      "models": []
+    },
+    "insurance": {
+      "status": "NOT_VERIFIED",
+      "controllers": [],
+      "routes": [],
+      "services": [],
+      "dtos": [],
+      "schemas": [],
+      "models": []
+    },
+    "clinicInformation": {
+      "status": "NOT_VERIFIED",
+      "controllers": [],
+      "routes": [],
+      "services": [],
+      "dtos": [],
+      "schemas": [],
+      "models": []
+    }
+  },
+  "toolMapping": [
+    {
+      "toolId": "get_appointments",
+      "status": "NOT_AVAILABLE",
+      "coreMethod": null,
+      "corePath": null,
+      "reason": "No real Core endpoint or contract was found."
+    },
+    {
+      "toolId": "get_doctors",
+      "status": "NOT_AVAILABLE",
+      "coreMethod": null,
+      "corePath": null,
+      "reason": "No real Core endpoint or contract was found."
+    },
+    {
+      "toolId": "get_services",
+      "status": "NOT_AVAILABLE",
+      "coreMethod": null,
+      "corePath": null,
+      "reason": "No real Core endpoint or contract was found."
+    },
+    {
+      "toolId": "get_working_hours",
+      "status": "NOT_AVAILABLE",
+      "coreMethod": null,
+      "corePath": null,
+      "reason": "No real Core endpoint or contract was found."
+    },
+    {
+      "toolId": "get_insurance",
+      "status": "NOT_AVAILABLE",
+      "coreMethod": null,
+      "corePath": null,
+      "reason": "No real Core endpoint or contract was found."
+    },
+    {
+      "toolId": "get_clinic_information",
+      "status": "NOT_AVAILABLE",
+      "coreMethod": null,
+      "corePath": null,
+      "reason": "No real Core endpoint or contract was found."
+    }
+  ],
+  "errorContract": {
+    "coreEnvelope": null,
+    "httpStatuses": {
+      "401": "NOT_VERIFIED",
+      "403": "NOT_VERIFIED",
+      "404": "NOT_VERIFIED",
+      "409": "NOT_VERIFIED",
+      "422": "NOT_VERIFIED",
+      "429": "NOT_VERIFIED",
+      "500": "NOT_VERIFIED"
+    },
+    "currentPlaceholderError": {
+      "code": "CORE_CONTRACT_UNAVAILABLE",
+      "source": "apps/api/src/modules/ai-gateway/adapters.ts:19-28"
+    }
+  },
+  "mutations": {
+    "create": false,
+    "update": false,
+    "delete": false,
+    "cancel": false,
+    "financial": false,
+    "medical": false
+  },
+  "blockers": [
+    "Actual Thanarah Core source or API is unavailable in the workspace",
+    "No verified Core endpoint catalog",
+    "No verified AI-to-Core authentication",
+    "No verified tenant or clinic mapping",
+    "No verified Core authorization model",
+    "No verified Core date/time/timezone behavior",
+    "No verified Core request/response/error contracts",
+    "No non-production Core environment for integration tests"
+  ],
+  "nextStep": "Obtain the actual Thanarah Core repository or approved API package and test environment; repeat the audit before implementing ThanarahCoreAdapter."
+}
