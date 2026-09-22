@@ -1,0 +1,231 @@
+PHASE 8 — ENABLE REAL WEB SEARCH
+================================
+
+Goal:
+Enable real, production-usable internet search for the existing AI Core using the existing SearXNG/Web Intelligence architecture.
+
+IMPORTANT:
+Do NOT rebuild the Web Intelligence system.
+Do NOT add paid APIs.
+Do NOT use OpenAI, Anthropic, Gemini, Groq, OpenRouter, Tavily, SerpAPI, Google Custom Search API, Bing API, or any other paid/external API requiring an API key.
+
+Use the existing:
+- SearXNG
+- HTTP fetcher
+- HTML/content extraction
+- local reranking
+- context compression
+- citation/source handling
+- web decision layer
+- SSE web events
+
+Current problem:
+Previous Phase 3/3.1 verification showed:
+- SearXNG itself was reachable locally.
+- Configured upstream engines were timing out / returning no usable results.
+- WEB_SEARCH_ENABLED was therefore kept false.
+
+Your task is to FIX THE REAL SEARCH PATH.
+
+STEP 1 — Inspect the current SearXNG configuration
+-----------------------------------------------
+Inspect:
+- SearXNG settings
+- enabled engines
+- engine configuration
+- Docker/container configuration
+- network configuration
+- timeouts
+- safe-search settings
+- result format
+- existing environment variables
+
+Do not assume the previous configuration is still correct.
+
+STEP 2 — Make SearXNG actually return real web results
+--------------------------------------------------------
+Use only free/public search engines that work without paid API keys.
+
+Test multiple engines individually.
+
+Prefer engines such as:
+- DuckDuckGo
+- Bing/Web search if available without an API key through SearXNG
+- Brave search only if the configured SearXNG engine works without requiring a paid API
+- Wikipedia/Wikidata only as supplemental sources, NOT as the main general web search
+- other SearXNG engines that are publicly accessible and do not require paid credentials
+
+Do NOT fabricate results.
+
+If an engine is unavailable, disable it and continue testing other free engines.
+
+Do not expose API keys or secrets.
+
+STEP 3 — Test real searches
+---------------------------
+Run real searches in English and Arabic.
+
+Test at least:
+
+1. "OpenAI latest news"
+2. "Saudi Arabia technology news"
+3. "ما هو آخر أخبار الذكاء الاصطناعي"
+4. "أفضل الجامعات في السعودية"
+5. "Python latest release"
+
+For every query record:
+- HTTP status
+- search latency
+- number of results
+- result titles
+- result URLs
+- source domains
+- whether the result is actually from the internet
+
+STEP 4 — Test the complete AI path
+----------------------------------
+Verify:
+
+User question
+→ Web decision layer
+→ SearXNG
+→ real search results
+→ URL fetching
+→ content extraction
+→ local reranking
+→ context compression
+→ Qwen
+→ answer
+→ citations
+→ SSE events
+
+The AI must NOT answer from fabricated search results.
+
+STEP 5 — Verify citations
+-------------------------
+Every web-derived factual answer must retain source references.
+
+Verify that:
+- citations contain real URLs
+- URLs correspond to retrieved sources
+- source titles/domains are preserved
+- no fake citations are generated
+- unavailable sources are not cited
+
+STEP 6 — Security
+-----------------
+Preserve all existing SSRF protections:
+- URL validation
+- private IP blocking
+- DNS re-check
+- redirect validation
+- content-type restrictions
+- response-size limits
+- request timeout
+- tenant/user/conversation isolation
+
+Do not weaken security to make search work.
+
+STEP 7 — Performance
+--------------------
+Measure:
+- SearXNG search latency
+- fetch latency
+- extraction latency
+- reranking latency
+- total web pipeline latency
+- first-token latency
+
+Do not optimize by removing security or citations.
+
+STEP 8 — Enable production flag
+-------------------------------
+ONLY if real searches work reliably:
+
+WEB_SEARCH_ENABLED=true
+
+Keep:
+
+THANARAH_CORE_TOOLS_ENABLED=false
+
+Keep the current production model:
+
+LOCAL_AI_MODEL=qwen2.5:1.5b
+
+Do not change the model as part of this phase.
+
+STEP 9 — Failure behavior
+-------------------------
+If all search engines are unavailable:
+
+The AI must NOT pretend it searched the internet.
+
+It must return a clear response indicating that live web search is currently unavailable.
+
+Do not fall back to fabricated/current-looking information.
+
+STEP 10 — Documentation
+------------------------
+Update/create:
+
+docs/phase8-web-search.md
+
+Include:
+- working engines
+- disabled engines and reasons
+- example real search results
+- latency measurements
+- citation verification
+- security verification
+- final configuration
+- known limitations
+
+STEP 11 — Tests
+---------------
+Run focused tests for:
+- search activation
+- search results
+- source URLs
+- citation integrity
+- SSRF protection
+- timeout handling
+- empty-result handling
+- engine failure handling
+- tenant isolation
+- SSE web events
+- end-to-end web search
+
+Do not run unrelated large test suites unless required.
+
+FINAL ACCEPTANCE CRITERIA
+=========================
+
+Accept Phase 8 only if:
+
+1. SearXNG returns real internet results.
+2. At least one general-purpose free search engine works reliably.
+3. Arabic search works.
+4. English search works.
+5. Real URLs are returned.
+6. AI can fetch at least some returned pages.
+7. AI can cite the actual sources.
+8. No fake citations/results exist.
+9. SSRF protections remain enabled.
+10. Failure is fail-closed.
+11. End-to-end AI web search works.
+12. WEB_SEARCH_ENABLED=true only after the above passes.
+
+If these criteria are NOT met:
+- keep WEB_SEARCH_ENABLED=false
+- report exactly what blocked it
+- do not claim web search is enabled.
+
+IMPORTANT:
+Do not modify Thanarah Core.
+Do not implement Core integration.
+Do not add WhatsApp.
+Do not add write tools.
+Do not modify the AI model.
+This phase is ONLY for making the existing web-search capability actually work.
+
+STOP after Phase 8 and report numeric test results.
