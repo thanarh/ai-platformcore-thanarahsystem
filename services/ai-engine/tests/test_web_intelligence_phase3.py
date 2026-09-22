@@ -8,7 +8,7 @@ import httpx
 from app.config import settings
 from app.web_intelligence.decision import classify_search_category, decide_web
 from app.web_intelligence.extractor import extract_html
-from app.web_intelligence.fetcher import FetchedPage, SafeHTTPFetcher, UnsafeURL, validate_public_url
+from app.web_intelligence.fetcher import FetchError, FetchedPage, SafeHTTPFetcher, UnsafeURL, validate_public_url
 from app.web_intelligence.pipeline import WebIntelligencePipeline
 from app.web_intelligence.search import (
     SearXNGClient,
@@ -43,6 +43,7 @@ class WebIntelligencePhase3Tests(unittest.IsolatedAsyncioTestCase):
             SearchResult("A", "https://a.example/page?b=2&a=1#top", "Python docs", "a", 2),
             SearchResult("A duplicate", "https://a.example/page?a=1&b=2", "Python docs", "a", 1),
             SearchResult("B", "https://b.example/page", "Python guide", "b", 3),
+            SearchResult("Unrelated", "https://unrelated.example/page", "No matching terms", "x", 1),
         ])
         selected = select_diverse_results(results, 2)
         self.assertEqual(len(selected), 2)
@@ -50,6 +51,7 @@ class WebIntelligencePhase3Tests(unittest.IsolatedAsyncioTestCase):
             {item.url.split("/")[2] for item in selected},
             {"a.example", "b.example"},
         )
+        self.assertNotIn("unrelated.example", {item.url.split("/")[2] for item in results})
 
     def test_extractor_removes_noise_and_keeps_metadata(self):
         html = b"""
@@ -169,7 +171,7 @@ class WebIntelligencePhase3Tests(unittest.IsolatedAsyncioTestCase):
                 return [SearchResult(
                     title="Fixture source",
                     url="https://public.example/article",
-                    snippet="fixture",
+                    snippet="أحدث معلومات fixture",
                     source="fixture",
                     rank=1,
                 )]
@@ -207,7 +209,7 @@ class WebIntelligencePhase3Tests(unittest.IsolatedAsyncioTestCase):
 
             async def search(self, *args, **kwargs):
                 from app.web_intelligence.search import SearchResult
-                return [SearchResult("Fixture", "https://public.example/a", "snippet", "fixture", 1)]
+                return [SearchResult("Fixture", "https://public.example/a", "latest evidence", "fixture", 1)]
 
         class FakeFetcher:
             async def fetch(self, _url):
@@ -243,6 +245,52 @@ class WebIntelligencePhase3Tests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("webFetchMs", telemetry.values)
         self.assertIn("webExtractionMs", telemetry.values)
         self.assertIn("webRerankingMs", telemetry.values)
+
+    async def test_pipeline_fails_closed_on_empty_search_results(self):
+        class EmptySearch:
+            base_url = "http://searxng.test"
+
+            async def search(self, *args, **kwargs):
+                return []
+
+        with patch.object(settings, "web_search_enabled", True):
+            result = await WebIntelligencePipeline(search_client=EmptySearch()).run(
+                "ابحث عن آخر الأخبار",
+                tenant_id="tenant-a",
+            )
+
+        self.assertEqual(result.error, "No verified web search results")
+        self.assertEqual(result.sources, [])
+        self.assertIn("no verified web evidence", result.context)
+        self.assertIn("error", [event["event"] for event in result.events])
+        self.assertNotIn("generating", [event["event"] for event in result.events])
+
+    async def test_pipeline_fails_closed_when_all_pages_fail_to_fetch(self):
+        class SearchWithSource:
+            base_url = "http://searxng.test"
+
+            async def search(self, *args, **kwargs):
+                from app.web_intelligence.search import SearchResult
+                return [SearchResult("Fixture", "https://public.example/a", "latest evidence", "fixture", 1)]
+
+        class FailingFetcher:
+            async def fetch(self, _url):
+                raise FetchError("upstream unavailable")
+
+        with patch.object(settings, "web_search_enabled", True):
+            result = await WebIntelligencePipeline(
+                search_client=SearchWithSource(),
+                fetcher=FailingFetcher(),
+            ).run(
+                "search latest evidence",
+                tenant_id="tenant-a",
+            )
+
+        self.assertEqual(result.error, "No verified web pages were fetched")
+        self.assertEqual(result.sources, [])
+        self.assertIn("no verified web evidence", result.context)
+        self.assertIn("error", [event["event"] for event in result.events])
+        self.assertNotIn("generating", [event["event"] for event in result.events])
 
 
 if __name__ == "__main__":

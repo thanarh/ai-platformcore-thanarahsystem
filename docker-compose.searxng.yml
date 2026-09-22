@@ -2,8 +2,10 @@ services:
   searxng:
     image: searxng/searxng:latest
     container_name: thanarah-searxng
-    ports:
-      - "${SEARXNG_PORT:-8080}:8080"
+    # The Replit Docker bridge cannot resolve public DNS in this workspace.
+    # Host networking lets SearXNG use the same working network path as the
+    # application while it still binds only to the configured local port.
+    network_mode: host
     environment:
       GRANIAN_HOST: "0.0.0.0"
       SEARXNG_BIND_ADDRESS: "0.0.0.0"

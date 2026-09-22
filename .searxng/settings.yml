@@ -5,8 +5,8 @@ use_default_settings:
       - arxiv
       - github
       - stackoverflow
-      - wikidata
-      - duckduckgo
+      - bing
+      - bing news
       - duckduckgo news
 
 general:

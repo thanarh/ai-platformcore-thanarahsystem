@@ -342,6 +342,8 @@ def filter_and_score_results(query: str, results: list[SearchResult]) -> list[Se
         seen.add(canonical)
         haystack = f"{result.title} {result.snippet}".casefold()
         overlap = sum(1 for term in terms if term in haystack)
+        if terms and overlap == 0:
+            continue
         score = overlap / max(1, len(terms)) + max(0.0, 1.0 - (result.rank - 1) * 0.03)
         scored.append((score, result))
     scored.sort(key=lambda item: item[0], reverse=True)
