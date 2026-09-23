@@ -132,6 +132,11 @@ class DailyLearningService:
         except Exception:
             return {}
         if not rows:
+            # Cache the absence of a profile as well as a populated profile.
+            # New profiles invalidate this cache when the daily analyzer writes
+            # a document, while empty users avoid a database round-trip on
+            # every request.
+            self._profile_cache[cache_key] = (time.time(), {})
             return {}
         languages = Counter(row.get("preferredLanguage", "unknown") for row in rows)
         dialects = Counter(row.get("arabicDialect", "neutral") for row in rows)

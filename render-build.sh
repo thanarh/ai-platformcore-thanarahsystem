@@ -8,8 +8,12 @@ export NEXT_API_URL="${NEXT_API_URL:-http://127.0.0.1:3001}"
 
 # Production only needs the two app manifests; the root package is a dev orchestrator.
 # Avoiding a root install also prevents unrelated npm resolver failures on Render.
-npm ci --prefix apps/web --include=dev --no-audit --no-fund
-npm ci --prefix apps/api --include=dev --no-audit --no-fund
+# Replit's package firewall writes an internal tarball host into lockfiles. That
+# host is not resolvable from Render, so normalize the cloned build workspace
+# before installing and make the public registry explicit.
+node scripts/prepare-public-npm-locks.mjs
+npm ci --registry=https://registry.npmjs.org/ --prefix apps/web --include=dev --no-audit --no-fund
+npm ci --registry=https://registry.npmjs.org/ --prefix apps/api --include=dev --no-audit --no-fund
 
 npm run build --prefix apps/api
 npm run build --prefix apps/web

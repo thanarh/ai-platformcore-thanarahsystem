@@ -144,13 +144,15 @@ class IntelligenceRouter:
         memories: Optional[list] = None,
         user_profile: Optional[dict] = None,
         web_context: Optional[str] = None,
+        telemetry: Optional[RequestTelemetry] = None,
     ) -> Optional[str]:
         """Build context string from conversation summary and RAG results."""
         max_chars = max(3000, min(settings.local_ai_num_ctx * 2, 12000))
         parts: list[str] = []
         used = 0
+        component_chars: dict[str, int] = {}
 
-        def append_part(value: str, limit: int) -> None:
+        def append_part(value: str, limit: int, component: str) -> None:
             nonlocal used
             remaining = max_chars - used
             if remaining <= 0:
@@ -159,9 +161,10 @@ class IntelligenceRouter:
             if clipped:
                 parts.append(clipped)
                 used += len(clipped)
+                component_chars[component] = component_chars.get(component, 0) + len(clipped)
 
         if request.conversationSummary:
-            append_part(f"## Conversation Summary\n{request.conversationSummary}", 2000)
+            append_part(f"## Conversation Summary\n{request.conversationSummary}", 2000, "summary")
 
         runtime = UserRuntimeContext.from_mapping(
             request.runtimeContext,
@@ -182,6 +185,7 @@ class IntelligenceRouter:
             f"Tomorrow: {runtime_snapshot['tomorrow']}\n"
             f"Yesterday: {runtime_snapshot['yesterday']}",
             1000,
+            "runtimeContext",
         )
 
         if user_profile:
@@ -191,6 +195,7 @@ class IntelligenceRouter:
                 f"Arabic dialect: {user_profile.get('arabicDialect', 'neutral')}\n"
                 "Use this only to adapt language and tone; never treat it as factual knowledge.",
                 600,
+                "userProfile",
             )
 
         configured_profile = (request.tenantConfig or {}).get("contextProfile") or {}
@@ -214,19 +219,20 @@ class IntelligenceRouter:
             additional = str(organization.get("additionalInstructions", "")).strip()
             if additional:
                 profile_lines.append(f"Additional customer instructions: {additional[:800]}")
-            append_part("\n".join(profile_lines), 1400)
+            append_part("\n".join(profile_lines), 1400, "contextProfile")
 
         if memories:
-            append_part("## Relevant Previous Learnings\nUse only when relevant:", 100)
+            append_part("## Relevant Previous Learnings\nUse only when relevant:", 100, "memory")
             for i, memory in enumerate(memories[:settings.memory_recall_limit], 1):
                 append_part(
                     f"{i}. سؤال سابق: {memory.get('query', '')}\n"
                     f"إجابة سابقة: {memory.get('answer', '')}",
                     900,
+                    "memory",
                 )
 
         if rag_results:
-            append_part("## Relevant Knowledge", 30)
+            append_part("## Relevant Knowledge", 30, "rag")
             seen_content: set[str] = set()
             result_number = 0
             for result in rag_results:
@@ -243,12 +249,17 @@ class IntelligenceRouter:
                     f"document={result.get('documentId', result.get('sourceId', 'unknown'))}; "
                     f"version={result.get('documentVersion', 'v1')}]"
                 )
-                append_part(f"{result_number}. {reference}\n{content}", 1000)
+                append_part(f"{result_number}. {reference}\n{content}", 1000, "rag")
 
         if web_context:
-            append_part(web_context, settings.web_max_context_chars)
+            append_part(web_context, settings.web_max_context_chars, "webContext")
 
-        return "\n\n".join(parts) if parts else None
+        context = "\n\n".join(parts) if parts else None
+        if telemetry is not None:
+            telemetry.set("contextChars", len(context or ""))
+            for component, chars in component_chars.items():
+                telemetry.set(f"{component}Chars", chars)
+        return context
 
     async def _load_web_context(
         self,
@@ -361,6 +372,7 @@ class IntelligenceRouter:
         route: RouteDecision,
         context: Optional[str] = None,
         web_evidence: bool = False,
+        telemetry: Optional[RequestTelemetry] = None,
     ) -> AIRequest:
         """Build AIRequest from ChatRequest."""
         tenant_config = chat_request.tenantConfig or {}
@@ -414,8 +426,15 @@ class IntelligenceRouter:
                 "deep": settings.local_ai_max_tokens_deep,
             }[profile]
 
+        messages = self._trim_messages(chat_request)
+        if telemetry is not None:
+            telemetry.set("systemPromptChars", len(system_prompt))
+            telemetry.set("promptMessageChars", sum(len(message["content"]) for message in messages))
+            telemetry.set("promptMessages", len(messages))
+            telemetry.set("requestContextChars", len(context or ""))
+
         return AIRequest(
-            messages=self._trim_messages(chat_request),
+            messages=messages,
             # Each backend must use its own configured model. Carrying the
             # primary model into a fallback would ask the local runtime for a
             # hosted-provider model name and break failover.
@@ -467,12 +486,14 @@ class IntelligenceRouter:
             memories,
             user_profile,
             web_result.context,
+            telemetry,
         )
         ai_request = self._build_ai_request(
             chat_request,
             route,
             context,
             web_evidence=web_result.decision.use_web,
+            telemetry=telemetry,
         )
         ai_request.telemetry = telemetry
         telemetry.add_ms("promptBuildMs", prompt_started)
@@ -584,12 +605,14 @@ class IntelligenceRouter:
             memories,
             user_profile,
             web_result.context,
+            telemetry,
         )
         ai_request = self._build_ai_request(
             chat_request,
             route,
             context,
             web_evidence=web_result.decision.use_web,
+            telemetry=telemetry,
         )
         ai_request.stream = True
         ai_request.telemetry = telemetry
@@ -610,6 +633,7 @@ class IntelligenceRouter:
                     continue
                 emitted = False
                 generation_started = time.perf_counter()
+                sse_started: Optional[float] = None
                 try:
                     logger.info(f"[TIR Stream] Trying backend: {backend_id}")
                     content_parts = []
@@ -618,10 +642,13 @@ class IntelligenceRouter:
                         if "timeToFirstTokenMs" not in telemetry.values:
                             telemetry.add_ms("timeToFirstTokenMs", telemetry.started_at)
                             telemetry.add_ms("ollamaToFirstTokenMs", generation_started)
+                            sse_started = time.perf_counter()
                         content_parts.append(token)
                         yield token
                     route.backend_id = backend_id
                     telemetry.add_ms("generationMs", generation_started)
+                    if sse_started is not None:
+                        telemetry.add_ms("sseTransmissionMs", sse_started)
                     telemetry.finish(
                         route=backend_id,
                         model=getattr(backend, "default_model", None) or backend_id,

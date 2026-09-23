@@ -95,7 +95,13 @@ class OllamaBackend(AIBackend):
         )
         if request.context:
             system += f"\n\n--- Thanarah Context ---\n{request.context}"
-        return [{"role": "system", "content": system}, *request.messages]
+        messages = [{"role": "system", "content": system}, *request.messages]
+        if request.telemetry is not None:
+            request.telemetry.set("systemPromptChars", len(system))
+            request.telemetry.set("promptMessageChars", sum(len(message.get("content", "")) for message in request.messages))
+            request.telemetry.set("promptChars", sum(len(message.get("content", "")) for message in messages))
+            request.telemetry.set("promptMessages", len(messages))
+        return messages
 
     def _options(self, request: AIRequest) -> dict:
         return {

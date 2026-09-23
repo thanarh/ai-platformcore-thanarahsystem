@@ -75,10 +75,14 @@ async def chat_stream(request: Request, chat_request: ChatRequest):
                 yield event_frame(event_name, payload)
             yield event_frame(StreamEventType.STATUS, {"state": "generating"})
             full_content = []
+            first_delta = False
             async for token in stream_gen:
                 if await request.is_disconnected():
                     return
                 full_content.append(token)
+                if not first_delta:
+                    first_delta = True
+                    telemetry.add_ms("sseFirstDeltaMs", telemetry.started_at)
                 yield legacy_delta_frame(token)
 
             # Learn from the completed exchange after delivery preparation.
