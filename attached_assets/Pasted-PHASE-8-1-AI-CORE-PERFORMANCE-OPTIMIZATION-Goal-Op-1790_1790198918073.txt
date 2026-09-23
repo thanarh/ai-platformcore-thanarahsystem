@@ -1,0 +1,482 @@
+PHASE 8.1 — AI CORE PERFORMANCE OPTIMIZATION
+=============================================
+
+Goal:
+Optimize the existing AI Core for faster response startup and lower latency WITHOUT changing its architecture, model family, security model, web-search correctness, or existing functionality.
+
+This phase is PERFORMANCE ONLY.
+
+Do NOT:
+- add new product features
+- build Thanarah Core integration
+- modify Thanarah Core
+- add WhatsApp
+- add write tools
+- add paid APIs
+- replace SearXNG
+- replace Qwen with another model
+- remove citations
+- weaken security
+- remove tenant isolation
+- remove validation
+- remove fail-closed behavior
+- expose chain-of-thought
+- fake progress/events
+- claim performance improvements without measurements
+
+CURRENT STATE
+=============
+
+The AI Core currently has:
+
+- Local Ollama
+- qwen2.5:1.5b
+- Streaming via SSE
+- AI Gateway
+- RAG foundation
+- SearXNG real web search
+- 7 working free search engines
+- HTTP fetcher
+- content extraction
+- local reranking
+- citations
+- Skills
+- Task Orchestrator
+- PDF/XLSX/CSV artifacts
+- MongoDB persistence
+- local STT/TTS
+- tenant/user isolation
+- permissions
+- fail-closed behavior
+
+Current production model:
+
+LOCAL_AI_MODEL=qwen2.5:1.5b
+
+Do NOT change the model during this phase.
+
+IMPORTANT CURRENT PERFORMANCE FACT:
+
+Phase 8 web search succeeded.
+
+Typical web pipeline:
+approximately 3.35 seconds
+
+But first token:
+approximately 24.2 seconds
+
+This means the main objective is to identify exactly where the remaining ~20+ seconds are being spent.
+
+==================================================
+STEP 1 — CREATE A COMPLETE LATENCY BREAKDOWN
+==================================================
+
+Instrument one complete request with precise timestamps.
+
+Measure separately:
+
+1. Request received
+2. Authentication
+3. Conversation/context retrieval
+4. Memory retrieval if present
+5. RAG retrieval
+6. Web decision
+7. SearXNG search
+8. Search result processing
+9. URL fetch
+10. Content extraction
+11. Local reranking
+12. Context compression
+13. Prompt construction
+14. Ollama request start
+15. Model readiness check
+16. Model load/reload
+17. Prompt evaluation
+18. First generated token
+19. Remaining generation
+20. SSE transmission
+21. Final response
+
+Produce:
+
+- min
+- p50
+- p95
+- max
+- average
+
+Do NOT guess the bottleneck.
+
+==================================================
+STEP 2 — COMPARE LOCAL VS WEB REQUESTS
+==================================================
+
+Benchmark at least:
+
+A. Simple local question
+B. Long local question
+C. RAG question
+D. Web question
+E. Web question with multiple sources
+F. Arabic web question
+G. English web question
+
+For every case record:
+
+- TTFT
+- total latency
+- input tokens
+- output tokens
+- prompt evaluation time
+- generation time
+- model load time
+- web latency
+- context latency
+- CPU
+- RAM
+
+Use the existing telemetry infrastructure where possible.
+
+==================================================
+STEP 3 — CHECK OLLAMA/MODEL READINESS
+==================================================
+
+Determine whether the ~24.2s TTFT is caused by:
+
+- cold model loading
+- model reload
+- Ollama queueing
+- prompt evaluation
+- excessive context
+- excessive input tokens
+- generation configuration
+- serialization
+- application-side buffering
+- SSE buffering
+
+Verify actual runtime state.
+
+Do NOT assume that the model is warm.
+
+Test:
+
+1. cold request
+2. immediate second request
+3. request after 30 seconds
+4. request after 5 minutes if practical
+
+Measure model load/reload precisely.
+
+==================================================
+STEP 4 — OPTIMIZE CONTEXT
+==================================================
+
+Inspect the actual prompt sent to Qwen.
+
+Measure:
+
+- system prompt tokens
+- conversation tokens
+- RAG tokens
+- web source tokens
+- tool/skill instructions
+- total input tokens
+
+Find unnecessary duplication.
+
+Optimize only where safe.
+
+Goals:
+
+- remove duplicated context
+- remove irrelevant conversation history
+- limit web context intelligently
+- remove duplicate sources
+- keep citations intact
+- preserve important user context
+- preserve tenant isolation
+
+Do NOT blindly truncate context.
+
+==================================================
+STEP 5 — OPTIMIZE WEB → MODEL HANDOFF
+==================================================
+
+The web pipeline itself is ~3.35 seconds and already works.
+
+Do NOT rebuild it.
+
+Investigate whether the delay after web search is caused by:
+
+- too much extracted text
+- excessive context compression
+- prompt construction
+- tokenization
+- model prompt evaluation
+
+Measure before and after.
+
+Preserve:
+
+- real URLs
+- citations
+- source titles
+- source domains
+- source relevance
+- SSRF protections
+- fail-closed behavior
+
+==================================================
+STEP 6 — OPTIMIZE STREAMING
+==================================================
+
+Verify that the first token is actually streamed immediately when generated.
+
+Check for:
+
+- buffering
+- proxy buffering
+- application buffering
+- SSE buffering
+- JSON aggregation
+- frontend buffering
+
+The backend must emit tokens/deltas incrementally.
+
+Do NOT fake a token or progress message.
+
+Execution-status events are allowed, but they must represent real operations.
+
+==================================================
+STEP 7 — SAFE PARALLELIZATION
+==================================================
+
+Inspect operations that can safely run in parallel.
+
+Potential candidates:
+
+- independent context retrieval
+- independent profile retrieval
+- independent source processing
+- independent metadata operations
+
+Do NOT parallelize anything that can violate:
+
+- tenant isolation
+- user isolation
+- ordering
+- permissions
+- correctness
+
+Measure before/after.
+
+==================================================
+STEP 8 — CACHE ANALYSIS
+==================================================
+
+Inspect existing caches.
+
+Identify:
+
+- exact response cache
+- context cache
+- profile cache
+- web cache
+- model cache/readiness
+
+Do NOT enable unsafe web-answer caching.
+
+Web answers must remain sensitive to freshness.
+
+Use caching only where correctness is preserved.
+
+==================================================
+STEP 9 — RESOURCE UTILIZATION
+==================================================
+
+Measure actual production/runtime usage:
+
+- CPU
+- RAM
+- Ollama CPU
+- application CPU
+- MongoDB latency
+- concurrent requests
+- queue depth
+
+Identify whether the system is CPU-bound, memory-bound, model-bound, or application-bound.
+
+Do not extrapolate old Replit 4-core benchmark results to production.
+
+Use the actual current environment.
+
+==================================================
+STEP 10 — OPTIMIZE ONLY AFTER MEASUREMENT
+==================================================
+
+For every optimization:
+
+Record:
+
+BEFORE
+AFTER
+CHANGE
+WHY
+RISK
+
+Example:
+
+TTFT p50:
+Before: 24.2s
+After: Xs
+
+Prompt tokens:
+Before: X
+After: Y
+
+Context latency:
+Before: X
+After: Y
+
+Model load:
+Before: X
+After: Y
+
+Do not report an improvement unless the benchmark demonstrates it.
+
+==================================================
+STEP 11 — REGRESSION TESTS
+==================================================
+
+Existing functionality MUST remain working.
+
+Run focused tests for:
+
+- normal chat
+- Arabic chat
+- English chat
+- streaming
+- web search
+- Arabic web search
+- citations
+- RAG
+- Skills
+- Task Orchestrator
+- artifacts
+- voice
+- authentication
+- tenant isolation
+- user isolation
+- permissions
+- SSRF protection
+- fail-closed web behavior
+
+Do not remove existing tests.
+
+==================================================
+STEP 12 — PERFORMANCE TARGET
+==================================================
+
+Do NOT promise a specific number before measuring.
+
+However, the main target is:
+
+REDUCE TTFT AS MUCH AS PRACTICALLY POSSIBLE
+
+while preserving:
+
+- answer quality
+- citations
+- security
+- tenant isolation
+- functionality
+
+If a bottleneck cannot safely be optimized, document why.
+
+==================================================
+STEP 13 — DOCUMENTATION
+==================================================
+
+Create:
+
+docs/phase8.1-performance-optimization.md
+
+Include:
+
+1. Baseline
+2. Bottleneck analysis
+3. Changes made
+4. Before/after metrics
+5. Model readiness results
+6. Context/token analysis
+7. Web pipeline analysis
+8. Streaming analysis
+9. CPU/RAM analysis
+10. Regression results
+11. Remaining bottlenecks
+12. Recommended next step
+
+==================================================
+IMPORTANT SAFETY RULE
+==================================================
+
+Do NOT optimize by:
+
+- lowering security
+- disabling permissions
+- removing tenant filters
+- removing citations
+- removing source validation
+- disabling SSRF protection
+- blindly shrinking context
+- hiding errors
+- fabricating streaming
+- fabricating progress
+- returning stale web results as current
+- bypassing authentication
+- bypassing authorization
+
+==================================================
+ENVIRONMENT FLAGS
+==================================================
+
+Keep:
+
+WEB_SEARCH_ENABLED=true
+
+THANARAH_CORE_TOOLS_ENABLED=false
+
+Keep:
+
+LOCAL_AI_MODEL=qwen2.5:1.5b
+
+Do not enable Thanarah Core tools.
+
+==================================================
+FINAL ACCEPTANCE
+==================================================
+
+At the end report:
+
+1. Baseline TTFT p50/p95
+2. Final TTFT p50/p95
+3. Baseline total latency
+4. Final total latency
+5. Web pipeline latency
+6. Prompt token count before/after
+7. Model load time
+8. CPU/RAM usage
+9. Number of optimizations applied
+10. Number of regression tests passed
+11. Remaining bottlenecks
+12. Whether the next step should be:
+   - further performance optimization
+   - search quality improvement
+   - memory/personalization
+   - production load testing
+
+Do NOT start Phase 9.
+
+STOP after Phase 8.1.
+
+The objective is to produce measurable performance improvement, not merely modify code.
