@@ -196,3 +196,14 @@ export const contextProfilesApi = {
 export const healthApi = {
   full: () => api.get('/health/full').then((r) => r.data),
 };
+
+// ──── Notifications ───────────────────────────────────────────────────────
+export const notificationsApi = {
+  list: () => api.get('/notifications').then((r) => r.data),
+  markRead: (id: string) => api.patch(`/notifications/${id}/read`).then((r) => r.data),
+  pushConfig: () => api.get('/notifications/push/config').then((r) => r.data),
+  savePushSubscription: (subscription: Record<string, unknown>) =>
+    api.post('/notifications/push-subscriptions', subscription).then((r) => r.data),
+  removePushSubscription: (endpoint: string) =>
+    api.delete('/notifications/push-subscriptions', { data: { endpoint } }).then((r) => r.data),
+};

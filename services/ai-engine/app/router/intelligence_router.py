@@ -17,6 +17,7 @@ from app.memory.daily_learning import daily_learning_service
 from app.telemetry import RequestTelemetry
 from app.foundation.runtime_context import UserRuntimeContext
 from app.web_intelligence import web_intelligence_pipeline
+from app.language_policy import response_language_instruction
 
 logger = logging.getLogger(__name__)
 
@@ -377,11 +378,22 @@ class IntelligenceRouter:
         """Build AIRequest from ChatRequest."""
         tenant_config = chat_request.tenantConfig or {}
         profile = self._profile(chat_request)
+        last_user_message = next(
+            (message.content for message in reversed(chat_request.messages) if message.role == "user"),
+            "",
+        )
+        language_name, language_instruction = response_language_instruction(last_user_message)
         compact_prompt = "أنت ثنارة، مساعد متعدد اللغات. افهم لغة المستخدم ولهجته وأجب بها مباشرة وباختصار ودقة. لا تكشف تفاصيل النموذج."
         system_prompt = str(
             tenant_config.get("systemPrompt")
             or (compact_prompt if profile == "fast" else THANARAH_BASE_SYSTEM)
         )[:4000]
+        system_prompt += (
+            f"\n\n## لغة الرد الإلزامية\n"
+            f"لغة المستخدم المطلوبة: {language_name}.\n"
+            f"{language_instruction}\n"
+            "لا تجعل لغة المصادر أو أسماء الأدوات أو نص التعليمات تحدد لغة الرد."
+        )
         industry = str(tenant_config.get("industry", "general"))
         if industry in SECTOR_INSTRUCTIONS:
             system_prompt += f"\n\n## تعليمات القطاع\n{SECTOR_INSTRUCTIONS[industry]}"
@@ -690,7 +702,7 @@ class IntelligenceRouter:
 
             # All backends exhausted — should not reach here since fallback always succeeds
             telemetry.finish(route="none")
-            yield "تعذر إكمال الطلب. حاول مرة أخرى.\n\nUnable to complete the request."
+            yield "تعذر إكمال الطلب. حاول مرة أخرى."
 
         return _resilient_stream(), route, [*rag_sources, *web_result.sources], telemetry, web_result.events
 

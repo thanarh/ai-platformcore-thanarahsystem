@@ -20,6 +20,7 @@ import { ReportModule } from './modules/email/report.module';
 import { ContextProfileModule } from './modules/context-profile/context-profile.module';
 import { AiGatewayModule } from './modules/ai-gateway/ai-gateway.module';
 import { FilesModule } from './modules/files/files.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 
 @Module({
   imports: [
@@ -64,6 +65,7 @@ import { FilesModule } from './modules/files/files.module';
     ContextProfileModule,
     AiGatewayModule,
     FilesModule,
+    NotificationsModule,
     MessagesModule,
     AiModule,
     ApiKeysModule,

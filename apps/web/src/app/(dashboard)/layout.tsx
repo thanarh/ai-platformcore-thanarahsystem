@@ -5,6 +5,7 @@ import { useAuthStore } from '@/store/auth';
 import { useChatStore } from '@/store/chat';
 import { authApi, conversationsApi } from '@/lib/api';
 import Sidebar from '@/components/Sidebar';
+import NotificationCenter from '@/components/NotificationCenter';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -49,6 +50,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="app-viewport flex bg-[#f5f5f3] overflow-hidden">
+      <NotificationCenter />
       <Sidebar />
       <main className="flex-1 flex flex-col overflow-hidden">
         {children}

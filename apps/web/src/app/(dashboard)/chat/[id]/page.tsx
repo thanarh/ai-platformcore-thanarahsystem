@@ -178,7 +178,7 @@ export default function ChatPage() {
       content: '',
       clientId: assistantClientId,
       isStreaming: true,
-      streamStatus: 'analyzing',
+       streamStatus: 'processing',
     });
 
     let accumulated = '';
@@ -221,8 +221,21 @@ export default function ChatPage() {
         finalizeMessage(convId, assistantClientId, errorContent);
         finishRequest();
       },
-      (event) => {
-        setExecutionEvents((current) => [...current, event].slice(-8));
+       (event) => {
+         setExecutionEvents((current) => [...current, event].slice(-12));
+         if (event.event === 'status' && event.state === 'searching') {
+           updateStreamingMessage(convId, assistantClientId, accumulated, false, 'searching');
+         } else if (
+           event.event === 'task_started'
+           || event.event === 'artifact_created'
+           || event.event === 'task_progress'
+         ) {
+           const taskType = String(event.type || event.skillId || '').toLowerCase();
+           const status = taskType.includes('pdf') || taskType.includes('spreadsheet') || taskType.includes('table')
+             ? 'creating'
+             : 'processing';
+           updateStreamingMessage(convId, assistantClientId, accumulated, false, status);
+         }
       },
       controller.signal,
       {
@@ -411,20 +424,47 @@ export default function ChatPage() {
       {executionEvents.length > 0 && (
         <div className="border-b border-gray-100 bg-gray-50 px-3 py-2 sm:px-4" dir="rtl" aria-live="polite">
           <div className="mx-auto flex max-w-3xl flex-wrap items-center gap-2">
-            {executionEvents.map((event, index) => (
-              <span key={`${event.event}-${index}`} className="inline-flex items-center gap-1 text-[11px] text-gray-500 font-arabic">
-                <span className={cn(
-                  'h-1.5 w-1.5 rounded-full',
-                  event.event === 'status' && event.state === 'completed' ? 'bg-green-500' : 'bg-thanarah-500 animate-pulse',
-                )} />
-                {event.event === 'status'
-                  ? event.state === 'completed' ? 'اكتمل التنفيذ' : 'جاري تجهيز الطلب'
-                  : event.event === 'task_started' ? 'بدأت مهمة'
-                    : event.event === 'task_completed' ? 'اكتملت مهمة'
-                      : event.event === 'artifact_created' ? 'تم إنشاء artifact'
-                        : event.event}
-              </span>
-            ))}
+             {(() => {
+               const latest = executionEvents[executionEvents.length - 1] || {};
+               const taskType = String(latest.type || latest.skillId || '').toLowerCase();
+               const label = latest.event === 'status' && latest.state === 'searching'
+                 ? 'جاري البحث في الإنترنت'
+                 : latest.event === 'search_started'
+                   ? 'تم بدء البحث في الإنترنت'
+                   : latest.event === 'fetch_started'
+                     ? 'جاري جلب المصادر'
+                     : latest.event === 'fetch_completed'
+                       ? 'اكتمل جلب مصدر'
+                       : latest.event === 'task_started' && taskType.includes('pdf')
+                         ? 'جاري إنشاء ملف PDF'
+                         : latest.event === 'task_started' && (taskType.includes('spreadsheet') || taskType.includes('table'))
+                           ? 'جاري إنشاء الجدول'
+                           : latest.event === 'task_started'
+                             ? 'بدأ تنفيذ المهمة'
+                             : latest.event === 'task_completed'
+                               ? 'اكتملت المهمة'
+                               : latest.event === 'artifact_created'
+                                 ? 'تم إنشاء الملف'
+                                 : latest.event === 'status' && latest.state === 'completed'
+                                   ? 'اكتمل التنفيذ'
+                                   : 'جاري تجهيز الطلب';
+               const progress = Number.isFinite(Number(latest.progress))
+                 ? Math.max(0, Math.min(100, Number(latest.progress)))
+                 : latest.event === 'status' && latest.state === 'completed' ? 100 : 15;
+               return (
+                 <div className="flex w-full items-center gap-2 text-[11px] text-gray-600 font-arabic">
+                   <span className={cn(
+                     'h-1.5 w-1.5 rounded-full',
+                     progress >= 100 ? 'bg-green-500' : 'bg-thanarah-500 animate-pulse',
+                   )} />
+                   <span className="min-w-0 flex-1 truncate">{label}</span>
+                   <span className="tabular-nums text-[10px] text-gray-400">{progress}%</span>
+                   <div className="h-1.5 w-20 overflow-hidden rounded-full bg-gray-200" aria-label={`التقدم ${progress}%`}>
+                     <div className="h-full rounded-full bg-thanarah-500 transition-all" style={{ width: `${progress}%` }} />
+                   </div>
+                 </div>
+               );
+             })()}
           </div>
         </div>
       )}
@@ -734,9 +774,13 @@ function MessageBubble({ message, onCopy, onPin, onFeedback, feedback }: { messa
                   className="animate-thanarah-loading"
                 />
                 <span>
-                  {message.streamStatus === 'analyzing'
-                    ? 'Analyzing...'
-                    : 'Generating response...'}
+                   {message.streamStatus === 'searching'
+                     ? 'جاري البحث في الإنترنت...'
+                     : message.streamStatus === 'creating'
+                       ? 'جاري إنشاء الملف...'
+                       : message.streamStatus === 'processing'
+                         ? 'جاري تنفيذ الطلب...'
+                         : 'جاري إنشاء الرد...'}
                 </span>
               </div>
             ) : (

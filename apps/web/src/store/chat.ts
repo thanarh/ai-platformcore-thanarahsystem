@@ -15,7 +15,7 @@ export interface Message {
     durationMs?: number;
   };
   isStreaming?: boolean;
-  streamStatus?: 'analyzing' | 'generating' | 'stopped';
+  streamStatus?: 'processing' | 'searching' | 'creating' | 'generating' | 'stopped';
   isPinned?: boolean;
   feedback?: {
     rating?: 'up' | 'down';

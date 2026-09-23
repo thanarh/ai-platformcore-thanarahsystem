@@ -29,4 +29,9 @@ export default () => ({
       process.env.NODE_ENV !== 'production' &&
       process.env.TOOL_MOCK_ENABLED === 'true',
   },
+  notifications: {
+    vapidSubject: process.env.VAPID_SUBJECT || 'mailto:admin@thanarah.ai',
+    vapidPublicKey: process.env.VAPID_PUBLIC_KEY,
+    vapidPrivateKey: process.env.VAPID_PRIVATE_KEY,
+  },
 });

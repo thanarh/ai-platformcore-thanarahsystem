@@ -7,6 +7,7 @@ import { MessagesModule } from '../messages/messages.module';
 import { UsageModule } from '../usage/usage.module';
 import { TenantsModule } from '../tenants/tenants.module';
 import { ContextProfileModule } from '../context-profile/context-profile.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { ContextProfileModule } from '../context-profile/context-profile.module'
     UsageModule,
     TenantsModule,
     ContextProfileModule,
+    NotificationsModule,
   ],
   controllers: [AiController],
   providers: [AiService],

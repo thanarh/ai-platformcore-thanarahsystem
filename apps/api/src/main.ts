@@ -4,6 +4,7 @@ import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import helmet from 'helmet';
 import * as compression from 'compression';
+import { NotificationsService } from './modules/notifications/notifications.service';
 
 // MongoDB Atlas connection errors (e.g. IP not yet whitelisted) must not crash
 // the API process.  NestJS uses lazyConnection so the server is fully functional
@@ -62,6 +63,7 @@ async function bootstrap() {
   }
 
   const port = process.env.API_PORT || 3001;
+  app.get(NotificationsService).attachHttpServer(app.getHttpServer());
   await app.listen(port, '0.0.0.0');
   console.log(`🌿 Thanarah AI API running on port ${port}`);
   console.log(`📚 API docs: http://localhost:${port}/api/docs`);

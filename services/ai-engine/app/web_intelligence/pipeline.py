@@ -112,8 +112,8 @@ class WebIntelligencePipeline:
                 telemetry.set("webTotalMs", 0.0)
             return result
 
-        result.events.append(self._event("status", state="searching", reason=decision.reason))
-        result.events.append(self._event("search_started", query=query[:500]))
+        result.events.append(self._event("status", state="searching", progress=10, reason=decision.reason))
+        result.events.append(self._event("search_started", progress=20, query=query[:500]))
         started = time.perf_counter()
         search_key = self._cache_key(
             query.casefold().strip(),
@@ -140,7 +140,8 @@ class WebIntelligencePipeline:
             result.events.extend(
                 self._event(
                     "source_found",
-                    source={
+                     progress=min(45, 25 + item.rank * 3),
+                     source={
                         "title": item.title,
                         "url": item.url,
                         "rank": item.rank,
@@ -302,7 +303,9 @@ class WebIntelligencePipeline:
             remaining -= len(clipped)
         result.context = "\n".join(context_parts)
         result.sources = [item["source"] for item in candidates]
-        result.events.append(self._event("status", state="generating", sourceCount=len(result.sources)))
+        result.events.append(
+            self._event("status", state="generating", progress=85, sourceCount=len(result.sources))
+        )
         if telemetry is not None:
             telemetry.add_ms("webTotalMs", pipeline_started)
         return result

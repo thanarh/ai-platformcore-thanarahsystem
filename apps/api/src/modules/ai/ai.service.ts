@@ -8,6 +8,7 @@ import { MessagesService } from '../messages/messages.service';
 import { UsageService } from '../usage/usage.service';
 import { TenantsService } from '../tenants/tenants.service';
 import { ContextProfileService } from '../context-profile/context-profile.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class AiService {
@@ -21,6 +22,7 @@ export class AiService {
     private usageService: UsageService,
     private tenantsService: TenantsService,
     private contextProfileService: ContextProfileService,
+    private notificationsService: NotificationsService,
   ) {
     this.aiEngineUrl = this.configService.get<string>('aiEngine.url');
   }
@@ -165,6 +167,18 @@ export class AiService {
         status: 'success',
         ragUsed: (aiResponse.ragSources || []).length > 0,
       }).catch((err) => this.logger.warn('Usage record failed:', err.message));
+      void this.notificationsService.fireNotify({
+        tenantId: data.tenantId,
+        userId: data.userId,
+        kind: 'chat.completed',
+        title: 'اكتمل الرد',
+        body: 'اكتمل تنفيذ طلبك في ثنارة.',
+        data: {
+          conversationId: data.conversationId,
+          messageId: assistantMessage._id.toString(),
+          requestId,
+        },
+      }).catch((error) => this.logger.warn(`Completion notification failed: ${error.message}`));
 
       return {
         messageId: assistantMessage._id,
@@ -424,6 +438,18 @@ export class AiService {
           this.logger.warn(`Assistant message persistence failed: ${error.message}`);
           return null;
         });
+        void this.notificationsService.fireNotify({
+          tenantId: data.tenantId,
+          userId: data.userId,
+          kind: 'chat.completed',
+          title: 'اكتمل الرد',
+          body: 'اكتمل تنفيذ طلبك في ثنارة.',
+          data: {
+            conversationId: data.conversationId,
+            messageId: savedMessage?._id?.toString(),
+            requestId,
+          },
+        }).catch((error) => this.logger.warn(`Completion notification failed: ${error.message}`));
         await this.usageService.record({
           tenantId: data.tenantId,
           userId: data.userId,
