@@ -2,7 +2,7 @@
 
 export const dynamic = 'force-dynamic';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ChevronDown,
   FileText,
@@ -16,7 +16,7 @@ import {
   Sparkles,
   ListTodo,
 } from 'lucide-react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { ThanarahIcon } from '@/components/ThanarahLogo';
 import { useAuthStore } from '@/store/auth';
 import { useChatStore } from '@/store/chat';
@@ -53,22 +53,63 @@ const shortcuts = [
 
 export default function ChatHomePage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user } = useAuthStore();
   const { setActiveConversation, addConversation } = useChatStore();
   const [input, setInput] = useState('');
   const [showTaskAssistant, setShowTaskAssistant] = useState(false);
+  const [webSearchActive, setWebSearchActive] = useState(false);
+  const [startingChat, setStartingChat] = useState(false);
+  const [startError, setStartError] = useState('');
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const startChat = async (prompt?: string) => {
-    const conv = await conversationsApi.create();
-    addConversation(conv);
-    setActiveConversation(conv._id);
-    router.push(prompt?.trim()
-      ? `/chat/${conv._id}?prompt=${encodeURIComponent(prompt.trim())}`
-      : `/chat/${conv._id}`);
+  useEffect(() => {
+    setWebSearchActive(searchParams.get('tool') === 'search');
+  }, [searchParams]);
+
+  const openWebSearch = () => {
+    setWebSearchActive(true);
+    setStartError('');
+    router.push('/chat?tool=search');
+    window.setTimeout(() => textareaRef.current?.focus(), 0);
+  };
+
+  const closeWebSearch = () => {
+    setWebSearchActive(false);
+    router.replace('/chat');
+  };
+
+  const startChat = async (prompt?: string, forceWebSearch = false) => {
+    if (startingChat) return;
+    setStartingChat(true);
+    setStartError('');
+    const trimmedPrompt = prompt?.trim();
+    const initialPrompt = forceWebSearch && trimmedPrompt
+      ? `ابحث في الإنترنت عن: ${trimmedPrompt}`
+      : trimmedPrompt;
+    try {
+      const conv = await conversationsApi.create();
+      addConversation(conv);
+      setActiveConversation(conv._id);
+      router.push(initialPrompt
+        ? `/chat/${conv._id}?prompt=${encodeURIComponent(initialPrompt)}`
+        : `/chat/${conv._id}`);
+    } catch (error: any) {
+      const serverMessage = error?.response?.data?.message;
+      setStartError(
+        Array.isArray(serverMessage)
+          ? serverMessage.join('، ')
+          : typeof serverMessage === 'string' && serverMessage.trim()
+            ? serverMessage
+            : 'تعذر إنشاء المحادثة. تحقق من اتصالك ثم حاول مرة أخرى.',
+      );
+    } finally {
+      setStartingChat(false);
+    }
   };
 
   const handleSubmit = () => {
-    if (input.trim()) void startChat(input);
+    if (input.trim()) void startChat(input, webSearchActive);
   };
 
   const initials = `${user?.firstName?.[0] || 'T'}${user?.lastName?.[0] || 'A'}`;
@@ -104,8 +145,10 @@ export default function ChatHomePage() {
           </button>
           <button
             type="button"
+            onClick={openWebSearch}
             className="flex h-9 w-9 items-center justify-center rounded-xl border border-[#e5ebee] bg-white/80 text-[#46535d] shadow-[0_3px_12px_rgba(38,71,87,0.05)] transition hover:bg-white"
             aria-label="بحث"
+            title="البحث في الإنترنت"
           >
             <Search className="h-4 w-4" />
           </button>
@@ -127,17 +170,32 @@ export default function ChatHomePage() {
           </section>
 
           <section className="mt-7">
+            {webSearchActive && (
+              <div className="mb-3 flex items-center justify-between gap-3 rounded-xl border border-[#d8eadf] bg-[#f0f8f3] px-4 py-3 text-right">
+                <p className="font-arabic text-xs leading-5 text-[#286a4f]">
+                  وضع البحث في الإنترنت مفعّل. اكتب سؤالك وسأبحث عن مصادر حديثة.
+                </p>
+                <button
+                  type="button"
+                  onClick={closeWebSearch}
+                  className="font-arabic flex-shrink-0 text-xs text-[#52635b] underline"
+                >
+                  إلغاء
+                </button>
+              </div>
+            )}
             <div className="flex min-h-[62px] items-center gap-2 rounded-[17px] border border-[#edf1f2] bg-white px-3 py-2 shadow-[0_8px_26px_rgba(40,75,91,0.08)]" dir="rtl">
               <button
                 type="button"
                 onClick={handleSubmit}
-                disabled={!input.trim()}
+                disabled={!input.trim() || startingChat}
                 className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-[#16815b] text-white transition hover:bg-[#116e4d] disabled:cursor-not-allowed disabled:bg-[#dce9e4]"
                 aria-label="إرسال الرسالة"
               >
                 <Send className="h-[18px] w-[18px]" />
               </button>
               <textarea
+                ref={textareaRef}
                 value={input}
                 onChange={(event) => setInput(event.target.value)}
                 onKeyDown={(event) => {
@@ -146,7 +204,7 @@ export default function ChatHomePage() {
                     handleSubmit();
                   }
                 }}
-                placeholder="اكتب رسالتك هنا..."
+                placeholder={webSearchActive ? 'ما الذي تريد البحث عنه؟' : 'اكتب رسالتك هنا...'}
                 rows={1}
                 className="min-h-[40px] flex-1 resize-none bg-transparent px-2 py-2.5 text-right text-[13px] text-[#2b3940] outline-none placeholder:text-[#8e989e] font-arabic"
                 aria-label="رسالتك"
@@ -155,6 +213,7 @@ export default function ChatHomePage() {
                 <button
                   type="button"
                   onClick={() => void startChat()}
+                  disabled={startingChat}
                   className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#f8fafb] text-[#69767e] transition hover:bg-[#eef5f2] hover:text-[#16815b]"
                   aria-label="إرفاق ملف"
                   title="إرفاق ملف من داخل المحادثة"
@@ -164,6 +223,7 @@ export default function ChatHomePage() {
                 <button
                   type="button"
                   onClick={() => void startChat()}
+                  disabled={startingChat}
                   className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#f8fafb] text-[#69767e] transition hover:bg-[#eef5f2] hover:text-[#16815b]"
                   aria-label="استخدام الصوت"
                   title="استخدام الصوت من داخل المحادثة"
@@ -172,6 +232,16 @@ export default function ChatHomePage() {
                 </button>
               </div>
             </div>
+            {startingChat && (
+              <p role="status" className="font-arabic mt-2 text-center text-xs text-[#6f7c84]">
+                جارٍ فتح المحادثة...
+              </p>
+            )}
+            {startError && (
+              <p role="alert" className="font-arabic mt-2 rounded-lg bg-red-50 px-3 py-2 text-center text-xs text-red-700">
+                {startError}
+              </p>
+            )}
           </section>
 
           <section className="mt-6 grid grid-cols-2 gap-2.5 sm:grid-cols-4 sm:gap-2.5" dir="ltr">
@@ -179,7 +249,8 @@ export default function ChatHomePage() {
               <button
                 key={title}
                 type="button"
-                onClick={() => void startChat(title)}
+                onClick={() => title === 'البحث في الإنترنت' ? openWebSearch() : void startChat(title)}
+                disabled={startingChat}
                 className="flex min-h-[121px] flex-col items-center rounded-[15px] border border-[#edf1f2] bg-white px-2.5 py-4 text-center shadow-[0_4px_15px_rgba(40,75,91,0.035)] transition hover:-translate-y-0.5 hover:border-[#cde8dc] hover:shadow-[0_8px_22px_rgba(40,110,82,0.1)]"
                 dir="rtl"
               >
@@ -196,6 +267,7 @@ export default function ChatHomePage() {
             type="button"
             className="font-arabic mx-auto mt-8 flex items-center gap-1 text-[11px] text-[#74828a] transition hover:text-[#16815b]"
             onClick={() => void startChat()}
+            disabled={startingChat}
           >
             مزيد من القدرات
             <ChevronDown className="h-3.5 w-3.5" />

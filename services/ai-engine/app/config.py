@@ -101,7 +101,7 @@ class Settings(BaseSettings):
     web_safe_search: int = 1
     # Comma-separated SearXNG engine ids. They are candidates only; the
     # capability probe must verify them before the search path uses them.
-    web_search_engines: str = "wikipedia,arxiv,github,stackoverflow,wikidata,duckduckgo,duckduckgo news"
+    web_search_engines: str = "wikipedia,arxiv,github,stackoverflow,bing,bing news,duckduckgo news"
     web_search_blocked_domains: str = ""
     web_search_capability_cache_seconds: int = 60
     web_max_domains: int = 3

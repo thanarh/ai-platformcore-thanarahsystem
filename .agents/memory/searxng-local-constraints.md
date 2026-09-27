@@ -26,6 +26,19 @@ end-to-end before changing any production flag. Keep production disabled when
 the healthy-engine list is empty, and fail closed when relevance filtering or
 page fetching leaves no verified evidence.
 
+Strip leading Arabic or English search commands before sending the query or
+scoring results. Bing treated literal phrases such as "Search online for..."
+as queries and sometimes returned search-provider homepages instead of evidence.
+Do not cite search-provider landing pages; require overlap with meaningful
+topic terms after removing common stopwords.
+
+**Why:** End-to-end English probes produced Google/Bing/Yahoo homepages and
+unrelated events pages even though each engine's health probe succeeded.
+
+**How to apply:** Exercise the exact UI-generated prompt in both Arabic and
+English, and inspect fetched source URLs and titles rather than counting raw
+SearXNG results.
+
 Workflow environment flags require a full workflow restart to reach the AI
 Engine process; hot reload can keep the prior inherited value.
 

@@ -5,6 +5,25 @@ set -e
 
 source "$(dirname "$0")/scripts/prepare-secrets.sh"
 
+SEARXNG_READY=false
+if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+  echo "Starting the local web-search service..."
+  if docker compose -f docker-compose.searxng.yml up -d; then
+    for _ in $(seq 1 20); do
+      if curl -fsS --max-time 2 \
+        'http://127.0.0.1:8080/search?q=Python&format=json&language=en&categories=general' \
+        | grep -q '"results"'; then
+        SEARXNG_READY=true
+        break
+      fi
+      sleep 1
+    done
+  fi
+fi
+if [[ "$SEARXNG_READY" != "true" ]]; then
+  echo "Warning: local web search is not ready; chat will still start." >&2
+fi
+
 echo "Installing locked Node.js dependencies..."
 npm ci --no-audit --no-fund
 npm ci --prefix apps/web --no-audit --no-fund
@@ -45,18 +64,9 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+rm -f /tmp/thanarah-ollama-ready
 setsid bash start-ollama.sh > >(sed -u 's/^/[OLLAMA] /') 2>&1 &
 OLLAMA_PID=$!
-
-echo "Waiting for the local model warm-up..."
-for _ in $(seq 1 90); do
-  [[ -f /tmp/thanarah-ollama-ready ]] && break
-  sleep 1
-done
-if [[ ! -f /tmp/thanarah-ollama-ready ]]; then
-  echo "Local model did not become ready within 90 seconds." >&2
-  exit 1
-fi
 
 setsid npx concurrently \
   --names "WEB,API,AI" \
@@ -64,7 +74,7 @@ setsid npx concurrently \
   --kill-others-on-fail \
   "cd apps/web && npm run dev" \
   "cd apps/api && npm run start:dev" \
-  "cd services/ai-engine && python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload" &
+  "cd services/ai-engine && for _ in \$(seq 1 90); do [ -f /tmp/thanarah-ollama-ready ] && break; sleep 1; done; python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload" &
 APP_PID=$!
 
 set +e

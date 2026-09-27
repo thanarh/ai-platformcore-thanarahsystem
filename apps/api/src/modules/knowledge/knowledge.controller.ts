@@ -26,7 +26,7 @@ export class KnowledgeController {
   }
 
   @Post()
-  @Roles(Role.ADMIN, Role.OWNER, Role.AI_ADMIN, Role.STAFF)
+  @Roles(Role.ADMIN, Role.OWNER, Role.AI_ADMIN, Role.STAFF, Role.TENANT_OWNER)
   create(@CurrentUser() user: any, @Body() body: any) {
     return this.knowledgeService.createSource({
       tenantId: user.tenantId?.toString(),
@@ -47,7 +47,7 @@ export class KnowledgeController {
   }
 
   @Delete(':id')
-  @Roles(Role.ADMIN, Role.OWNER, Role.AI_ADMIN)
+  @Roles(Role.ADMIN, Role.OWNER, Role.AI_ADMIN, Role.TENANT_OWNER)
   @HttpCode(HttpStatus.NO_CONTENT)
   remove(@Param('id') id: string, @CurrentUser() user: any) {
     return this.knowledgeService.deleteSource(id, user.tenantId?.toString());

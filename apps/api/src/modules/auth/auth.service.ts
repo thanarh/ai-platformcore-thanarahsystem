@@ -3,6 +3,7 @@ import {
   UnauthorizedException,
   BadRequestException,
   NotFoundException,
+  ConflictException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -30,21 +31,43 @@ export class AuthService {
     industry?: string;
     tenantSlug?: string;
   }) {
+    if (
+      !data
+      || typeof data.email !== 'string'
+      || typeof data.password !== 'string'
+      || typeof data.firstName !== 'string'
+      || typeof data.lastName !== 'string'
+    ) {
+      throw new BadRequestException('Registration details are incomplete');
+    }
+
+    const email = data.email.trim().toLowerCase();
+    const firstName = data.firstName.trim();
+    const lastName = data.lastName.trim();
+    if (!email || !firstName || !lastName) {
+      throw new BadRequestException('Registration details are incomplete');
+    }
     if (data.password.length < 8) {
       throw new BadRequestException('Password must be at least 8 characters');
     }
+    if (await this.usersService.emailExists(email)) {
+      throw new ConflictException('Email already in use');
+    }
 
-    // Resolve or create tenant
+    // Resolve or create tenant. The first global user remains the system
+    // owner; later self-signups own only their own tenant.
     let tenantId: string;
-    if (data.tenantSlug) {
-      const tenant = await this.tenantsService.findBySlug(data.tenantSlug);
+    const tenantSlug = data.tenantSlug?.trim();
+    let role = tenantSlug ? Role.USER : Role.TENANT_OWNER;
+    if (tenantSlug) {
+      const tenant = await this.tenantsService.findBySlug(tenantSlug);
       if (!tenant) throw new BadRequestException('Organization not found');
       tenantId = tenant._id.toString();
     } else {
       const slug = `tenant-${Date.now()}`;
       const tenant = await this.tenantsService.create({
         slug,
-        name: `${data.firstName}'s Workspace`,
+        name: `${firstName}'s Workspace`,
         type: data.industry === 'healthcare' ? 'clinic' : 'organization',
         industry: data.industry || 'general',
         status: 'active',
@@ -72,18 +95,19 @@ export class AuthService {
       tenantId = tenant._id.toString();
     }
 
-    // First user globally becomes OWNER
+    // Preserve the existing first-user system-owner setup.
     const totalUsers = await this.usersService.getTotalCount();
-    const role = totalUsers === 0 ? Role.OWNER : Role.USER;
+    if (totalUsers === 0) role = Role.OWNER;
 
-    const user = await this.usersService.create({
-      email: data.email,
+    let user = await this.usersService.create({
+      email,
       password: data.password,
-      firstName: data.firstName,
-      lastName: data.lastName,
+      firstName,
+      lastName,
       role,
       tenantId,
     });
+    user = await this.usersService.ensureTenantOwnerRole(user);
 
     // Generate email verification token and send it (non-blocking)
     const verificationToken = await this.usersService.generateVerificationToken(
@@ -104,16 +128,17 @@ export class AuthService {
   }
 
   async login(email: string, password: string) {
-    const user = await this.usersService.findByEmail(email);
-    if (!user) {
+    const foundUser = await this.usersService.findByEmail(email);
+    if (!foundUser) {
       throw new UnauthorizedException('Invalid email or password');
     }
 
-    const isValid = await this.usersService.validatePassword(password, user.passwordHash);
+    const isValid = await this.usersService.validatePassword(password, foundUser.passwordHash);
     if (!isValid) {
       throw new UnauthorizedException('Invalid email or password');
     }
 
+    const user = await this.usersService.ensureTenantOwnerRole(foundUser);
     await this.usersService.updateLastLogin(user._id.toString());
 
     const tokens = await this.generateTokens(user);
@@ -142,10 +167,11 @@ export class AuthService {
       if (!user || !user.isActive || !user.refreshToken || !storedTokenMatches) {
         throw new UnauthorizedException('Session is no longer valid');
       }
-      const tokens = await this.generateTokens(user);
-      await this.usersService.updateRefreshToken(user._id.toString(), tokens.refreshToken);
+      const effectiveUser = await this.usersService.ensureTenantOwnerRole(user);
+      const tokens = await this.generateTokens(effectiveUser);
+      await this.usersService.updateRefreshToken(effectiveUser._id.toString(), tokens.refreshToken);
       return {
-        user: this.usersService.toPublic(user),
+        user: this.usersService.toPublic(effectiveUser),
         ...tokens,
       };
     } catch {

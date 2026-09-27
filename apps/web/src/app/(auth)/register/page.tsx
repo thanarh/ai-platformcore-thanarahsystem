@@ -55,7 +55,17 @@ export default function RegisterPage() {
       setAuth(data.user, data.accessToken, data.refreshToken);
       router.push('/chat');
     } catch (err: any) {
-      setError(err.response?.data?.message || 'حدث خطأ أثناء التسجيل');
+      const serverMessage = err.response?.data?.message;
+      const message = Array.isArray(serverMessage) ? serverMessage.join('، ') : serverMessage;
+      if (typeof message === 'string' && /email already in use/i.test(message)) {
+        setError('هذا البريد الإلكتروني مسجل بالفعل. جرّب تسجيل الدخول.');
+      } else if (typeof message === 'string' && /password must be at least/i.test(message)) {
+        setError('كلمة المرور يجب أن تكون 8 أحرف على الأقل.');
+      } else if (typeof message === 'string' && message.trim()) {
+        setError(message);
+      } else {
+        setError('تعذر الاتصال بالخادم. تحقق من اتصالك ثم حاول مرة أخرى.');
+      }
     } finally {
       setLoading(false);
     }

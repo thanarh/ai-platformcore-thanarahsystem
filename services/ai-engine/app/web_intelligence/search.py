@@ -14,6 +14,47 @@ from app.web_intelligence.decision import SearchCategory
 
 logger = logging.getLogger(__name__)
 
+_SEARCH_COMMAND_PREFIX = re.compile(
+    r"^\s*(?:"
+    r"(?:ابحث|أبحث|فتش|فتّش)\s+(?:(?:في|على)\s+(?:ال)?(?:إنترنت|انترنت|ويب)\s+عن|عن)"
+    r"|(?:search|research)\s+(?:(?:the\s+)?(?:web|internet)|online)\s+(?:for|about)"
+    r"|(?:search|research)\s+(?:for|about)"
+    r"|look\s+up"
+    r"|find\s+online(?:\s+for)?"
+    r")\s*[:：–—-]?\s*",
+    re.IGNORECASE,
+)
+_SEARCH_ENGINE_HOSTS = {
+    "google.com",
+    "google.com.nf",
+    "search.google",
+    "bing.com",
+    "yahoo.com",
+    "search.yahoo.com",
+    "search.brave.com",
+    "duckduckgo.com",
+    "startpage.com",
+}
+_SEARCH_STOPWORDS = {
+    "a", "an", "the", "and", "or", "but", "of", "to", "in", "on", "at",
+    "for", "by", "with", "from", "about", "what", "which", "who", "is",
+    "are", "be", "was", "were", "do", "does", "how", "can", "could",
+    "would", "should", "me", "my", "you", "your", "tell", "give", "find",
+    "search", "research", "latest", "recent", "new", "today", "now",
+    "online", "web", "internet", "official", "please",
+    "من", "في", "على", "عن", "إلى", "الى", "ما", "هو", "هي", "هذا",
+    "هذه", "ذلك", "مع", "كيف", "ماذا", "هل", "أريد", "اريد", "ابحث",
+    "أبحث", "بحث", "الإنترنت", "الانترنت", "الويب", "لي", "أحدث",
+    "احدث", "آخر", "اخر", "اليوم", "الآن", "الان",
+}
+
+
+def normalize_search_query(query: str) -> str:
+    """Remove a leading search command so engines receive the actual question."""
+    original = (query or "").strip()
+    normalized = _SEARCH_COMMAND_PREFIX.sub("", original, count=1).strip(" \t:：–—-")
+    return normalized or original
+
 
 def _effective_language(query: str, language: str) -> str:
     if language and language != "auto":
@@ -243,9 +284,10 @@ class SearXNGClient:
         safe_search: int | None = None,
         category: SearchCategory = "general",
     ) -> list[SearchResult]:
-        if not query.strip():
+        search_query = normalize_search_query(query)
+        if not search_query:
             return []
-        effective_language = _effective_language(query, language or "auto")
+        effective_language = _effective_language(search_query, language or "auto")
         category_param = {
             "general": "general",
             "news": "news",
@@ -254,7 +296,7 @@ class SearXNGClient:
         }[category]
         engines = await self.active_engines(category)
         params: dict[str, Any] = {
-            "q": query.strip(),
+            "q": search_query,
             "format": "json",
             "language": effective_language,
             "safesearch": settings.web_safe_search if safe_search is None else safe_search,
@@ -328,21 +370,33 @@ def blocked_search_domains() -> set[str]:
 
 def filter_and_score_results(query: str, results: list[SearchResult]) -> list[SearchResult]:
     """Deduplicate by canonical URL, remove blocked domains, then score lexically."""
-    terms = set(re.findall(r"[\w\u0600-\u06ff]{2,}", query.casefold()))
+    search_query = normalize_search_query(query)
+    terms = {
+        term
+        for term in re.findall(r"[\w\u0600-\u06ff]{2,}", search_query.casefold())
+        if term not in _SEARCH_STOPWORDS
+    }
+    minimum_overlap = 2 if len(terms) >= 3 else 1
     seen: set[str] = set()
     scored: list[tuple[float, SearchResult]] = []
     blocked = blocked_search_domains()
     for result in results:
         canonical = canonicalize_url(result.url)
-        hostname = (urlparse(result.url).hostname or "").casefold()
+        parsed = urlparse(result.url)
+        hostname = (parsed.hostname or "").casefold()
+        path = parsed.path.rstrip("/") or "/"
+        search_homepage = path in {"/", "/webhp", "/search"} and any(
+            hostname == domain or hostname.endswith(f".{domain}")
+            for domain in _SEARCH_ENGINE_HOSTS
+        )
         if not canonical or canonical in seen or any(
             hostname == domain or hostname.endswith(f".{domain}") for domain in blocked
-        ):
+        ) or search_homepage:
             continue
         seen.add(canonical)
         haystack = f"{result.title} {result.snippet}".casefold()
         overlap = sum(1 for term in terms if term in haystack)
-        if terms and overlap == 0:
+        if terms and overlap < minimum_overlap:
             continue
         score = overlap / max(1, len(terms)) + max(0.0, 1.0 - (result.rank - 1) * 0.03)
         scored.append((score, result))

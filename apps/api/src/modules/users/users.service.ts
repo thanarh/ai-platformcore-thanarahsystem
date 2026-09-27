@@ -41,8 +41,38 @@ export class UsersService {
     return this.userModel.findOne({ email: email.toLowerCase(), isActive: true });
   }
 
+  async emailExists(email: string): Promise<boolean> {
+    return Boolean(await this.userModel.exists({ email: email.toLowerCase() }));
+  }
+
   async findById(id: string): Promise<UserDocument | null> {
     return this.userModel.findById(id);
+  }
+
+  /**
+   * Keep legacy first members of a tenant able to manage tenant-scoped
+   * knowledge, without granting them global OWNER or ADMIN permissions.
+   */
+  async ensureTenantOwnerRole(user: UserDocument): Promise<UserDocument> {
+    if (user.role !== Role.USER || !user.tenantId) return user;
+
+    const existingTenantOwner = await this.userModel
+      .findOne({
+        tenantId: user.tenantId,
+        isActive: true,
+        role: { $in: [Role.OWNER, Role.ADMIN, Role.AI_ADMIN, Role.TENANT_OWNER] },
+      })
+      .select('_id')
+      .lean();
+    if (existingTenantOwner) return user;
+
+    const firstTenantMember = await this.userModel
+      .findOne({ tenantId: user.tenantId, isActive: true })
+      .sort({ createdAt: 1, _id: 1 });
+    if (firstTenantMember?._id.toString() !== user._id.toString()) return user;
+
+    firstTenantMember.role = Role.TENANT_OWNER;
+    return firstTenantMember.save();
   }
 
   async setActive(id: string, isActive: boolean): Promise<UserDocument | null> {

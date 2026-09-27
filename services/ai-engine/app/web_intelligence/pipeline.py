@@ -18,6 +18,7 @@ from app.web_intelligence.search import (
     SearchResult,
     SearXNGClient,
     filter_and_score_results,
+    normalize_search_query,
     select_diverse_results,
 )
 
@@ -115,8 +116,9 @@ class WebIntelligencePipeline:
         result.events.append(self._event("status", state="searching", progress=10, reason=decision.reason))
         result.events.append(self._event("search_started", progress=20, query=query[:500]))
         started = time.perf_counter()
+        search_query = normalize_search_query(query)
         search_key = self._cache_key(
-            query.casefold().strip(),
+            search_query.casefold(),
             language,
             region,
             decision.category,
@@ -127,16 +129,16 @@ class WebIntelligencePipeline:
         try:
             if search_results is None:
                 search_results = await self.search_client.search(
-                    query,
+                    search_query,
                     language=language,
                     region=region,
                     max_results=max_results or settings.web_max_results,
                     category=decision.category,
                 )
-                search_results = filter_and_score_results(query, search_results)
+                search_results = filter_and_score_results(search_query, search_results)
                 self._search_cache[search_key] = (time.monotonic(), search_results)
             else:
-                search_results = filter_and_score_results(query, search_results)
+                search_results = filter_and_score_results(search_query, search_results)
             result.events.extend(
                 self._event(
                     "source_found",
@@ -189,7 +191,7 @@ class WebIntelligencePipeline:
 
         rerank_started = time.perf_counter()
         ranked_search_candidates = await local_reranker.rerank(
-            query,
+            search_query,
             lexical_candidates,
             min(len(lexical_candidates), settings.web_max_results),
         )
