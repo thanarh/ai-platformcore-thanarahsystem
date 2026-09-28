@@ -278,13 +278,16 @@ export class AiService {
     }
 
     // Include current user message at end of history
+    const currentMessageId = userMessage?._id?.toString();
     const messages = [
-      ...recentMessages.map((m) => ({
+      ...recentMessages
+        .filter((m) => !currentMessageId || m._id?.toString() !== currentMessageId)
+        .map((m) => ({
         role: m.role,
         content: m.feedback?.correction
           ? `${m.content}\n\n[ملاحظة تصحيحية من المستخدم: ${m.feedback.correction}]`
           : m.content,
-      })),
+        })),
       { role: 'user', content: data.content },
     ];
 

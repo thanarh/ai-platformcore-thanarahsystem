@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Optional
 
+from app.config import settings
+
 
 @dataclass(frozen=True)
 class SkillDefinition:
@@ -117,8 +119,8 @@ class SkillRegistry:
                 output_schema={"type": "object", "required": ["sources"]},
                 required_tools=("web_search",),
                 required_permissions=("internet_access",),
-                enabled=False,
-                implementation_status="contract-only",
+                enabled=settings.web_search_enabled,
+                implementation_status="implemented",
                 category="research",
                 output_type="sources",
             ),

@@ -139,7 +139,12 @@ def classify_search_category(query: str) -> SearchCategory:
     return "general"
 
 
-def decide_web(query: str, tenant_config: dict[str, Any] | None = None) -> WebDecision:
+def decide_web(
+    query: str,
+    tenant_config: dict[str, Any] | None = None,
+    *,
+    explicit_request: bool = False,
+) -> WebDecision:
     """Make a deterministic, auditable web decision from explicit signals.
 
     This deliberately does not ask the language model whether it is uncertain.
@@ -153,6 +158,8 @@ def decide_web(query: str, tenant_config: dict[str, Any] | None = None) -> WebDe
 
     if config.get("webSearchRequired") is True:
         signals.append("configured_web_required")
+    if explicit_request:
+        signals.append("explicit_tool_selection")
     if any(term.casefold() in text for term in _EXPLICIT_TERMS):
         signals.append("explicit_search_request")
     if any(term.casefold() in text for term in _CURRENT_TERMS):

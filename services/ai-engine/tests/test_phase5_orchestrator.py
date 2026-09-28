@@ -5,7 +5,9 @@ import io
 import tempfile
 import unittest
 import zipfile
+from unittest.mock import AsyncMock, patch
 
+from app.config import settings
 from app.artifacts.generators import PdfArtifactService, SpreadsheetArtifactService
 from app.artifacts.store import ArtifactAccessError, InMemoryArtifactStore
 from app.foundation.contracts import Task, TaskGroup, TaskState, TaskType
@@ -13,6 +15,8 @@ from app.orchestration.orchestrator import TaskOrchestrator
 from app.skills.execution import SkillExecutionError, SkillExecutionService
 from app.skills.registry import SkillRegistry
 from app.routers.tasks import TaskCreateRequest
+from app.web_intelligence.decision import WebDecision
+from app.web_intelligence.pipeline import WebPipelineResult
 
 
 class Phase5Tests(unittest.IsolatedAsyncioTestCase):
@@ -84,7 +88,8 @@ class Phase5Tests(unittest.IsolatedAsyncioTestCase):
     async def test_skills_files_artifacts_and_access_control(self):
         registry = SkillRegistry()
         self.assertIn("version", registry.get("file_analysis").to_dict())
-        self.assertEqual(registry.get("web_search").implementation_status, "contract-only")
+        self.assertEqual(registry.get("web_search").implementation_status, "implemented")
+        self.assertFalse(registry.get("web_search").enabled)
         executor = SkillExecutionService(registry, InMemoryArtifactStore(tempfile.mkdtemp()))
         context = {
             "tenantId": "tenant-a",
@@ -123,8 +128,61 @@ class Phase5Tests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ArtifactAccessError):
             store.get(pdf["artifactId"], "tenant-b", "user-b")
 
-    async def test_web_search_is_structured_unavailable(self):
-        executor = SkillExecutionService(SkillRegistry(), InMemoryArtifactStore(tempfile.mkdtemp()))
+    async def test_web_search_executes_with_permission_when_enabled(self):
+        source = {"title": "Python", "url": "https://docs.python.org/", "id": "source-1"}
+        pipeline_result = WebPipelineResult(
+            decision=WebDecision(True, "web_signal_detected", ("explicit_tool_selection",), "documentation"),
+            sources=[source],
+            events=[{"event": "completed"}],
+        )
+        with patch.object(settings, "web_search_enabled", True):
+            executor = SkillExecutionService(SkillRegistry(), InMemoryArtifactStore(tempfile.mkdtemp()))
+            with patch(
+                "app.skills.execution.web_intelligence_pipeline.run",
+                new_callable=AsyncMock,
+                return_value=pipeline_result,
+            ) as run:
+                result = await executor.execute(
+                    Task("web", TaskType.SKILL),
+                    {"skillId": "web_search", "query": "Python package"},
+                    {
+                        "tenantId": "tenant-a",
+                        "userId": "user-a",
+                        "conversationId": "conversation-a",
+                        "permissions": ["internet_access"],
+                    },
+                )
+
+        self.assertEqual(result["sources"], [source])
+        self.assertIsNone(result["error"])
+        self.assertTrue(run.await_args.kwargs["explicit_request"])
+        self.assertEqual(run.await_args.kwargs["tenant_id"], "tenant-a")
+        self.assertTrue(run.await_args.kwargs["tenant_config"]["webSearchRequired"])
+
+    async def test_web_search_requires_permission_and_enabled_environment(self):
+        with patch.object(settings, "web_search_enabled", True):
+            executor = SkillExecutionService(SkillRegistry(), InMemoryArtifactStore(tempfile.mkdtemp()))
+            with self.assertRaises(SkillExecutionError) as error:
+                await executor.execute(
+                    Task("web", TaskType.SKILL),
+                    {"skillId": "web_search", "query": "anything"},
+                    {"tenantId": "tenant-a", "userId": "user-a", "permissions": []},
+                )
+        self.assertEqual(error.exception.code, "PERMISSION_DENIED")
+
+        with patch.object(settings, "web_search_enabled", False):
+            executor = SkillExecutionService(SkillRegistry(), InMemoryArtifactStore(tempfile.mkdtemp()))
+            with self.assertRaises(SkillExecutionError) as error:
+                await executor.execute(
+                    Task("web", TaskType.SKILL),
+                    {"skillId": "web_search", "query": "anything"},
+                    {
+                        "tenantId": "tenant-a",
+                        "userId": "user-a",
+                        "permissions": ["internet_access"],
+                    },
+                )
+        self.assertEqual(error.exception.code, "CAPABILITY_UNAVAILABLE")
         with self.assertRaises(SkillExecutionError) as error:
             await executor.execute(
                 Task("web", TaskType.SKILL),

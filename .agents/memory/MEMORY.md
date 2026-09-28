@@ -1,8 +1,8 @@
 - [Thanarah AI project overview](thanarah-overview.md) — monorepo: Next.js/5000, NestJS/3001, FastAPI/8000; Arabic-first RTL
 - [MongoDB Atlas connection](mongodb-atlas.md) — lazyConnection:true required; IP whitelist needed for Replit container
-- [Local-first AI architecture](local-ai-architecture.md) — llama.cpp is PRIMARY; external providers are BYOK-only, disabled by default
 - [AI response cache safety](ai-response-cache-safety.md) — cache only context-free requests until mutable RAG and memory expose reliable tenant versions
 - [Current AI-only scope](ai-only-scope.md) — stop after AI Performance Phase 1; no admin/customer features or Phase 2 unless explicitly requested
+- [Arabic response reliability](arabic-response-reliability.md) — keep prompts aligned with the requested language and test mixed-script, code, and URL inputs
 - [Ollama warm readiness](ollama-warm-readiness.md) — `/api/ps` model presence does not guarantee a warm first generation; validate with real generation
 - [SSE measurement](sse-measurement.md) — use a non-buffering client read such as `read1()` when timing incremental SSE delivery
 - [Phase 2D foundation boundary](phase2d-foundation.md) — task, skill, artifact, and event layers are contracts first; real tool execution remains explicitly gated

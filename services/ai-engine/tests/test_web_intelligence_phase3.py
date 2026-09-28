@@ -30,6 +30,20 @@ class WebIntelligencePhase3Tests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(enabled.use_web)
         self.assertEqual(enabled.reason, "web_signal_detected")
 
+    def test_selected_search_tool_forces_search_but_respects_both_gates(self):
+        self.assertFalse(decide_web("Python package", explicit_request=True).use_web)
+        with patch.object(settings, "web_search_enabled", True):
+            enabled = decide_web("Python package", explicit_request=True)
+            tenant_disabled = decide_web(
+                "Python package",
+                {"webSearchEnabled": False},
+                explicit_request=True,
+            )
+        self.assertTrue(enabled.use_web)
+        self.assertIn("explicit_tool_selection", enabled.signals)
+        self.assertFalse(tenant_disabled.use_web)
+        self.assertEqual(tenant_disabled.reason, "disabled_by_tenant_config")
+
     def test_category_selection_is_deterministic(self):
         self.assertEqual(classify_search_category("آخر أخبار التقنية اليوم"), "news")
         self.assertEqual(classify_search_category("ابحث عن توثيق FastAPI"), "documentation")

@@ -9,10 +9,12 @@ from html import unescape
 from typing import Any, Dict, Iterable, Optional
 from xml.etree import ElementTree
 
+from app.config import settings
 from app.artifacts.generators import PdfArtifactService, SpreadsheetArtifactService, table_from_value
 from app.artifacts.store import InMemoryArtifactStore
 from app.foundation.contracts import StructuredTable, Task
 from app.skills.registry import SkillRegistry
+from app.web_intelligence.pipeline import web_intelligence_pipeline
 
 try:
     from PyPDF2 import PdfReader
@@ -44,12 +46,48 @@ class SkillExecutionService:
     async def execute(self, task: Task, values: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
         skill_id = str(values.get("skillId") or self._skill_for_task(task))
         permissions = context.get("permissions") or []
-        if skill_id == "web_search":
+        if skill_id == "web_search" and not settings.web_search_enabled:
             raise SkillExecutionError("CAPABILITY_UNAVAILABLE", "Web Search is disabled in this environment")
         try:
             self.registry.authorize(skill_id, permissions)
         except PermissionError as exc:
             raise SkillExecutionError("PERMISSION_DENIED", str(exc)) from exc
+        if skill_id == "web_search":
+            query = str(values.get("query") or "").strip()
+            if not query:
+                raise SkillExecutionError("INVALID_INPUT", "A search query is required")
+            if len(query) > 2000:
+                raise SkillExecutionError("INVALID_INPUT", "The search query is too long")
+            tenant_id = str(context.get("tenantId") or "")
+            if not tenant_id:
+                raise SkillExecutionError("INVALID_CONTEXT", "A tenant context is required for web search")
+            configured_tenant = context.get("tenantConfig")
+            tenant_config = dict(configured_tenant) if isinstance(configured_tenant, dict) else {}
+            tenant_config["webSearchRequired"] = True
+            runtime_context = context.get("runtimeContext")
+            language = (
+                runtime_context.get("language", "auto")
+                if isinstance(runtime_context, dict)
+                else context.get("language", "auto")
+            )
+            result = await web_intelligence_pipeline.run(
+                query,
+                tenant_id=tenant_id,
+                user_id=str(context.get("userId") or "") or None,
+                conversation_id=str(context.get("conversationId") or "") or None,
+                tenant_config=tenant_config,
+                language=str(language or "auto"),
+                explicit_request=True,
+            )
+            error = result.error
+            if not result.decision.use_web:
+                error = error or "Web search is disabled by tenant or environment settings"
+            return {
+                "query": query,
+                "sources": result.sources,
+                "error": error,
+                "events": result.events,
+            }
         if task.task_type.value == "extract":
             return self._extract_structured(values)
         if skill_id == "file_analysis":

@@ -100,9 +100,10 @@ class WebIntelligencePipeline:
         region: str | None = None,
         max_results: int | None = None,
         telemetry: Any = None,
+        explicit_request: bool = False,
     ) -> WebPipelineResult:
         pipeline_started = time.perf_counter()
-        decision = decide_web(query, tenant_config)
+        decision = decide_web(query, tenant_config, explicit_request=explicit_request)
         if telemetry is not None:
             telemetry.set("webDecision", decision.use_web)
             telemetry.set("webDecisionReason", decision.reason)
