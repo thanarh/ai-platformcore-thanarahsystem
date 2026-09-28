@@ -60,7 +60,7 @@ class ExplicitWebSearchTests(unittest.IsolatedAsyncioTestCase):
         request = ChatRequest(
             messages=[ChatMessage(role="user", content="ما حصل اليوم في السعوديه")],
             tenantId="tenant-a",
-            runtimeContext={"language": "en"},
+            runtimeContext={"language": "en", "timezone": "Asia/Riyadh"},
             skillId="web_search",
         )
 
@@ -72,6 +72,7 @@ class ExplicitWebSearchTests(unittest.IsolatedAsyncioTestCase):
             await IntelligenceRouter(registry=None)._load_web_context(request)
 
         self.assertEqual(run.await_args.kwargs["language"], "ar")
+        self.assertEqual(run.await_args.kwargs["timezone_name"], "Asia/Riyadh")
 
     def _direct_link_followup_fixture(self, *, stream=False):
         request = ChatRequest(

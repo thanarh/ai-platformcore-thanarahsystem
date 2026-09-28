@@ -44,7 +44,7 @@ class _ReadableHTMLParser(HTMLParser):
                 for key, value in attrs
                 if key is not None
             }
-            key = attrs_dict.get("property") or attrs_dict.get("name")
+            key = attrs_dict.get("property") or attrs_dict.get("name") or attrs_dict.get("itemprop")
             content = _clean_text(attrs_dict.get("content", ""))
             if content and key:
                 key = key.casefold()
@@ -52,7 +52,13 @@ class _ReadableHTMLParser(HTMLParser):
                     self.meta_descriptions.append(content[:2000])
                 elif key in {"og:title", "twitter:title"}:
                     self.meta_titles.append(content[:300])
-            if key and key.casefold() in {"article:published_time", "date", "pubdate", "publishdate"}:
+            if key and key.casefold() in {
+                "article:published_time",
+                "date",
+                "pubdate",
+                "publishdate",
+                "datepublished",
+            }:
                 self.published_at = attrs_dict.get("content") or None
         if tag in self._TEXT_TAGS and self._ignored_depth == 0:
             self._buffer = []

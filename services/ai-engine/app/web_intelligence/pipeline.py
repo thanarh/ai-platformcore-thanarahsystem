@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from typing import Any
 from urllib.parse import urlparse
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.config import settings
 from app.rag.reranker import local_reranker
@@ -70,14 +71,43 @@ class WebIntelligencePipeline:
         return {"event": name, **payload}
 
     @staticmethod
-    def _published_on_date(value: str | None, target_date: date) -> bool:
+    def _published_on_date(
+        value: str | None,
+        target_date: date,
+        timezone_name: str = "UTC",
+    ) -> bool:
         if not value:
             return False
         try:
             published = datetime.fromisoformat(value.replace("Z", "+00:00"))
         except ValueError:
             return False
-        return published.date() == target_date
+        try:
+            local_timezone = ZoneInfo(timezone_name)
+        except ZoneInfoNotFoundError:
+            local_timezone = timezone.utc
+        if published.tzinfo is None:
+            published = published.replace(tzinfo=local_timezone)
+        return (
+            published.astimezone(local_timezone).date() == target_date
+            and published.astimezone(timezone.utc) <= datetime.now(timezone.utc)
+        )
+
+    @classmethod
+    def _may_be_published_on_date(
+        cls,
+        value: str | None,
+        target_date: date,
+        timezone_name: str = "UTC",
+    ) -> bool:
+        """Keep undated hits long enough to verify the article page itself."""
+        if not value:
+            return True
+        try:
+            datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return True
+        return cls._published_on_date(value, target_date, timezone_name)
 
     @staticmethod
     def _unavailable_context(
@@ -135,6 +165,7 @@ class WebIntelligencePipeline:
         telemetry: Any = None,
         explicit_request: bool = False,
         as_of_date: str | None = None,
+        timezone_name: str = "UTC",
     ) -> WebPipelineResult:
         pipeline_started = time.perf_counter()
         decision = decide_web(query, tenant_config, explicit_request=explicit_request)
@@ -162,7 +193,8 @@ class WebIntelligencePipeline:
         search_query = normalize_search_query(query)
         same_day_requested = requires_same_day_results(query)
         target_date = date.fromisoformat(
-            as_of_date or datetime.now(timezone.utc).date().isoformat()
+            as_of_date
+            or datetime.now(timezone.utc).astimezone(ZoneInfo(timezone_name)).date().isoformat()
         )
         time_range = "day" if same_day_requested else None
         search_key = self._cache_key(
@@ -173,6 +205,7 @@ class WebIntelligencePipeline:
             max_results or settings.web_max_results,
             time_range,
             target_date.isoformat() if same_day_requested else "",
+            timezone_name if same_day_requested else "",
         )
         search_results = self._cache_get(self._search_cache, search_key, settings.web_search_cache_ttl_seconds)
         search_cache_hit = search_results is not None
@@ -192,7 +225,9 @@ class WebIntelligencePipeline:
                         search_results = [
                             item
                             for item in search_results
-                            if self._published_on_date(item.published_at, target_date)
+                            if self._may_be_published_on_date(
+                                item.published_at, target_date, timezone_name
+                            )
                         ]
                     self._search_cache[search_key] = (time.monotonic(), search_results)
                 else:
@@ -203,7 +238,9 @@ class WebIntelligencePipeline:
                     search_results = [
                         item
                         for item in search_results
-                        if self._published_on_date(item.published_at, target_date)
+                        if self._may_be_published_on_date(
+                            item.published_at, target_date, timezone_name
+                        )
                     ]
             result.events.extend(
                 self._event(
@@ -370,6 +407,11 @@ class WebIntelligencePipeline:
         for item, fetched, page in pages:
             if page is None or not page.content.strip():
                 continue
+            published_at = page.published_at or item.published_at
+            if same_day_requested and not self._published_on_date(
+                published_at, target_date, timezone_name
+            ):
+                continue
             source_id = f"source-{len(source_by_url) + 1}"
             source_url = fetched.url if fetched is not None else item.url
             source = {
@@ -378,7 +420,7 @@ class WebIntelligencePipeline:
                 "url": source_url,
                 "domain": page.domain or (urlparse(source_url).hostname or ""),
                 "retrievedAt": retrieved_at,
-                "publishedAt": page.published_at or item.published_at,
+                "publishedAt": published_at,
                 "source": item.source,
                 "tenantId": tenant_id,
                 "userId": user_id,

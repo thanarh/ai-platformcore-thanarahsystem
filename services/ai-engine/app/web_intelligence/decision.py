@@ -68,6 +68,11 @@ _EXTERNAL_LOOKUP_TERMS = (
     "best library",
     "best tool",
 )
+_ORGANIZATION_LOOKUP_QUERY = re.compile(
+    r"(?:من\s+(?:هي|هيا|هو|هوا)\s+(?:شركة|مؤسسة|استوديو)|"
+    r"(?:who|what)\s+(?:is|are)\s+(?:the\s+)?(?:company|studio|organization))",
+    re.IGNORECASE,
+)
 _EVENT_QUERY_TERMS = (
     "ما حصل",
     "ماذا حصل",
@@ -94,6 +99,7 @@ _NEWS_TERMS = (
     "خبر",
     "الأخبار",
     "الاخبار",
+    "احبار",
     "news",
     "headline",
     "headlines",
@@ -194,6 +200,8 @@ def decide_web(
     if category == "news" or any(term.casefold() in text for term in _CURRENT_TERMS):
         signals.append("time_sensitive_information")
     if any(term.casefold() in text for term in _EXTERNAL_LOOKUP_TERMS):
+        signals.append("external_factual_lookup")
+    if _ORGANIZATION_LOOKUP_QUERY.search(text):
         signals.append("external_factual_lookup")
 
     if not signals:

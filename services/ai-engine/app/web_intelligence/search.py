@@ -25,6 +25,24 @@ _SEARCH_COMMAND_PREFIX = re.compile(
     r")\s*[:：–—-]?\s*",
     re.IGNORECASE,
 )
+_ARABIC_COMPANY_QUESTION_PREFIX = re.compile(
+    r"^\s*(?:من|ما)\s+(?:هي|هيا|هو|هوا)\s+(?=(?:شركة|مؤسسة|استوديو)\b)",
+    re.IGNORECASE,
+)
+_ARABIC_ORGANIZATION_PREFIX = re.compile(
+    r"^\s*(?:شركة|مؤسسة|استوديو)\s+",
+    re.IGNORECASE,
+)
+_ARABIC_NEWS_PREFIX = re.compile(
+    r"^\s*(?:(?:ما|ماذا)\s+(?:هي\s+)?)?"
+    r"(?:(?:آخر|اخر|أحدث|احدث)\s+)?"
+    r"(?:الأخبار|الاخبار|أخبار|اخبار|احبار)\s+(?:عن\s+)?",
+    re.IGNORECASE,
+)
+_ARABIC_CURRENT_TIME_SUFFIX = re.compile(
+    r"\s+(?:اليوم|الآن|الان|حاليًا|حالياً)\s*[؟?!.،,]*$",
+    re.IGNORECASE,
+)
 _DIRECT_URL = re.compile(
     r"(?i)(?:https?://|www\.)[^\s<>{}\[\]\"'`]+|"
     r"(?<![@\w])(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}"
@@ -86,6 +104,12 @@ def normalize_search_query(query: str) -> str:
     """Clean search instructions and keep direct URLs from polluting query terms."""
     original = (query or "").strip()
     normalized = _SEARCH_COMMAND_PREFIX.sub("", original, count=1).strip(" \t:：–—-")
+    normalized = _ARABIC_COMPANY_QUESTION_PREFIX.sub("", normalized, count=1)
+    normalized = _ARABIC_ORGANIZATION_PREFIX.sub("", normalized, count=1)
+    normalized = _ARABIC_NEWS_PREFIX.sub("", normalized, count=1)
+    normalized = _ARABIC_CURRENT_TIME_SUFFIX.sub("", normalized, count=1).strip()
+    if "مصر" in normalized and re.search(r"(?<!\w)احبار(?!\w)", normalized):
+        normalized = re.sub(r"(?<!\w)احبار(?!\w)", "أخبار", normalized, count=1)
     direct_urls = extract_direct_urls(normalized)
     if direct_urls:
         normalized = _DIRECT_URL.sub(" ", normalized)
@@ -131,10 +155,19 @@ def extract_direct_urls(query: str) -> list[str]:
 
 
 def _effective_language(query: str, language: str) -> str:
-    if language and language != "auto":
-        return language
     compact = "".join((query or "").split())
     arabic = sum("\u0600" <= char <= "\u06ff" for char in compact)
+    if language and language != "auto":
+        # The original request may be Arabic while normalization leaves only
+        # a Latin company or product name for the search engine.
+        if (
+            language.casefold().startswith("ar")
+            and compact
+            and arabic / len(compact) <= 0.2
+            and re.search(r"[A-Za-z]", compact)
+        ):
+            return "en"
+        return language
     return "ar" if compact and arabic / len(compact) > 0.2 else "en"
 
 

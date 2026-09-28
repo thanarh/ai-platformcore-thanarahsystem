@@ -83,4 +83,33 @@ articles from March, August, and earlier in September for a September 28 query.
 
 **How to apply:** Derive the comparison date from the request runtime context,
 include it in the search cache key, and retain the post-search freshness check
-even when a provider supports a time-range parameter.
+even when a provider supports a time-range parameter. Search engines frequently
+omit publication dates from result metadata, so retain undated same-day
+candidates for safe page fetching and verify the extracted article date before
+using them; compare timestamps in the request's IANA timezone and reject future
+publication times. Never treat an undated page as current.
+
+For Arabic headline searches, remove framing words such as “أخبار” and “اليوم”
+from the provider query while preserving the news category and explicit date
+range.
+
+**Why:** A literal “ما أخبار مصر اليوم” query returned one weakly related item;
+searching the topic “مصر” with the same news category and day range surfaced
+multiple dated Egyptian reports.
+
+**How to apply:** Keep intent, category, and freshness controls from the original
+request, but use a concise topic-only query for provider retrieval and lexical
+relevance.
+
+Arabic questions about Latin-script companies can also misroute otherwise
+healthy search: the Arabic question words distort the engine language and
+lexical scoring even when the actual entity is English.
+
+**Why:** Live probes of company lookups produced unrelated results when the full
+Arabic question was sent to Bing, while the cleaned Latin entity query selected
+English results. Arabic news typos can similarly select general engines instead
+of the news engines.
+
+**How to apply:** Strip recognized lookup wording before search, language
+selection, and relevance scoring; normalize only narrow, context-supported
+Arabic typos rather than broadly rewriting user text.

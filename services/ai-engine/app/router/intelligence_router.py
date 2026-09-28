@@ -296,6 +296,7 @@ class IntelligenceRouter:
             language=search_language,
             region=chat_request.runtimeContext.get("region"),
             as_of_date=runtime_snapshot["currentDate"],
+            timezone_name=runtime_snapshot["timezone"],
             telemetry=telemetry,
             explicit_request=chat_request.skillId == "web_search",
         )

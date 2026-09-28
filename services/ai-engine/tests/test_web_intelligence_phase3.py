@@ -1,6 +1,7 @@
 import asyncio
 import time
 import unittest
+from datetime import date
 from unittest.mock import patch
 
 import httpx
@@ -16,6 +17,7 @@ from app.web_intelligence.fetcher import FetchError, FetchedPage, SafeHTTPFetche
 from app.web_intelligence.pipeline import WebIntelligencePipeline
 from app.web_intelligence.search import (
     SearXNGClient,
+    _effective_language,
     extract_direct_urls,
     filter_and_score_results,
     normalize_search_query,
@@ -77,6 +79,41 @@ class WebIntelligencePhase3Tests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(requires_same_day_results("weather in Saudi Arabia today"))
         self.assertFalse(requires_same_day_results("ما موعد اليوم الوطني السعودي؟"))
 
+    def test_search_query_normalizes_arabic_news_typo_and_company_question(self):
+        self.assertEqual(normalize_search_query("ابحث عن احبار مصر"), "مصر")
+        self.assertEqual(normalize_search_query("ما اخبار مصر اليوم"), "مصر")
+        self.assertEqual(normalize_search_query("آخر أخبار مصر اليوم"), "مصر")
+        self.assertEqual(classify_search_category("ابحث عن احبار مصر"), "news")
+        self.assertEqual(
+            normalize_search_query("من هيا شركة qirox studio"),
+            "qirox studio",
+        )
+        self.assertEqual(_effective_language("qirox studio", "ar"), "en")
+        self.assertEqual(_effective_language("أخبار مصر", "ar"), "ar")
+
+    def test_same_day_news_date_uses_request_timezone_and_rejects_future_items(self):
+        target = date(2026, 9, 28)
+        self.assertTrue(
+            WebIntelligencePipeline._published_on_date(
+                "2026-09-28T09:30:00+03:00",
+                target,
+                "Asia/Riyadh",
+            )
+        )
+        self.assertFalse(
+            WebIntelligencePipeline._published_on_date(
+                "2026-09-28T22:42:17Z",
+                target,
+                "Asia/Riyadh",
+            )
+        )
+
+    def test_company_identity_question_requests_external_lookup(self):
+        with patch.object(settings, "web_search_enabled", True):
+            decision = decide_web("من هيا شركة qirox studio")
+        self.assertTrue(decision.use_web)
+        self.assertIn("external_factual_lookup", decision.signals)
+
     def test_search_results_are_deduplicated_and_diversified(self):
         from app.web_intelligence.search import SearchResult
 
@@ -133,6 +170,14 @@ class WebIntelligencePhase3Tests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn("Readable content.", page.content)
         self.assertEqual(page.published_at, "2026-09-21")
+
+    def test_extractor_reads_itemprop_publication_date(self):
+        page = extract_html(
+            b"<html><head><meta itemprop='datePublished' content='2026-09-28'></head>"
+            b"<body><main><p>Today's article.</p></main></body></html>",
+            "https://example.com/article",
+        )
+        self.assertEqual(page.published_at, "2026-09-28")
 
     def test_ssrf_blocks_local_private_and_metadata_addresses(self):
         for url in (
@@ -416,6 +461,114 @@ class WebIntelligencePhase3Tests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.error, "No verified web search results")
         self.assertEqual(result.sources, [])
         self.assertNotIn("generating", [event["event"] for event in result.events])
+
+    async def test_pipeline_verifies_undated_news_from_fetched_article_metadata(self):
+        from app.web_intelligence.fetcher import FetchedPage
+        from app.web_intelligence.search import SearchResult
+
+        class SearchWithUndatedNews:
+            base_url = "http://searxng.test"
+
+            async def search(self, _query, **kwargs):
+                assert kwargs["time_range"] == "day"
+                return [
+                    SearchResult(
+                        title="أخبار مصر اليوم",
+                        url="https://news.example/todays-story",
+                        snippet="تقرير جديد عن مصر",
+                        source="fixture",
+                        rank=1,
+                        category="news",
+                    )
+                ]
+
+        class ArticleFetcher:
+            async def fetch(self, url):
+                return FetchedPage(
+                    url=url,
+                    content_type="text/html",
+                    content=(
+                        "<html><head><meta property='article:published_time' "
+                        "content='2026-09-28T09:30:00+03:00'></head>"
+                        "<body><main><p>تفاصيل التقرير المنشور عن مصر اليوم.</p></main></body></html>"
+                    ).encode("utf-8"),
+                    retrieved_at="2026-09-28T10:00:00+03:00",
+                )
+
+        async def keep_candidates(_query, candidates, _limit):
+            return candidates
+
+        with (
+            patch.object(settings, "web_search_enabled", True),
+            patch(
+                "app.web_intelligence.pipeline.local_reranker.rerank",
+                side_effect=keep_candidates,
+            ),
+        ):
+            result = await WebIntelligencePipeline(
+                search_client=SearchWithUndatedNews(),
+                fetcher=ArticleFetcher(),
+            ).run(
+                "ما أخبار مصر اليوم",
+                tenant_id="tenant-a",
+                language="ar",
+                as_of_date="2026-09-28",
+            )
+
+        self.assertEqual(len(result.sources), 1)
+        self.assertEqual(result.sources[0]["publishedAt"], "2026-09-28T09:30:00+03:00")
+        self.assertIn("تفاصيل التقرير المنشور عن مصر اليوم", result.context)
+
+    async def test_pipeline_rejects_undated_article_when_page_has_no_publication_date(self):
+        from app.web_intelligence.fetcher import FetchedPage
+        from app.web_intelligence.search import SearchResult
+
+        class SearchWithUndatedNews:
+            base_url = "http://searxng.test"
+
+            async def search(self, _query, **_kwargs):
+                return [
+                    SearchResult(
+                        title="أخبار مصر",
+                        url="https://news.example/undated",
+                        snippet="تقرير عن مصر",
+                        source="fixture",
+                        rank=1,
+                        category="news",
+                    )
+                ]
+
+        class ArticleFetcher:
+            async def fetch(self, url):
+                return FetchedPage(
+                    url=url,
+                    content_type="text/html",
+                    content="<html><body><main><p>محتوى بلا تاريخ نشر.</p></main></body></html>".encode("utf-8"),
+                    retrieved_at="2026-09-28T10:00:00+03:00",
+                )
+
+        async def keep_candidates(_query, candidates, _limit):
+            return candidates
+
+        with (
+            patch.object(settings, "web_search_enabled", True),
+            patch(
+                "app.web_intelligence.pipeline.local_reranker.rerank",
+                side_effect=keep_candidates,
+            ),
+        ):
+            result = await WebIntelligencePipeline(
+                search_client=SearchWithUndatedNews(),
+                fetcher=ArticleFetcher(),
+            ).run(
+                "ما أخبار مصر اليوم",
+                tenant_id="tenant-a",
+                language="ar",
+                as_of_date="2026-09-28",
+            )
+
+        self.assertEqual(result.error, "No verified web pages were fetched")
+        self.assertEqual(result.sources, [])
 
     async def test_pipeline_fails_closed_when_all_pages_fail_to_fetch(self):
         class SearchWithSource:
