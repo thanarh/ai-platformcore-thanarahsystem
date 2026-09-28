@@ -39,6 +39,19 @@ unrelated events pages even though each engine's health probe succeeded.
 English, and inspect fetched source URLs and titles rather than counting raw
 SearXNG results.
 
+When a user supplies a direct website URL, fetch that page independently of
+search-engine results and include useful page metadata in the extracted
+evidence. If the page cannot be fetched, say so explicitly instead of implying
+the user did not provide a source.
+
+**Why:** Smaller companies may have no indexed search results, and JavaScript-
+rendered landing pages can have little visible HTML text while still exposing a
+useful title and description in metadata.
+
+**How to apply:** Route user-provided URLs through the SSRF-safe fetcher, retain
+its redirect and public-address checks, and extract title/description metadata
+before concluding that no evidence is available.
+
 Workflow environment flags require a full workflow restart to reach the AI
 Engine process; hot reload can keep the prior inherited value.
 

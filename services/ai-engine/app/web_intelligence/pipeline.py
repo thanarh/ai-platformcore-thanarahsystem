@@ -17,6 +17,7 @@ from app.web_intelligence.fetcher import FetchError, SafeHTTPFetcher
 from app.web_intelligence.search import (
     SearchResult,
     SearXNGClient,
+    extract_direct_urls,
     filter_and_score_results,
     normalize_search_query,
     select_diverse_results,
@@ -65,7 +66,25 @@ class WebIntelligencePipeline:
         return {"event": name, **payload}
 
     @staticmethod
-    def _unavailable_context() -> str:
+    def _unavailable_context(
+        *,
+        direct_url_provided: bool = False,
+        language: str = "auto",
+    ) -> str:
+        if direct_url_provided and language.casefold().startswith("ar"):
+            return (
+                "## حالة استرجاع الويب\n"
+                "قدّم المستخدم رابطًا مباشرًا، لكن تعذّر جلب صفحة موثوقة منه. "
+                "قل بوضوح إن الموقع لم يُفتح أو لم يُستخرج منه محتوى، ولا تدّعِ معرفة تفاصيله "
+                "ولا تطلب الرابط مرة أخرى. اطلب نص الصفحة أو رابطًا بديلًا عند الحاجة."
+            )
+        if direct_url_provided:
+            return (
+                "## Web retrieval status\n"
+                "The user supplied a direct URL, but its page could not be fetched as verified evidence. "
+                "Say that the page could not be opened or read; do not claim facts about it or ask for "
+                "the same URL again. Ask for pasted page text or an alternate URL if needed."
+            )
         return (
             "## Web retrieval status\n"
             "The user requested current or external web information, but no verified "
@@ -115,7 +134,15 @@ class WebIntelligencePipeline:
             return result
 
         result.events.append(self._event("status", state="searching", progress=10, reason=decision.reason))
-        result.events.append(self._event("search_started", progress=20, query=query[:500]))
+        direct_urls = extract_direct_urls(query)
+        result.events.append(
+            self._event(
+                "search_started",
+                progress=20,
+                query=normalize_search_query(query)[:500],
+                directUrlCount=len(direct_urls),
+            )
+        )
         started = time.perf_counter()
         search_query = normalize_search_query(query)
         search_key = self._cache_key(
@@ -129,15 +156,18 @@ class WebIntelligencePipeline:
         search_cache_hit = search_results is not None
         try:
             if search_results is None:
-                search_results = await self.search_client.search(
-                    search_query,
-                    language=language,
-                    region=region,
-                    max_results=max_results or settings.web_max_results,
-                    category=decision.category,
-                )
-                search_results = filter_and_score_results(search_query, search_results)
-                self._search_cache[search_key] = (time.monotonic(), search_results)
+                if search_query:
+                    search_results = await self.search_client.search(
+                        search_query,
+                        language=language,
+                        region=region,
+                        max_results=max_results or settings.web_max_results,
+                        category=decision.category,
+                    )
+                    search_results = filter_and_score_results(search_query, search_results)
+                    self._search_cache[search_key] = (time.monotonic(), search_results)
+                else:
+                    search_results = []
             else:
                 search_results = filter_and_score_results(search_query, search_results)
             result.events.extend(
@@ -161,16 +191,60 @@ class WebIntelligencePipeline:
                 telemetry.set("webSearchResultCount", len(search_results))
         except Exception as exc:
             logger.warning("Web search failed: %s", str(exc)[:240])
-            result.error = "SearXNG search failed"
-            result.context = self._unavailable_context()
-            result.events.append(self._event("error", stage="search", message=result.error))
+            result.events.append(
+                self._event(
+                    "error",
+                    stage="search",
+                    message=(
+                        "Supplementary search failed; direct URL fetch will continue"
+                        if direct_urls
+                        else "SearXNG search failed"
+                    ),
+                )
+            )
             if telemetry is not None:
-                telemetry.add_ms("webTotalMs", pipeline_started)
-            return result
+                telemetry.add_ms("webSearchMs", started)
+                telemetry.set("webSearchResultCount", 0)
+            search_results = []
+            if not direct_urls:
+                result.error = "SearXNG search failed"
+                result.context = self._unavailable_context(language=language)
+                if telemetry is not None:
+                    telemetry.add_ms("webTotalMs", pipeline_started)
+                return result
 
-        if not search_results:
+        direct_results = [
+            SearchResult(
+                title=urlparse(url).hostname or url,
+                url=url,
+                snippet="Page URL explicitly supplied by the user.",
+                source="user_provided_url",
+                rank=index,
+                category=decision.category,
+            )
+            for index, url in enumerate(direct_urls, start=1)
+        ]
+        result.events.extend(
+            self._event(
+                "source_found",
+                progress=25,
+                source={
+                    "title": item.title,
+                    "url": item.url,
+                    "rank": item.rank,
+                    "domain": urlparse(item.url).hostname or "",
+                    "engines": [],
+                    "category": item.category,
+                },
+            )
+            for item in direct_results
+        )
+        if telemetry is not None:
+            telemetry.set("webDirectUrlCount", len(direct_results))
+
+        if not search_results and not direct_results:
             result.error = "No verified web search results"
-            result.context = self._unavailable_context()
+            result.context = self._unavailable_context(language=language)
             result.events.append(self._event("error", stage="search", message=result.error))
             if telemetry is not None:
                 telemetry.set("webSearchCacheHit", search_cache_hit)
@@ -190,18 +264,23 @@ class WebIntelligencePipeline:
         if telemetry is not None:
             telemetry.add_ms("webLexicalRelevanceMs", lexical_started)
 
-        rerank_started = time.perf_counter()
-        ranked_search_candidates = await local_reranker.rerank(
-            search_query,
-            lexical_candidates,
-            min(len(lexical_candidates), settings.web_max_results),
-        )
-        if telemetry is not None:
-            telemetry.add_ms("webRerankingMs", rerank_started)
-            telemetry.set("webRerankedCount", len(ranked_search_candidates))
+        ranked_search_candidates: list[dict[str, Any]] = []
+        if lexical_candidates:
+            rerank_started = time.perf_counter()
+            ranked_search_candidates = await local_reranker.rerank(
+                search_query,
+                lexical_candidates,
+                min(len(lexical_candidates), settings.web_max_results),
+            )
+            if telemetry is not None:
+                telemetry.add_ms("webRerankingMs", rerank_started)
+                telemetry.set("webRerankedCount", len(ranked_search_candidates))
 
         selected = select_diverse_results(
-            [item["searchResult"] for item in ranked_search_candidates],
+            [
+                *direct_results,
+                *(item["searchResult"] for item in ranked_search_candidates),
+            ],
             max(1, min(settings.web_max_fetch_results, 5)),
         )
         if telemetry is not None:
@@ -279,7 +358,10 @@ class WebIntelligencePipeline:
 
         if not candidates:
             result.error = "No verified web pages were fetched"
-            result.context = self._unavailable_context()
+            result.context = self._unavailable_context(
+                direct_url_provided=bool(direct_urls),
+                language=language,
+            )
             result.events.append(self._event("error", stage="fetch", message=result.error))
             if telemetry is not None:
                 telemetry.add_ms("webTotalMs", pipeline_started)

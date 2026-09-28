@@ -24,6 +24,19 @@ _SEARCH_COMMAND_PREFIX = re.compile(
     r")\s*[:：–—-]?\s*",
     re.IGNORECASE,
 )
+_DIRECT_URL = re.compile(
+    r"(?i)(?:https?://|www\.)[^\s<>{}\[\]\"'`]+|"
+    r"(?<![@\w])(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}"
+    r"(?::\d{1,5})?(?:/[^\s<>{}\[\]\"'`]*)?"
+)
+_URL_REFERENCE_LANGUAGE = re.compile(
+    r"(?i)(?:\b(?:(?:this\s+is|here\s+is)\s+(?:(?:their|the)\s+)?|"
+    r"(?:(?:their|the)\s+)?)(?:website|web\s+site|site|url|link)\b|"
+    r"(?:هذا\s+(?:هو\s+)?|هذه\s+(?:هي\s+)?|هو\s+)?"
+    r"(?:موقعهم|موقعها|موقعه|الموقع|موقع|رابطهم|الرابط|رابط)"
+    r"(?:\s+(?:ال)?(?:إلكتروني|الكتروني|الاكتروني|اكتروني))?)"
+)
+_URL_TRAILING_PUNCTUATION = ".,;:!?،؛؟)]}»”’"
 _SEARCH_ENGINE_HOSTS = {
     "google.com",
     "google.com.nf",
@@ -50,10 +63,51 @@ _SEARCH_STOPWORDS = {
 
 
 def normalize_search_query(query: str) -> str:
-    """Remove a leading search command so engines receive the actual question."""
+    """Clean search instructions and keep direct URLs from polluting query terms."""
     original = (query or "").strip()
     normalized = _SEARCH_COMMAND_PREFIX.sub("", original, count=1).strip(" \t:：–—-")
+    direct_urls = extract_direct_urls(normalized)
+    if direct_urls:
+        normalized = _DIRECT_URL.sub(" ", normalized)
+        normalized = _URL_REFERENCE_LANGUAGE.sub(" ", normalized)
+        normalized = re.sub(r"\s+", " ", normalized).strip(" \t:：,，;؛!?؟.")
+        host = (urlparse(direct_urls[0]).hostname or "").casefold()
+        if host.startswith("www."):
+            host = host[4:]
+        labels = [label for label in host.split(".") if label]
+        brand_terms = " ".join(labels[:-1]) if len(labels) > 1 else host
+        normalized = " ".join(part for part in (normalized, brand_terms) if part)
     return normalized or original
+
+
+def extract_direct_urls(query: str) -> list[str]:
+    """Return public-looking HTTP(S) links explicitly included in user text.
+
+    Network and SSRF validation remains the fetcher's responsibility; this
+    helper only normalizes and deduplicates URL-shaped text.
+    """
+    urls: list[str] = []
+    seen: set[str] = set()
+    for match in _DIRECT_URL.finditer(query or ""):
+        candidate = match.group(0).rstrip(_URL_TRAILING_PUNCTUATION)
+        if not candidate:
+            continue
+        if candidate.casefold().startswith("www."):
+            candidate = f"https://{candidate}"
+        elif not candidate.casefold().startswith(("http://", "https://")):
+            candidate = f"https://{candidate}"
+        parsed = urlparse(candidate)
+        try:
+            parsed.port
+        except ValueError:
+            continue
+        if not parsed.hostname or parsed.username or parsed.password:
+            continue
+        key = candidate.casefold().rstrip("/")
+        if key not in seen:
+            urls.append(candidate)
+            seen.add(key)
+    return urls
 
 
 def _effective_language(query: str, language: str) -> str:

@@ -24,6 +24,8 @@ class _ReadableHTMLParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.title_parts: list[str] = []
+        self.meta_titles: list[str] = []
+        self.meta_descriptions: list[str] = []
         self.headings: list[str] = []
         self.paragraphs: list[str] = []
         self._buffer: list[str] = []
@@ -43,6 +45,13 @@ class _ReadableHTMLParser(HTMLParser):
                 if key is not None
             }
             key = attrs_dict.get("property") or attrs_dict.get("name")
+            content = _clean_text(attrs_dict.get("content", ""))
+            if content and key:
+                key = key.casefold()
+                if key in {"description", "og:description", "twitter:description"}:
+                    self.meta_descriptions.append(content[:2000])
+                elif key in {"og:title", "twitter:title"}:
+                    self.meta_titles.append(content[:300])
             if key and key.casefold() in {"article:published_time", "date", "pubdate", "publishdate"}:
                 self.published_at = attrs_dict.get("content") or None
         if tag in self._TEXT_TAGS and self._ignored_depth == 0:
@@ -66,7 +75,7 @@ class _ReadableHTMLParser(HTMLParser):
             self._tag_stack.pop()
 
     def handle_data(self, data: str) -> None:
-        if self._ignored_depth == 0 and self._tag_stack and self._tag_stack[-1] in self._TEXT_TAGS:
+        if self._ignored_depth == 0 and any(tag in self._TEXT_TAGS for tag in self._tag_stack):
             self._buffer.append(data)
 
 
@@ -86,10 +95,22 @@ def extract_html(content: bytes, url: str, *, content_type: str = "text/html") -
     parser.close()
     paragraphs = tuple(dict.fromkeys(parser.paragraphs))
     headings = tuple(dict.fromkeys(parser.headings))
-    body = "\n\n".join((*headings, *paragraphs))
+    title = (
+        parser.title_parts[0][:300]
+        if parser.title_parts
+        else parser.meta_titles[0]
+        if parser.meta_titles
+        else headings[0][:300]
+        if headings
+        else ""
+    )
+    evidence = tuple(dict.fromkeys((*parser.meta_descriptions, *headings, *paragraphs)))
+    if not evidence and title:
+        evidence = (title,)
+    body = "\n\n".join(evidence)
     return ExtractedPage(
         url=url,
-        title=parser.title_parts[0][:300] if parser.title_parts else (headings[0][:300] if headings else ""),
+        title=title,
         headings=headings,
         paragraphs=paragraphs,
         content=body[:12000],

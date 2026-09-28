@@ -12,12 +12,20 @@ from app.web_intelligence.fetcher import FetchError, FetchedPage, SafeHTTPFetche
 from app.web_intelligence.pipeline import WebIntelligencePipeline
 from app.web_intelligence.search import (
     SearXNGClient,
+    extract_direct_urls,
     filter_and_score_results,
+    normalize_search_query,
     select_diverse_results,
 )
 
 
 class WebIntelligencePhase3Tests(unittest.IsolatedAsyncioTestCase):
+    def test_arabic_website_message_extracts_and_normalizes_direct_url(self):
+        query = "هذا هو موقعهم الاكتروني qiroxstudio.online"
+        self.assertEqual(extract_direct_urls(query), ["https://qiroxstudio.online"])
+        self.assertEqual(normalize_search_query(query), "qiroxstudio")
+        self.assertEqual(extract_direct_urls("contact@example.com"), [])
+
     def test_decision_uses_explicit_and_current_signals(self):
         self.assertFalse(decide_web("ما الفرق بين API و Token?").use_web)
         decision = decide_web("ابحث عن آخر أخبار التقنية اليوم")
@@ -215,6 +223,56 @@ class WebIntelligencePhase3Tests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.sources[0]["url"], "https://public.example/article")
         self.assertEqual(result.sources[0]["tenantId"], "tenant-a")
         self.assertIn("search_started", [event["event"] for event in result.events])
+        self.assertIn("fetch_completed", [event["event"] for event in result.events])
+
+    async def test_pipeline_fetches_user_url_even_when_search_returns_no_results(self):
+        class EmptySearch:
+            base_url = "http://searxng.test"
+
+            def __init__(self):
+                self.queries = []
+
+            async def search(self, query, **_kwargs):
+                self.queries.append(query)
+                return []
+
+        class WebsiteFetcher:
+            def __init__(self):
+                self.urls = []
+
+            async def fetch(self, url):
+                self.urls.append(url)
+                return FetchedPage(
+                    url=url,
+                    content_type="text/html",
+                    content=(
+                        '<html><head><title>Qirox Studio</title>'
+                        '<meta name="description" content="شركة برمجة سعودية في الرياض">'
+                        '</head><body><main><p>نبني <strong>مواقع</strong> وتطبيقات وأنظمة إدارة.</p>'
+                        '</main></body></html>'
+                    ).encode(),
+                    retrieved_at="2026-09-28T00:00:00+00:00",
+                )
+
+        search = EmptySearch()
+        fetcher = WebsiteFetcher()
+        with patch.object(settings, "web_search_enabled", True):
+            result = await WebIntelligencePipeline(
+                search_client=search,
+                fetcher=fetcher,
+            ).run(
+                "هذا هو موقعهم الاكتروني qiroxstudio.online",
+                tenant_id="tenant-a",
+                language="ar",
+                explicit_request=True,
+            )
+
+        self.assertEqual(search.queries, ["qiroxstudio"])
+        self.assertEqual(fetcher.urls, ["https://qiroxstudio.online"])
+        self.assertEqual(result.sources[0]["url"], "https://qiroxstudio.online")
+        self.assertIn("شركة برمجة سعودية في الرياض", result.context)
+        self.assertIn("نبني مواقع وتطبيقات وأنظمة إدارة", result.context)
+        self.assertIn("source_found", [event["event"] for event in result.events])
         self.assertIn("fetch_completed", [event["event"] for event in result.events])
 
     async def test_pipeline_records_component_latency_with_fixture(self):
