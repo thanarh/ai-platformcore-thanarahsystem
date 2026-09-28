@@ -5,13 +5,17 @@ import hashlib
 import logging
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any
 from urllib.parse import urlparse
 
 from app.config import settings
 from app.rag.reranker import local_reranker
-from app.web_intelligence.decision import WebDecision, decide_web
+from app.web_intelligence.decision import (
+    WebDecision,
+    decide_web,
+    requires_same_day_results,
+)
 from app.web_intelligence.extractor import ExtractedPage, extract_html
 from app.web_intelligence.fetcher import FetchError, SafeHTTPFetcher
 from app.web_intelligence.search import (
@@ -64,6 +68,16 @@ class WebIntelligencePipeline:
     @staticmethod
     def _event(name: str, **payload: Any) -> dict[str, Any]:
         return {"event": name, **payload}
+
+    @staticmethod
+    def _published_on_date(value: str | None, target_date: date) -> bool:
+        if not value:
+            return False
+        try:
+            published = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return False
+        return published.date() == target_date
 
     @staticmethod
     def _unavailable_context(
@@ -120,6 +134,7 @@ class WebIntelligencePipeline:
         max_results: int | None = None,
         telemetry: Any = None,
         explicit_request: bool = False,
+        as_of_date: str | None = None,
     ) -> WebPipelineResult:
         pipeline_started = time.perf_counter()
         decision = decide_web(query, tenant_config, explicit_request=explicit_request)
@@ -145,12 +160,19 @@ class WebIntelligencePipeline:
         )
         started = time.perf_counter()
         search_query = normalize_search_query(query)
+        same_day_requested = requires_same_day_results(query)
+        target_date = date.fromisoformat(
+            as_of_date or datetime.now(timezone.utc).date().isoformat()
+        )
+        time_range = "day" if same_day_requested else None
         search_key = self._cache_key(
             search_query.casefold(),
             language,
             region,
             decision.category,
             max_results or settings.web_max_results,
+            time_range,
+            target_date.isoformat() if same_day_requested else "",
         )
         search_results = self._cache_get(self._search_cache, search_key, settings.web_search_cache_ttl_seconds)
         search_cache_hit = search_results is not None
@@ -163,13 +185,26 @@ class WebIntelligencePipeline:
                         region=region,
                         max_results=max_results or settings.web_max_results,
                         category=decision.category,
+                        time_range=time_range,
                     )
                     search_results = filter_and_score_results(search_query, search_results)
+                    if same_day_requested:
+                        search_results = [
+                            item
+                            for item in search_results
+                            if self._published_on_date(item.published_at, target_date)
+                        ]
                     self._search_cache[search_key] = (time.monotonic(), search_results)
                 else:
                     search_results = []
             else:
                 search_results = filter_and_score_results(search_query, search_results)
+                if same_day_requested:
+                    search_results = [
+                        item
+                        for item in search_results
+                        if self._published_on_date(item.published_at, target_date)
+                    ]
             result.events.extend(
                 self._event(
                     "source_found",

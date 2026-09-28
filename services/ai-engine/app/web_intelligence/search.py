@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -59,6 +60,25 @@ _SEARCH_STOPWORDS = {
     "هذه", "ذلك", "مع", "كيف", "ماذا", "هل", "أريد", "اريد", "ابحث",
     "أبحث", "بحث", "الإنترنت", "الانترنت", "الويب", "لي", "أحدث",
     "احدث", "آخر", "اخر", "اليوم", "الآن", "الان",
+}
+_ARABIC_MARKS = re.compile(r"[\u0640\u064b-\u065f\u0670]")
+_ARABIC_LETTER_NORMALIZATION = str.maketrans({
+    "أ": "ا",
+    "إ": "ا",
+    "آ": "ا",
+    "ٱ": "ا",
+    "ى": "ي",
+    "ة": "ه",
+})
+
+
+def _normalize_lexical_text(value: str) -> str:
+    normalized = unicodedata.normalize("NFKC", value or "").casefold()
+    return _ARABIC_MARKS.sub("", normalized).translate(_ARABIC_LETTER_NORMALIZATION)
+
+
+_NORMALIZED_SEARCH_STOPWORDS = {
+    _normalize_lexical_text(term) for term in _SEARCH_STOPWORDS
 }
 
 
@@ -337,6 +357,7 @@ class SearXNGClient:
         max_results: int | None = None,
         safe_search: int | None = None,
         category: SearchCategory = "general",
+        time_range: str | None = None,
     ) -> list[SearchResult]:
         search_query = normalize_search_query(query)
         if not search_query:
@@ -357,6 +378,10 @@ class SearXNGClient:
             "categories": category_param,
             **({"region": region} if region else {}),
         }
+        if time_range is not None:
+            if time_range not in {"day", "week", "month", "year"}:
+                raise ValueError("time_range must be one of: day, week, month, year")
+            params["time_range"] = time_range
         if engines:
             params["engines"] = ",".join(engines)
         response = await self._request("/search", params)
@@ -427,8 +452,8 @@ def filter_and_score_results(query: str, results: list[SearchResult]) -> list[Se
     search_query = normalize_search_query(query)
     terms = {
         term
-        for term in re.findall(r"[\w\u0600-\u06ff]{2,}", search_query.casefold())
-        if term not in _SEARCH_STOPWORDS
+        for term in re.findall(r"[\w\u0600-\u06ff]{2,}", _normalize_lexical_text(search_query))
+        if term not in _NORMALIZED_SEARCH_STOPWORDS
     }
     minimum_overlap = 2 if len(terms) >= 3 else 1
     seen: set[str] = set()
@@ -448,7 +473,7 @@ def filter_and_score_results(query: str, results: list[SearchResult]) -> list[Se
         ) or search_homepage:
             continue
         seen.add(canonical)
-        haystack = f"{result.title} {result.snippet}".casefold()
+        haystack = _normalize_lexical_text(f"{result.title} {result.snippet}")
         overlap = sum(1 for term in terms if term in haystack)
         if terms and overlap < minimum_overlap:
             continue

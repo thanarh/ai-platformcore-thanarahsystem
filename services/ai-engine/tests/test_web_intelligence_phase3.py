@@ -6,7 +6,11 @@ from unittest.mock import patch
 import httpx
 
 from app.config import settings
-from app.web_intelligence.decision import classify_search_category, decide_web
+from app.web_intelligence.decision import (
+    classify_search_category,
+    decide_web,
+    requires_same_day_results,
+)
 from app.web_intelligence.extractor import extract_html
 from app.web_intelligence.fetcher import FetchError, FetchedPage, SafeHTTPFetcher, UnsafeURL, validate_public_url
 from app.web_intelligence.pipeline import WebIntelligencePipeline
@@ -35,8 +39,11 @@ class WebIntelligencePhase3Tests(unittest.IsolatedAsyncioTestCase):
 
         with patch.object(settings, "web_search_enabled", True):
             enabled = decide_web("ابحث عن آخر أخبار التقنية اليوم")
+            supplied_url = decide_web("هذا هو موقعهم الاكتروني qiroxstudio.online")
         self.assertTrue(enabled.use_web)
         self.assertEqual(enabled.reason, "web_signal_detected")
+        self.assertTrue(supplied_url.use_web)
+        self.assertIn("user_provided_url", supplied_url.signals)
 
     def test_selected_search_tool_forces_search_but_respects_both_gates(self):
         self.assertFalse(decide_web("Python package", explicit_request=True).use_web)
@@ -54,9 +61,14 @@ class WebIntelligencePhase3Tests(unittest.IsolatedAsyncioTestCase):
 
     def test_category_selection_is_deterministic(self):
         self.assertEqual(classify_search_category("آخر أخبار التقنية اليوم"), "news")
+        self.assertEqual(classify_search_category("ما حصل اليوم في السعوديه"), "news")
+        self.assertEqual(classify_search_category("weather in Saudi Arabia today"), "general")
         self.assertEqual(classify_search_category("ابحث عن توثيق FastAPI"), "documentation")
         self.assertEqual(classify_search_category("ابحث عن مقارنة REST و GraphQL"), "technical")
         self.assertEqual(classify_search_category("ابحث عن متحف في الرياض"), "general")
+        self.assertTrue(requires_same_day_results("ما حصل اليوم في السعوديه"))
+        self.assertTrue(requires_same_day_results("weather in Saudi Arabia today"))
+        self.assertFalse(requires_same_day_results("ما موعد اليوم الوطني السعودي؟"))
 
     def test_search_results_are_deduplicated_and_diversified(self):
         from app.web_intelligence.search import SearchResult
@@ -74,6 +86,22 @@ class WebIntelligencePhase3Tests(unittest.IsolatedAsyncioTestCase):
             {"a.example", "b.example"},
         )
         self.assertNotIn("unrelated.example", {item.url.split("/")[2] for item in results})
+
+    def test_arabic_relevance_filter_normalizes_common_letter_variants(self):
+        from app.web_intelligence.search import SearchResult
+
+        query = "ما حصل اليوم في السعوديه"
+        result = SearchResult(
+            title="ما أهمية مضيق باب المندب بعد إعلان الحوثيين فرض حصار بحري على السعودية؟",
+            url="https://www.bbc.com/arabic/articles/example",
+            snippet="تتحدث التقارير عن السعودية والتطورات الأخيرة في المنطقة.",
+            source="fixture",
+            rank=1,
+        )
+
+        filtered = filter_and_score_results(query, [result])
+
+        self.assertEqual(filtered, [result])
 
     def test_extractor_removes_noise_and_keeps_metadata(self):
         html = b"""
@@ -118,6 +146,7 @@ class WebIntelligencePhase3Tests(unittest.IsolatedAsyncioTestCase):
     async def test_search_accepts_valid_searxng_json(self):
         def handler(request: httpx.Request) -> httpx.Response:
             self.assertEqual(request.url.path, "/search")
+            self.assertEqual(request.url.params.get("time_range"), "day")
             return httpx.Response(
                 200,
                 json={
@@ -134,7 +163,7 @@ class WebIntelligencePhase3Tests(unittest.IsolatedAsyncioTestCase):
             results = await SearXNGClient(
                 "http://searxng.test",
                 client=client,
-            ).search("phase 3", language="en", max_results=3)
+            ).search("phase 3", language="en", max_results=3, time_range="day")
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0].url, "https://public.example/page")
         self.assertEqual(results[0].rank, 1)
@@ -264,7 +293,6 @@ class WebIntelligencePhase3Tests(unittest.IsolatedAsyncioTestCase):
                 "هذا هو موقعهم الاكتروني qiroxstudio.online",
                 tenant_id="tenant-a",
                 language="ar",
-                explicit_request=True,
             )
 
         self.assertEqual(search.queries, ["qiroxstudio"])
@@ -335,6 +363,51 @@ class WebIntelligencePhase3Tests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.sources, [])
         self.assertIn("no verified web evidence", result.context)
         self.assertIn("error", [event["event"] for event in result.events])
+        self.assertNotIn("generating", [event["event"] for event in result.events])
+
+    async def test_pipeline_rejects_news_not_published_on_the_requested_day(self):
+        from app.web_intelligence.search import SearchResult
+
+        class SearchWithOldNews:
+            base_url = "http://searxng.test"
+
+            def __init__(self):
+                self.kwargs = {}
+
+            async def search(self, _query, **kwargs):
+                self.kwargs = kwargs
+                return [
+                    SearchResult(
+                        title="تطورات في السعودية",
+                        url="https://news.example/old-story",
+                        snippet="تقرير عن السعودية",
+                        source="fixture",
+                        rank=1,
+                        published_at="2026-09-27T23:00:00",
+                        category="news",
+                    )
+                ]
+
+        class MustNotFetch:
+            async def fetch(self, _url):
+                raise AssertionError("A story from yesterday must be filtered before fetch")
+
+        search = SearchWithOldNews()
+        with patch.object(settings, "web_search_enabled", True):
+            result = await WebIntelligencePipeline(
+                search_client=search,
+                fetcher=MustNotFetch(),
+            ).run(
+                "ما حصل اليوم في السعوديه",
+                tenant_id="tenant-a",
+                language="ar",
+                as_of_date="2026-09-28",
+            )
+
+        self.assertEqual(search.kwargs["time_range"], "day")
+        self.assertEqual(search.kwargs["category"], "news")
+        self.assertEqual(result.error, "No verified web search results")
+        self.assertEqual(result.sources, [])
         self.assertNotIn("generating", [event["event"] for event in result.events])
 
     async def test_pipeline_fails_closed_when_all_pages_fail_to_fetch(self):

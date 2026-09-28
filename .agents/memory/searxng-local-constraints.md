@@ -61,3 +61,26 @@ restarted.
 
 **How to apply:** Verify the runtime capabilities endpoint after every
 workflow environment change instead of relying on the configured command text.
+
+For Arabic lexical relevance, normalize common spelling variants such as
+hamza forms, alef maqsura, and taa marbuta before comparing query terms with
+result text. Keep original titles and passages for display and citation.
+
+**Why:** A live Saudi-news query returned Arabic results, but literal comparison
+of `السعوديه` with `السعودية` discarded every result.
+
+**How to apply:** Normalize both sides only for relevance scoring; do not alter
+the source text shown to users.
+
+For queries explicitly asking what happened “today,” pass SearXNG's `day`
+time-range and independently require a parseable publication date matching the
+request's local current date. Missing dates are not proof that an article is
+current; if no dated same-day source survives, return a localized no-source
+response rather than presenting older reports as today's events.
+
+**Why:** Search engines ignored or lacked same-day coverage and returned
+articles from March, August, and earlier in September for a September 28 query.
+
+**How to apply:** Derive the comparison date from the request runtime context,
+include it in the search cache key, and retain the post-search freshness check
+even when a provider supports a time-range parameter.

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from typing import Any, Literal
 
 from app.config import settings
@@ -72,6 +73,26 @@ _EXTERNAL_LOOKUP_TERMS = (
     "best library",
     "best tool",
 )
+_EVENT_QUERY_TERMS = (
+    "ما حصل",
+    "ماذا حصل",
+    "وش حصل",
+    "ايش حصل",
+    "ما حدث",
+    "ماذا حدث",
+    "وش صار",
+    "ايش صار",
+    "ما الذي حدث",
+    "ما الذي حصل",
+    "what happened",
+    "what is happening",
+    "what's happening",
+    "events today",
+)
+_DIRECT_URL_SIGNAL = re.compile(
+    r"(?i)(?:https?://|www\.)[^\s<>]+|"
+    r"(?<![@\w])(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}"
+)
 _NEWS_TERMS = (
     "أخبار",
     "اخبار",
@@ -81,14 +102,15 @@ _NEWS_TERMS = (
     "news",
     "headline",
     "headlines",
-    "آخر",
-    "اخر",
-    "أحدث",
-    "احدث",
     "مستجدات",
-    "latest",
-    "current",
-    "today",
+    "breaking news",
+    "current events",
+)
+_NAMED_DAY_REFERENCES = (
+    "اليوم الوطني",
+    "اليوم العالمي",
+    "national day",
+    "international day",
 )
 _DOCUMENTATION_TERMS = (
     "توثيق",
@@ -130,13 +152,23 @@ def classify_search_category(query: str) -> SearchCategory:
     intentionally fall back to the broad general category.
     """
     text = " ".join((query or "").casefold().split())
-    if any(term.casefold() in text for term in _NEWS_TERMS):
+    if any(term.casefold() in text for term in _NEWS_TERMS) or any(
+        term.casefold() in text for term in _EVENT_QUERY_TERMS
+    ):
         return "news"
     if any(term.casefold() in text for term in _DOCUMENTATION_TERMS):
         return "documentation"
     if any(term.casefold() in text for term in _TECHNICAL_TERMS):
         return "technical"
     return "general"
+
+
+def requires_same_day_results(query: str) -> bool:
+    """Whether the user explicitly asks for information published today."""
+    text = " ".join((query or "").casefold().split())
+    if any(term in text for term in _NAMED_DAY_REFERENCES):
+        return False
+    return "اليوم" in text or bool(re.search(r"\btoday\b", text))
 
 
 def decide_web(
@@ -158,6 +190,8 @@ def decide_web(
 
     if config.get("webSearchRequired") is True:
         signals.append("configured_web_required")
+    if _DIRECT_URL_SIGNAL.search(query or ""):
+        signals.append("user_provided_url")
     if explicit_request:
         signals.append("explicit_tool_selection")
     if any(term.casefold() in text for term in _EXPLICIT_TERMS):
