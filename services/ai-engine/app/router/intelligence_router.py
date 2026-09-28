@@ -21,6 +21,7 @@ from app.web_intelligence import web_intelligence_pipeline
 from app.language_policy import detect_language, response_language_instruction
 from app.web_intelligence.decision import requires_same_day_results
 from app.web_intelligence.search import extract_direct_urls
+from app.medical_triage import urgent_dvt_response
 
 logger = logging.getLogger(__name__)
 
@@ -341,6 +342,32 @@ class IntelligenceRouter:
         )
 
     @staticmethod
+    def _single_character_clarification(chat_request: ChatRequest) -> str | None:
+        last_user_message = next(
+            (message.content.strip() for message in reversed(chat_request.messages) if message.role == "user"),
+            "",
+        )
+        if len(last_user_message) != 1 or not last_user_message.isalpha():
+            return None
+
+        previous_assistant = next(
+            (message.content for message in reversed(chat_request.messages) if message.role == "assistant"),
+            "",
+        )
+        if re.search(r"(?m)^\s*(?:[أ-د]|[A-D])\s*[).:\-]\s*\S", previous_assistant):
+            return None
+
+        if detect_language(last_user_message, fallback="ar") == "ar":
+            return (
+                f"لم أفهم رسالتك «{last_user_message}». هل أرسلتها بالخطأ، "
+                "أم تقصد متابعة سؤالك السابق؟"
+            )
+        return (
+            f"I didn't understand the single letter “{last_user_message}.” "
+            "Was that accidental, or would you like to continue your previous question?"
+        )
+
+    @staticmethod
     def _is_entity_question(query: str) -> bool:
         text = " ".join((query or "").casefold().split())
         return text.startswith((
@@ -603,6 +630,53 @@ class IntelligenceRouter:
     async def route(self, chat_request: ChatRequest) -> ChatResponse:
         """Route a chat request through the best available backend."""
         telemetry = RequestTelemetry(request_id=chat_request.requestId) if chat_request.requestId else RequestTelemetry()
+        clarification = self._single_character_clarification(chat_request)
+        if clarification:
+            route = RouteDecision(
+                backend_id="clarification",
+                reason="The latest user message is a single character without a listed choice",
+                rag_enabled=False,
+                fallback_order=[],
+            )
+            telemetry.finish(
+                route=route.backend_id,
+                model="none",
+                cache_hit=False,
+                input_tokens=0,
+                output_tokens=0,
+            )
+            return ChatResponse(
+                content=clarification,
+                backend=route.backend_id,
+                routeDecision=route.reason,
+                requestId=telemetry.request_id,
+            )
+
+        last_user_message = next(
+            (message.content for message in reversed(chat_request.messages) if message.role == "user"),
+            "",
+        )
+        urgent_message = urgent_dvt_response(last_user_message)
+        if urgent_message:
+            route = RouteDecision(
+                backend_id="urgent-medical-triage",
+                reason="Personal DVT symptoms require immediate medical guidance",
+                rag_enabled=False,
+                fallback_order=[],
+            )
+            telemetry.finish(
+                route=route.backend_id,
+                model="none",
+                cache_hit=False,
+                input_tokens=0,
+                output_tokens=0,
+            )
+            return ChatResponse(
+                content=urgent_message,
+                backend=route.backend_id,
+                routeDecision=route.reason,
+                requestId=telemetry.request_id,
+            )
 
         cache_started = time.perf_counter()
         cache_task = asyncio.create_task(response_cache_service.get(chat_request))
@@ -753,6 +827,52 @@ class IntelligenceRouter:
         on connection errors — even mid-stream failures are caught gracefully.
         """
         telemetry = RequestTelemetry(request_id=chat_request.requestId) if chat_request.requestId else RequestTelemetry()
+        clarification = self._single_character_clarification(chat_request)
+        if clarification:
+            route = RouteDecision(
+                backend_id="clarification",
+                reason="The latest user message is a single character without a listed choice",
+                rag_enabled=False,
+                fallback_order=[],
+            )
+
+            async def _clarification_stream() -> AsyncGenerator[str, None]:
+                telemetry.finish(
+                    route=route.backend_id,
+                    model="none",
+                    cache_hit=False,
+                    input_tokens=0,
+                    output_tokens=0,
+                )
+                yield clarification
+
+            return _clarification_stream(), route, [], telemetry, []
+
+        last_user_message = next(
+            (message.content for message in reversed(chat_request.messages) if message.role == "user"),
+            "",
+        )
+        urgent_message = urgent_dvt_response(last_user_message)
+        if urgent_message:
+            route = RouteDecision(
+                backend_id="urgent-medical-triage",
+                reason="Personal DVT symptoms require immediate medical guidance",
+                rag_enabled=False,
+                fallback_order=[],
+            )
+
+            async def _urgent_medical_stream() -> AsyncGenerator[str, None]:
+                telemetry.finish(
+                    route=route.backend_id,
+                    model="none",
+                    cache_hit=False,
+                    input_tokens=0,
+                    output_tokens=0,
+                )
+                yield urgent_message
+
+            return _urgent_medical_stream(), route, [], telemetry, []
+
         cache_started = time.perf_counter()
         cache_task = asyncio.create_task(response_cache_service.get(chat_request))
         profile_task = asyncio.create_task(

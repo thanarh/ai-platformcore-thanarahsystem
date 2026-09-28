@@ -40,10 +40,17 @@ class WebIntelligencePhase3Tests(unittest.IsolatedAsyncioTestCase):
         with patch.object(settings, "web_search_enabled", True):
             enabled = decide_web("ابحث عن آخر أخبار التقنية اليوم")
             supplied_url = decide_web("هذا هو موقعهم الاكتروني qiroxstudio.online")
+            current_events = decide_web("ما حصل اليوم في السعودية")
+            health_question = decide_web(
+                "انا تعبان جدا في معدتي الجانب الايمن عند الكلى وعندي جلطة عميقة، ماذا افعل الان"
+            )
         self.assertTrue(enabled.use_web)
         self.assertEqual(enabled.reason, "web_signal_detected")
         self.assertTrue(supplied_url.use_web)
         self.assertIn("user_provided_url", supplied_url.signals)
+        self.assertTrue(current_events.use_web)
+        self.assertEqual(current_events.category, "news")
+        self.assertFalse(health_question.use_web)
 
     def test_selected_search_tool_forces_search_but_respects_both_gates(self):
         self.assertFalse(decide_web("Python package", explicit_request=True).use_web)

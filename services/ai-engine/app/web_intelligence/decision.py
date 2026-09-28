@@ -44,11 +44,8 @@ _EXPLICIT_TERMS = (
 _CURRENT_TERMS = (
     "آخر",
     "اخر",
-    "اليوم",
     "حالي",
     "الحالي",
-    "الآن",
-    "الان",
     "أحدث",
     "احدث",
     "أخبار",
@@ -57,8 +54,6 @@ _CURRENT_TERMS = (
     "طقس",
     "latest",
     "current",
-    "today",
-    "now",
     "news",
     "price",
     "weather",
@@ -196,7 +191,7 @@ def decide_web(
         signals.append("explicit_tool_selection")
     if any(term.casefold() in text for term in _EXPLICIT_TERMS):
         signals.append("explicit_search_request")
-    if any(term.casefold() in text for term in _CURRENT_TERMS):
+    if category == "news" or any(term.casefold() in text for term in _CURRENT_TERMS):
         signals.append("time_sensitive_information")
     if any(term.casefold() in text for term in _EXTERNAL_LOOKUP_TERMS):
         signals.append("external_factual_lookup")
