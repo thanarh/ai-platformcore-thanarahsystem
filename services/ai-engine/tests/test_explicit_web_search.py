@@ -74,6 +74,34 @@ class ExplicitWebSearchTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(run.await_args.kwargs["language"], "ar")
         self.assertEqual(run.await_args.kwargs["timezone_name"], "Asia/Riyadh")
 
+    async def test_web_search_uses_runtime_context_from_tenant_config(self):
+        result = WebPipelineResult(
+            decision=WebDecision(True, "web_signal_detected", ("time_sensitive_information",), "news"),
+        )
+        request = ChatRequest(
+            messages=[ChatMessage(role="user", content="ما حصل اليوم في مصر")],
+            tenantId="tenant-a",
+            tenantConfig={
+                "runtimeContext": {
+                    "timezone": "Asia/Riyadh",
+                    "language": "ar",
+                    "region": "eg",
+                }
+            },
+        )
+        router = IntelligenceRouter(registry=None)
+
+        with patch(
+            "app.router.intelligence_router.web_intelligence_pipeline.run",
+            new_callable=AsyncMock,
+            return_value=result,
+        ) as run:
+            await router._load_web_context(request)
+
+        self.assertEqual(run.await_args.kwargs["timezone_name"], "Asia/Riyadh")
+        self.assertEqual(run.await_args.kwargs["region"], "eg")
+        self.assertIn("Timezone: Asia/Riyadh", router._build_context(request))
+
     def _direct_link_followup_fixture(self, *, stream=False):
         request = ChatRequest(
             messages=[
@@ -280,6 +308,119 @@ class ExplicitWebSearchTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("لم أعثر على تقارير موثوقة منشورة اليوم", response.content)
         self.assertNotIn("الكويت", response.content)
         self.assertEqual(response.backend, "web-search-unavailable")
+
+    async def test_same_day_news_returns_verified_headlines_without_model(self):
+        source = {
+            "id": "source-1",
+            "title": "عنوان خبر موثوق اليوم",
+            "url": "https://news.example/today",
+            "domain": "news.example",
+            "publishedAt": "2026-09-28T20:00:00Z",
+        }
+        web_result = WebPipelineResult(
+            decision=WebDecision(True, "web_signal_detected", ("time_sensitive_information",), "news"),
+            sources=[source],
+        )
+        request = ChatRequest(
+            messages=[ChatMessage(role="user", content="ما اخبار مصر اليوم")],
+            tenantId="tenant-a",
+            runtimeContext={"language": "ar", "timezone": "Asia/Riyadh"},
+        )
+        router = IntelligenceRouter(registry=None)
+
+        with (
+            patch(
+                "app.router.intelligence_router.response_cache_service.get",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "app.router.intelligence_router.daily_learning_service.profile",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch.object(
+                router,
+                "_decide_route",
+                return_value=RouteDecision(backend_id="fixture", reason="test"),
+            ),
+            patch.object(
+                router,
+                "_load_context_sources",
+                new_callable=AsyncMock,
+                return_value=([], [], {}),
+            ),
+            patch.object(
+                router,
+                "_load_web_context",
+                new_callable=AsyncMock,
+                return_value=web_result,
+            ),
+        ):
+            response = await router.route(request)
+
+        self.assertEqual(response.backend, "web-news-headlines")
+        self.assertIn("عنوان خبر موثوق اليوم", response.content)
+        self.assertIn("https://news.example/today", response.content)
+        self.assertIn("ليست تغطية شاملة", response.content)
+
+    async def test_stream_same_day_news_returns_verified_headlines_without_model(self):
+        source = {
+            "id": "source-1",
+            "title": "عنوان خبر موثوق اليوم",
+            "url": "https://news.example/today",
+            "domain": "news.example",
+            "publishedAt": "2026-09-28T20:00:00Z",
+        }
+        web_result = WebPipelineResult(
+            decision=WebDecision(True, "web_signal_detected", ("time_sensitive_information",), "news"),
+            sources=[source],
+        )
+        request = ChatRequest(
+            messages=[ChatMessage(role="user", content="ما اخبار مصر اليوم")],
+            tenantId="tenant-a",
+            runtimeContext={"language": "ar", "timezone": "Asia/Riyadh"},
+            stream=True,
+        )
+        router = IntelligenceRouter(registry=None)
+
+        with (
+            patch(
+                "app.router.intelligence_router.response_cache_service.get",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "app.router.intelligence_router.daily_learning_service.profile",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch.object(
+                router,
+                "_decide_route",
+                return_value=RouteDecision(backend_id="fixture", reason="test"),
+            ),
+            patch.object(
+                router,
+                "_load_context_sources",
+                new_callable=AsyncMock,
+                return_value=([], [], {}),
+            ),
+            patch.object(
+                router,
+                "_load_web_context",
+                new_callable=AsyncMock,
+                return_value=web_result,
+            ),
+        ):
+            stream, route, sources, _telemetry, _events = await router.stream_route(request)
+            answer = "".join([part async for part in stream])
+
+        self.assertEqual(route.backend_id, "web-news-headlines")
+        self.assertEqual(sources, [source])
+        self.assertIn("عنوان خبر موثوق اليوم", answer)
+        self.assertIn("https://news.example/today", answer)
+        self.assertIn("ليست تغطية شاملة", answer)
 
 
 if __name__ == "__main__":

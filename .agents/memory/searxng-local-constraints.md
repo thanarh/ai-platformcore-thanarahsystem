@@ -101,6 +101,19 @@ multiple dated Egyptian reports.
 request, but use a concise topic-only query for provider retrieval and lexical
 relevance.
 
+For same-day news, prefer a verified article headline and its source link over a
+generated roundup when the extracted page may contain related or sidebar stories.
+Article extraction should prefer structured `NewsArticle.articleBody` and ignore
+sidebars before any model summarizes the page.
+
+**Why:** A news page's extracted text included trending headlines unrelated to
+the article. The local model turned those sidebar items into unsupported claims
+while attaching citations to unrelated pages.
+
+**How to apply:** Use the structured article body when available, keep a
+same-day-news response limited to source-verified headlines when necessary, and
+do not present related-story rails as the article's evidence.
+
 Arabic questions about Latin-script companies can also misroute otherwise
 healthy search: the Arabic question words distort the engine language and
 lexical scoring even when the actual entity is English.

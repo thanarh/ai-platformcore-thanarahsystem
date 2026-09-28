@@ -179,6 +179,26 @@ class WebIntelligencePhase3Tests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(page.published_at, "2026-09-28")
 
+    def test_extractor_prefers_structured_article_body_over_sidebar_content(self):
+        html = (
+            b"<html><head><title>Site name</title>"
+            b"<script type='application/ld+json'>"
+            b'{"@type":"NewsArticle","headline":"Verified article headline",'
+            b'"datePublished":"2026-09-28T10:00:00Z",'
+            b'"articleBody":"Main article paragraph.\\n\\nSecond article paragraph."}'
+            b"</script></head><body><main><p>Visible duplicate.</p>"
+            b"<aside><h2>Trending article</h2><p>Unrelated sidebar claim.</p></aside>"
+            b"</main></body></html>"
+        )
+        page = extract_html(html, "https://example.com/article")
+
+        self.assertEqual(page.title, "Verified article headline")
+        self.assertIn("Main article paragraph.", page.content)
+        self.assertIn("Second article paragraph.", page.content)
+        self.assertNotIn("Unrelated sidebar claim.", page.content)
+        self.assertNotIn("Visible duplicate.", page.content)
+        self.assertEqual(page.published_at, "2026-09-28T10:00:00Z")
+
     def test_ssrf_blocks_local_private_and_metadata_addresses(self):
         for url in (
             "http://localhost:8000/",
