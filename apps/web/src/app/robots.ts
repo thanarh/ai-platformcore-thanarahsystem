@@ -1,16 +1,12 @@
 import type { MetadataRoute } from 'next';
-
-const siteUrl =
-  process.env.NEXT_PUBLIC_SITE_URL ||
-  process.env.RENDER_EXTERNAL_URL ||
-  'https://thanarah-ai.onrender.com';
+import { siteUrl } from '@/lib/site';
 
 export default function robots(): MetadataRoute.Robots {
   return {
     rules: {
       userAgent: '*',
-      allow: ['/', '/login', '/register'],
-      disallow: ['/admin/', '/chat/', '/settings/'],
+      allow: '/',
+      disallow: ['/admin', '/chat', '/knowledge', '/settings', '/api'],
     },
     sitemap: `${siteUrl}/sitemap.xml`,
     host: siteUrl,

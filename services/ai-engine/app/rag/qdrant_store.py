@@ -7,6 +7,7 @@ server-side in Qdrant.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import math
@@ -264,11 +265,13 @@ class QdrantStore:
         candidate_limit: int,
         extra_filter: Iterable[dict[str, Any]] = (),
     ) -> list[dict[str, Any]]:
-        dense = await self._dense_search(tenant_id, vector, candidate_limit, extra_filter)
-        lexical = await self._scroll_tenant(
-            tenant_id,
-            max(candidate_limit * 4, settings.rag_max_scan),
-            extra_filter,
+        dense, lexical = await asyncio.gather(
+            self._dense_search(tenant_id, vector, candidate_limit, extra_filter),
+            self._scroll_tenant(
+                tenant_id,
+                max(candidate_limit * 4, settings.rag_max_scan),
+                extra_filter,
+            ),
         )
         query_terms = _terms(query)
         frequencies = Counter(

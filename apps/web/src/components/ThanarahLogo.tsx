@@ -9,7 +9,7 @@ export function ThanarahIcon({ className, size = 36 }: { className?: string; siz
     // eslint-disable-next-line @next/next/no-img-element
     <img
       src={`/thanarah-icon.png${V}`}
-      alt="Thanarah AI"
+      alt="أيقونة ثنارة للذكاء الاصطناعي"
       width={size}
       height={size}
       style={{ width: size, height: size, objectFit: 'contain', display: 'block' }}
@@ -32,7 +32,7 @@ export function ThanarahLogoFull({
     // eslint-disable-next-line @next/next/no-img-element
     <img
       src={`/thanarah-logo.png${V}`}
-      alt="Thanarah AI"
+      alt="شعار ثنارة للذكاء الاصطناعي"
       height={h}
       style={{ height: h, width: 'auto', objectFit: 'contain', display: 'block' }}
       className={cn(className)}

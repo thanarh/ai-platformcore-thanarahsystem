@@ -16,6 +16,8 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: NEXT_PUBLIC_SITE_URL
+        value: https://ai.thanarah.com
       - key: PYTHON_VERSION
         value: 3.12.8
       - key: WEB_CONCURRENCY

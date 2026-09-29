@@ -267,23 +267,49 @@ class RAGPipeline:
             return []
 
         def rank_chunks() -> list[dict]:
+            query_vector = np.asarray(query_embedding, dtype=np.float32).reshape(-1)
+            if not query_vector.size or not np.isfinite(query_vector).all():
+                return []
+
+            valid_chunks: list[dict] = []
+            vectors: list[np.ndarray] = []
+            for chunk in chunks:
+                try:
+                    vector = np.asarray(chunk.get("embedding", []), dtype=np.float32).reshape(-1)
+                except (TypeError, ValueError):
+                    continue
+                if vector.size != query_vector.size or not np.isfinite(vector).all():
+                    continue
+                valid_chunks.append(chunk)
+                vectors.append(vector)
+
+            if not vectors:
+                return []
+
+            matrix = np.stack(vectors)
+            query_norm = float(np.linalg.norm(query_vector))
+            vector_norms = np.linalg.norm(matrix, axis=1)
+            denominators = vector_norms * query_norm
+            vector_scores = np.divide(
+                matrix @ query_vector,
+                denominators,
+                out=np.zeros(len(valid_chunks), dtype=np.float32),
+                where=denominators > 0,
+            )
+
             scored = []
             query_terms = set(re.findall(r"[\w\u0600-\u06ff]{2,}", query.lower()))
             identifier_terms = {
                 term for term in query_terms
                 if len(term) >= 6 or any(char.isdigit() for char in term)
             }
-            for chunk in chunks:
-                embedding = chunk.get("embedding", [])
-                if not embedding:
-                    continue
-                vector_score = cosine_similarity(query_embedding, embedding)
+            for chunk, vector_score in zip(valid_chunks, vector_scores):
                 content_terms = set(
                     re.findall(r"[\w\u0600-\u06ff]{2,}", chunk.get("content", "").lower())
                 )
                 lexical_score = len(query_terms & content_terms) / max(1, len(query_terms))
                 identifier_score = len(identifier_terms & content_terms) / max(1, len(identifier_terms))
-                score = (vector_score * 0.55) + (lexical_score * 0.30) + (identifier_score * 0.15)
+                score = (float(vector_score) * 0.55) + (lexical_score * 0.30) + (identifier_score * 0.15)
                 if score >= threshold:
                     scored.append({
                         "content": chunk["content"],

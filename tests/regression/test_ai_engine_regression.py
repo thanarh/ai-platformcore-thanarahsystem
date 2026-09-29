@@ -10,6 +10,7 @@ Run with:
 from __future__ import annotations
 
 import asyncio
+import time
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -46,7 +47,10 @@ class _FakeRouter:
 
         telemetry = SimpleNamespace(
             request_id="test-request",
+            started_at=time.perf_counter(),
             values={},
+            add_ms=lambda *_args, **_kwargs: None,
+            set_ms=lambda *_args, **_kwargs: None,
             finish=lambda **_kwargs: {},
         )
         return (
@@ -249,6 +253,20 @@ class AIEngineRegressionTests(unittest.IsolatedAsyncioTestCase):
                     "chunkIndex": 0,
                 },
                 {
+                    "tenantId": "tenant-a",
+                    "sourceId": "source-a-lower-score",
+                    "content": "clinic hours are ten to six",
+                    "embedding": [0.6, 0.8],
+                    "chunkIndex": 1,
+                },
+                {
+                    "tenantId": "tenant-a",
+                    "sourceId": "source-a-invalid-vector",
+                    "content": "clinic hours are documented here",
+                    "embedding": [1.0, 0.0, 1.0],
+                    "chunkIndex": 2,
+                },
+                {
                     "tenantId": "tenant-b",
                     "sourceId": "source-b",
                     "content": "private tenant b content",
@@ -265,8 +283,12 @@ class AIEngineRegressionTests(unittest.IsolatedAsyncioTestCase):
             results = await pipeline.retrieve("tenant-a", "clinic hours", limit=5)
 
         self.assertEqual(collection.last_query, {"tenantId": "tenant-a"})
-        self.assertEqual([result["sourceId"] for result in results], ["source-a"])
+        self.assertEqual(
+            [result["sourceId"] for result in results],
+            ["source-a", "source-a-lower-score"],
+        )
         self.assertNotIn("tenant-b", str(results))
+        self.assertNotIn("source-a-invalid-vector", str(results))
 
     async def test_stream_endpoint_emits_incremental_sse_and_done(self):
         request = ChatRequest(

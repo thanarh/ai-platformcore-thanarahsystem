@@ -70,7 +70,7 @@ class Phase2DFoundationTests(unittest.TestCase):
         web_search = next(skill for skill in skills if skill["id"] == "web_search")
         self.assertIn("requiredPermissions", web_search)
         self.assertFalse(web_search["enabled"])
-        self.assertEqual(web_search["implementationStatus"], "contract-only")
+        self.assertEqual(web_search["implementationStatus"], "implemented")
         self.assertEqual(skills[0]["enabled"], True)
 
     def test_artifact_metadata_is_scoped_and_tables_are_structured(self):

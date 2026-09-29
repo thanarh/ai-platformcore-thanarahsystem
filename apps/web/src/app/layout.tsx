@@ -1,20 +1,16 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
-
-const siteUrl =
-  process.env.NEXT_PUBLIC_SITE_URL ||
-  process.env.RENDER_EXTERNAL_URL ||
-  'https://thanarah-ai.onrender.com';
+import { siteUrl } from '@/lib/site';
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   applicationName: 'Thanarah AI',
   title: {
     default: 'Thanarah AI | ثنارة للذكاء الاصطناعي',
-    template: '%s | Thanarah AI',
+    template: '%s | ثنارة AI',
   },
   description:
-    'منصة ثنارة للذكاء الاصطناعي: محادثة عربية، قاعدة معرفة، وذكاء اصطناعي محلي وآمن.',
+    'ثنارة منصة ذكاء اصطناعي عربية للمحادثة والبحث في قاعدة المعرفة وصياغة الردود.',
   keywords: [
     'Thanarah AI',
     'ثنارة',
@@ -25,7 +21,6 @@ export const metadata: Metadata = {
   authors: [{ name: 'Thanarah AI' }],
   creator: 'Thanarah AI',
   publisher: 'Thanarah AI',
-  alternates: { canonical: '/' },
   manifest: '/manifest.webmanifest',
   icons: {
     icon: [
@@ -41,7 +36,6 @@ export const metadata: Metadata = {
     type: 'website',
     locale: 'ar_SA',
     alternateLocale: 'en_US',
-    url: '/',
     siteName: 'Thanarah AI',
     title: 'Thanarah AI | ثنارة للذكاء الاصطناعي',
     description:
@@ -84,13 +78,27 @@ export const viewport: Viewport = {
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
-  const organizationSchema = {
+  const structuredData = {
     '@context': 'https://schema.org',
-    '@type': 'Organization',
-    name: 'Thanarah AI',
-    alternateName: 'ثنارة للذكاء الاصطناعي',
-    url: siteUrl,
-    logo: new URL('/icon-512.png', siteUrl).toString(),
+    '@graph': [
+      {
+        '@type': 'Organization',
+        '@id': `${siteUrl}/#organization`,
+        name: 'Thanarah AI',
+        alternateName: 'ثنارة للذكاء الاصطناعي',
+        url: siteUrl,
+        logo: new URL('/icon-512.png', siteUrl).toString(),
+      },
+      {
+        '@type': 'WebSite',
+        '@id': `${siteUrl}/#website`,
+        name: 'Thanarah AI',
+        alternateName: 'ثنارة للذكاء الاصطناعي',
+        url: siteUrl,
+        inLanguage: ['ar', 'en'],
+        publisher: { '@id': `${siteUrl}/#organization` },
+      },
+    ],
   };
 
   return (
@@ -100,7 +108,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <script
           type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationSchema) }}
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify(structuredData).replace(/</g, '\\u003c'),
+          }}
         />
       </head>
       <body>{children}</body>
