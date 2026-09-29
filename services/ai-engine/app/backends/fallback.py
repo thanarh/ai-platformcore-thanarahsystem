@@ -92,8 +92,16 @@ class FallbackBackend(AIBackend):
             return "I couldn't determine what you mean. Please write a complete question or add more detail."
 
         if arabic:
-            return "لا توجد معلومات كافية للإجابة بدقة على هذا الطلب. أضف تفاصيل أكثر أو أضف المعلومات المرتبطة به إلى قاعدة معرفة ثنارة."
-        return "There is not enough information to answer this accurately. Add more detail or add the relevant information to Thanarah Knowledge."
+            return (
+                "أفهم سؤالك. الأسئلة العامة لا تحتاج إضافتها لقاعدة المعرفة، "
+                "لكن تعذّر توليد الرد الآن بسبب عدم توفر خدمة النموذج. أعد المحاولة بعد قليل. "
+                "أما تفاصيل مؤسستك الخاصة فلا أؤكدها من دون مصدر موثوق."
+            )
+        return (
+            "I understand your question. General questions do not need to be added to the knowledge base, "
+            "but the answer could not be generated because the model service is currently unavailable. "
+            "Please try again shortly. I won't confirm organization-specific details without a reliable source."
+        )
 
     async def is_available(self) -> bool:
         return True

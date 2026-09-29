@@ -41,6 +41,24 @@ class LanguagePolicyTests(unittest.TestCase):
         self.assertIn("You are Thanarah", english.system_prompt)
         self.assertNotIn("أنت ثنارة", english.system_prompt)
 
+    def test_general_questions_do_not_require_organization_knowledge(self):
+        router = IntelligenceRouter(registry=None)
+        arabic_request = ChatRequest(
+            messages=[ChatMessage(role="user", content="ما فائدة التخطيط؟")],
+        )
+        english_request = ChatRequest(
+            messages=[ChatMessage(role="user", content="Why is planning useful?")],
+        )
+        route = RouteDecision(backend_id="thanarah-local", reason="grounding policy test")
+
+        arabic_prompt = router._build_ai_request(arabic_request, route).system_prompt
+        english_prompt = router._build_ai_request(english_request, route).system_prompt
+
+        self.assertIn("أجب عن الأسئلة العامة اعتمادًا على معرفتك العامة", arabic_prompt)
+        self.assertIn("أجب بجملتين مكتملتين كحد أقصى", arabic_prompt)
+        self.assertIn("Answer general questions from your general knowledge", english_prompt)
+        self.assertIn("at most two complete sentences", english_prompt)
+
 
 if __name__ == "__main__":
     unittest.main()

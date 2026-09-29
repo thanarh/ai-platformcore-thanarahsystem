@@ -3,6 +3,7 @@
 - [AI response cache safety](ai-response-cache-safety.md) — cache only context-free requests until mutable RAG and memory expose reliable tenant versions
 - [Current AI-only scope](ai-only-scope.md) — stop after AI Performance Phase 1; no admin/customer features or Phase 2 unless explicitly requested
 - [Arabic response reliability](arabic-response-reliability.md) — keep prompts aligned with the requested language and test mixed-script, code, and URL inputs
+- [General answers without RAG](general-answers-without-rag.md) — use model knowledge for general questions; ground organization-specific facts in tenant sources
 - [Urgent chat triage](urgent-chat-triage.md) — handle high-risk personal symptoms before cache or web tools; “now” alone is not web-search intent
 - [Ollama warm readiness](ollama-warm-readiness.md) — `/api/ps` model presence does not guarantee a warm first generation; validate with real generation
 - [SSE measurement](sse-measurement.md) — use a non-buffering client read such as `read1()` when timing incremental SSE delivery
