@@ -29,6 +29,12 @@
   border-radius: 5px;
 }
 
+.page button:focus-visible,
+.authDialog button:focus-visible {
+  outline: 3px solid #92b49e;
+  outline-offset: 3px;
+}
+
 .wrap {
   width: min(1140px, calc(100% - 64px));
   margin-inline: auto;
@@ -95,7 +101,11 @@
 
 .loginLink {
   padding: 10px 14px;
+  border: 0;
+  background: transparent;
   color: #42544a !important;
+  font: inherit;
+  cursor: pointer;
 }
 
 .button,
@@ -113,6 +123,9 @@
   font-size: 12px;
   font-weight: 600;
   transition: transform 180ms ease, background 180ms ease;
+  border: 0;
+  font-family: inherit;
+  cursor: pointer;
 }
 
 .button:hover,
@@ -317,8 +330,14 @@
   display: inline-flex;
   gap: 4px;
   margin-top: 9px;
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: #55725f !important;
   font-size: 9px;
+  font-family: inherit;
+  text-align: right;
+  cursor: pointer;
 }
 
 .cardLink:hover {
@@ -564,6 +583,29 @@
   font-size: 9px;
 }
 
+.footerLinks button,
+.footerBottom nav button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: right;
+  cursor: pointer;
+}
+
+.footerLinks button {
+  justify-self: start;
+}
+
+.footer button {
+  transition: color 180ms ease, opacity 180ms ease;
+}
+
+.footer button:hover {
+  color: #8aae96;
+}
+
 .footerCta p {
   margin: 0 0 12px;
   color: #b8c6bc;
@@ -577,6 +619,101 @@
   border-radius: 5px;
   background: #1b5540;
   font-size: 9px;
+}
+
+.authDialog {
+  --ink: #153c30;
+  --green: #174d3d;
+  width: min(530px, calc(100% - 32px));
+  max-width: none;
+  max-height: calc(100dvh - 32px);
+  margin: auto;
+  padding: 0;
+  overflow-y: auto;
+  border: 1px solid #e5e9e1;
+  border-radius: 18px;
+  background: #fff;
+  color: var(--ink);
+  box-shadow: 0 24px 80px rgba(10, 34, 24, 0.28);
+}
+
+.authDialog::backdrop {
+  background: rgba(9, 24, 18, 0.58);
+  backdrop-filter: blur(3px);
+}
+
+.authDialogContent {
+  padding: 24px;
+  direction: rtl;
+}
+
+.authDialogHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 18px;
+}
+
+.authDialogHeader h2 {
+  margin: 7px 0 3px;
+  color: var(--ink);
+  font-size: 23px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.authDialogHeader p {
+  margin: 0;
+  color: #75827a;
+  font-size: 12px;
+}
+
+.authCloseButton {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  flex: none;
+  place-items: center;
+  padding: 0;
+  border: 1px solid #e3e7df;
+  border-radius: 50%;
+  background: #fff;
+  color: #53645a;
+  cursor: pointer;
+  transition: background 180ms ease, color 180ms ease;
+}
+
+.authCloseButton:hover {
+  background: #f0f3ed;
+  color: var(--ink);
+}
+
+.authFormCard {
+  padding: 20px;
+  border: 1px solid #ebeee7;
+  border-radius: 14px;
+  background: #f8f9f5;
+}
+
+.authModeSwitch {
+  margin: 17px 0 0;
+  color: #75827a;
+  font-size: 12px;
+  text-align: center;
+}
+
+.authModeSwitch button {
+  margin-inline-start: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--green);
+  font: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
 }
 
 .footerBottom {
@@ -873,6 +1010,24 @@
     flex-direction: column;
     align-items: flex-start;
     gap: 11px;
+  }
+
+  .authDialog {
+    width: calc(100% - 20px);
+    max-height: calc(100dvh - 20px);
+    border-radius: 16px;
+  }
+
+  .authDialogContent {
+    padding: 19px 15px 16px;
+  }
+
+  .authFormCard {
+    padding: 14px;
+  }
+
+  .authDialogHeader h2 {
+    font-size: 20px;
   }
 }
 

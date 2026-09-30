@@ -1,6 +1,7 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { ThanarahLogoFull } from '@/components/ThanarahLogo';
+import { LandingAuthButton, LandingAuthProvider } from './LandingAuthProvider';
 import styles from './thanarah-landing.module.css';
 
 type MarkName = 'people' | 'shield' | 'file' | 'spark' | 'heart' | 'building' | 'cap' | 'landmark';
@@ -81,14 +82,15 @@ function CheckMark() {
 
 export function ThanarahLandingPage() {
   return (
+    <LandingAuthProvider>
     <main className={`${styles.page} font-arabic`} dir="rtl" lang="ar">
       <header className={styles.header}>
         <nav className={styles.nav} aria-label="التنقل الرئيسي">
           <div className={styles.auth}>
-            <Link className={styles.loginLink} href="/login">تسجيل الدخول</Link>
-            <Link className={styles.button} href="/register">
+            <LandingAuthButton mode="login" className={styles.loginLink}>تسجيل الدخول</LandingAuthButton>
+            <LandingAuthButton mode="register" className={styles.button}>
               ابدأ معنا مجانًا <span aria-hidden="true">←</span>
-            </Link>
+            </LandingAuthButton>
           </div>
           <div className={styles.navLinks}>
             <Link href="/">الرئيسية</Link>
@@ -122,10 +124,10 @@ export function ThanarahLandingPage() {
             واستخراج المعرفة من مستنداتك بكل سهولة وسرعة.
           </p>
           <div className={styles.actions}>
-            <Link className={styles.button} href="/register">
+            <LandingAuthButton mode="register" className={styles.button}>
               ابدأ معنا مجانًا <span aria-hidden="true">←</span>
-            </Link>
-            <Link className={styles.buttonLight} href="/login">تسجيل الدخول</Link>
+            </LandingAuthButton>
+            <LandingAuthButton mode="login" className={styles.buttonLight}>تسجيل الدخول</LandingAuthButton>
           </div>
           <div className={styles.proofPoints} aria-label="مميزات المنصة">
             <span><CheckMark /> حماية عالية</span>
@@ -148,9 +150,9 @@ export function ThanarahLandingPage() {
                 <div className={styles.featureIcon}><Mark name={feature.icon} /></div>
                 <h3>{feature.title}</h3>
                 <p>{feature.copy}</p>
-                <Link href="/register" className={styles.cardLink}>
+                <LandingAuthButton mode="register" className={styles.cardLink}>
                   اكتشف المزيد <span aria-hidden="true">←</span>
-                </Link>
+                </LandingAuthButton>
               </article>
             ))}
           </div>
@@ -245,7 +247,7 @@ export function ThanarahLandingPage() {
                 <Link href="#features">المميزات</Link>
                 <Link href="#workflow">كيف تعمل</Link>
                 <Link href="#industries">القطاعات</Link>
-                <Link href="/register">ابدأ الآن</Link>
+                <LandingAuthButton mode="register">ابدأ الآن</LandingAuthButton>
               </div>
             </div>
             <div className={styles.footerColumn} dir="rtl">
@@ -266,9 +268,9 @@ export function ThanarahLandingPage() {
             <div className={styles.footerCta} dir="rtl">
               <h3>ابدأ رحلتك مع ثنارة</h3>
               <p>اجمع معرفة فريقك، واجعل الوصول إليها أسهل وأسرع.</p>
-              <Link className={styles.footerButton} href="/register">
+              <LandingAuthButton mode="register" className={styles.footerButton}>
                 ابدأ معنا مجانًا <span aria-hidden="true">←</span>
-              </Link>
+              </LandingAuthButton>
             </div>
           </div>
           <div className={styles.footerBottom} dir="ltr">
@@ -277,12 +279,13 @@ export function ThanarahLandingPage() {
               <Link href="#about">العربية</Link>
               <Link href="#features">المميزات</Link>
               <Link href="#workflow">كيف تعمل</Link>
-              <Link href="/login">تسجيل الدخول</Link>
+              <LandingAuthButton mode="login">تسجيل الدخول</LandingAuthButton>
             </nav>
           </div>
         </div>
       </footer>
     </main>
+    </LandingAuthProvider>
   );
 }
 
