@@ -1,0 +1,23 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+Arabic:wght@300;400;500;600;700&display=swap');
+
+:root {
+  --thanarah-green: #2d8a5e;
+  --thanarah-dark: #1a5f3f;
+  --thanarah-light: #f0f9f4;
+  --bg-primary: #fafafa;
+  --bg-secondary: #f4f4f3;
+  --border: #e5e5e3;
+  --text-primary: #1a1a1a;
+  --text-secondary: #6b6b6b;
+  --text-muted: #9b9b9b;
+}
+
+body {
+  margin: 0;
+  font-family: Inter, system-ui, sans-serif;
+  background: var(--bg-primary);
+}
+
+.font-arabic {
+  font-family: 'Noto Sans Arabic', Tahoma, sans-serif;
+}
