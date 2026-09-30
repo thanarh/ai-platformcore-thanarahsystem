@@ -92,15 +92,10 @@ class FallbackBackend(AIBackend):
             return "I couldn't determine what you mean. Please write a complete question or add more detail."
 
         if arabic:
-            return (
-                "أفهم سؤالك. الأسئلة العامة لا تحتاج إضافتها لقاعدة المعرفة، "
-                "لكن تعذّر توليد الرد الآن بسبب عدم توفر خدمة النموذج. أعد المحاولة بعد قليل. "
-                "أما تفاصيل مؤسستك الخاصة فلا أؤكدها من دون مصدر موثوق."
-            )
+            return "أواجه مشكلة مؤقتة في محرك الذكاء الاصطناعي ولم أتمكن من توليد الرد. أعد المحاولة بعد قليل."
         return (
-            "I understand your question. General questions do not need to be added to the knowledge base, "
-            "but the answer could not be generated because the model service is currently unavailable. "
-            "Please try again shortly. I won't confirm organization-specific details without a reliable source."
+            "The AI engine is temporarily unavailable, so I couldn't generate a response. "
+            "Please try again shortly."
         )
 
     async def is_available(self) -> bool:

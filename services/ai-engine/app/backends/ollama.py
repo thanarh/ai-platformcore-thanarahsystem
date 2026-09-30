@@ -353,7 +353,12 @@ class OllamaBackend(AIBackend):
             self.record_success((time.time() - start) * 1000)
         except Exception as error:
             self.record_failure()
-            logger.error("[%s] stream failed: %s", self.name, error)
+            logger.error(
+                "[%s] stream failed (%s): %r",
+                self.name,
+                type(error).__name__,
+                error,
+            )
             raise
 
     async def health_check(self) -> HealthStatus:

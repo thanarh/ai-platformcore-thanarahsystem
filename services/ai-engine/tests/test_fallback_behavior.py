@@ -8,27 +8,27 @@ class FallbackBehaviorTests(unittest.TestCase):
     def setUp(self):
         self.backend = FallbackBackend()
 
-    def test_arabic_general_question_reports_generation_failure_not_missing_knowledge(self):
+    def test_arabic_general_question_reports_engine_failure_without_blame_on_rag(self):
         request = AIRequest(
             messages=[{"role": "user", "content": "ما فائدة التخطيط قبل بدء مشروع؟"}],
         )
 
         response = self.backend._respond(request)
 
-        self.assertIn("تعذّر توليد الرد", response)
-        self.assertIn("الأسئلة العامة لا تحتاج إضافتها", response)
-        self.assertNotIn("لا توجد معلومات كافية", response)
+        self.assertIn("لم أتمكن من توليد الرد", response)
+        self.assertIn("محرك الذكاء الاصطناعي", response)
+        self.assertNotIn("قاعدة المعرفة", response)
 
-    def test_english_general_question_reports_generation_failure_not_missing_knowledge(self):
+    def test_english_general_question_reports_engine_failure_without_blame_on_rag(self):
         request = AIRequest(
             messages=[{"role": "user", "content": "Why is planning useful?"}],
         )
 
         response = self.backend._respond(request)
 
-        self.assertIn("answer could not be generated", response)
-        self.assertIn("General questions do not need to be added", response)
-        self.assertNotIn("not enough information", response)
+        self.assertIn("couldn't generate a response", response)
+        self.assertIn("AI engine", response)
+        self.assertNotIn("knowledge base", response)
 
     def test_retrieved_knowledge_remains_available_to_continuity_response(self):
         request = AIRequest(

@@ -1150,7 +1150,8 @@ class IntelligenceRouter:
                         telemetry.finish(route=backend_id, model=getattr(backend, "default_model", None) or backend_id)
                         return
                     logger.warning(
-                        f"[TIR Stream] Backend '{backend_id}' failed: {e} — trying next"
+                        f"[TIR Stream] Backend '{backend_id}' failed "
+                        f"({type(e).__name__}): {e!r} — trying next"
                     )
                     continue
 

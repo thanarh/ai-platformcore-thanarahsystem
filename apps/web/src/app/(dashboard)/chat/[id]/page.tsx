@@ -49,11 +49,13 @@ export default function ChatPage() {
   const [showTaskAssistant, setShowTaskAssistant] = useState(false);
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [isExtractingFile, setIsExtractingFile] = useState(false);
+  const [messagesLoadedForConvId, setMessagesLoadedForConvId] = useState<string | null>(null);
   const [attachmentError, setAttachmentError] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const streamControllersRef = useRef(new Map<string, AbortController>());
+  const autoSubmittedPromptRef = useRef<string | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recordingStreamRef = useRef<MediaStream | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -78,6 +80,7 @@ export default function ChatPage() {
 
   useEffect(() => {
     if (!convId) return;
+    setMessagesLoadedForConvId(null);
     setLoading(true);
     messagesApi.list(convId)
       .then((msgs) => {
@@ -89,15 +92,10 @@ export default function ChatPage() {
         setFeedback(savedFeedback);
       })
       .catch(() => {})
-      .finally(() => setLoading(false));
-  }, [convId]);
-
-  useEffect(() => {
-    const prompt = searchParams?.get('prompt');
-    if (prompt && convMessages.length === 0) {
-      setInput(prompt);
-      setTimeout(() => handleSend(prompt), 100);
-    }
+      .finally(() => {
+        setMessagesLoadedForConvId(convId);
+        setLoading(false);
+      });
   }, [convId]);
 
   useEffect(() => {
@@ -245,6 +243,23 @@ export default function ChatPage() {
       },
     );
   }, [input, attachments, convId, token, inputMode, selectedSkillId, addMessage, finalizeMessage, setStreaming, updateStreamingMessage, updateConversation, speakResponse]);
+
+  useEffect(() => {
+    const prompt = searchParams?.get('prompt')?.trim();
+    if (
+      !prompt
+      || !token
+      || messagesLoadedForConvId !== convId
+      || convMessages.length > 0
+    ) {
+      return;
+    }
+
+    const requestKey = `${convId}\u0000${prompt}`;
+    if (autoSubmittedPromptRef.current === requestKey) return;
+    autoSubmittedPromptRef.current = requestKey;
+    void handleSend(prompt);
+  }, [convId, searchParams, token, messagesLoadedForConvId, convMessages.length, handleSend]);
 
   const handleFileSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFiles = Array.from(event.target.files || []);
