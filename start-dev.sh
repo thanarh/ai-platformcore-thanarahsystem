@@ -3,7 +3,11 @@
 
 set -e
 
-source "$(dirname "$0")/scripts/prepare-secrets.sh"
+ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$ROOT_DIR"
+AI_PYTHON_SITE="$ROOT_DIR/.pythonlibs/ai-engine/lib/python3.12/site-packages"
+
+source "$ROOT_DIR/scripts/prepare-secrets.sh"
 
 SEARXNG_READY=false
 if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
@@ -30,9 +34,9 @@ npm ci --prefix apps/web --no-audit --no-fund
 npm ci --prefix apps/api --no-audit --no-fund
 
 echo "Installing Python dependencies..."
-mkdir -p .pythonlibs/lib/python3.12/site-packages
+mkdir -p "$AI_PYTHON_SITE"
 PIP_USER=0 python -m pip install --disable-pip-version-check --break-system-packages \
-  --target .pythonlibs/lib/python3.12/site-packages \
+  --target "$AI_PYTHON_SITE" \
   -r services/ai-engine/requirements.txt
 
 # faster-whisper is intentionally isolated in Python 3.13. Resolve its Nix
@@ -74,7 +78,7 @@ setsid npx concurrently \
   --kill-others-on-fail \
   "cd apps/web && npm run dev" \
   "cd apps/api && npm run start:dev" \
-  "cd services/ai-engine && for _ in \$(seq 1 90); do [ -f /tmp/thanarah-ollama-ready ] && break; sleep 1; done; python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload" &
+  "cd services/ai-engine && for _ in \$(seq 1 90); do [ -f /tmp/thanarah-ollama-ready ] && break; sleep 1; done; PYTHONPATH=\"$AI_PYTHON_SITE\${PYTHONPATH:+:\$PYTHONPATH}\" python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload" &
 APP_PID=$!
 
 set +e

@@ -1,6 +1,7 @@
 - [Thanarah AI project overview](thanarah-overview.md) — monorepo: Next.js/5000, NestJS/3001, FastAPI/8000; Arabic-first RTL
 - [MongoDB Atlas connection](mongodb-atlas.md) — lazyConnection:true required; IP whitelist needed for Replit container
 - [AI response cache safety](ai-response-cache-safety.md) — cache only context-free requests until mutable RAG and memory expose reliable tenant versions
+- [WhisperLiveKit isolation](whisperlivekit-isolation.md) — keep experimental ASR dependencies off the AI service import path; evaluate Arabic with real reference audio
 - [Current AI-only scope](ai-only-scope.md) — stop after AI Performance Phase 1; no admin/customer features or Phase 2 unless explicitly requested
 - [Arabic response reliability](arabic-response-reliability.md) — keep prompts aligned with the requested language and test mixed-script, code, and URL inputs
 - [General answers without RAG](general-answers-without-rag.md) — use model knowledge for general questions; ground organization-specific facts in tenant sources
