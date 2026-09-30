@@ -41,10 +41,16 @@ export interface Conversation {
   createdAt?: string;
 }
 
+export interface FreshConversationDraft {
+  prompt?: string;
+  mode?: 'text' | 'voice' | 'attachment';
+}
+
 interface ChatState {
   conversations: Conversation[];
   activeConversationId: string | null;
   messages: Record<string, Message[]>;
+  pendingFreshConversations: Record<string, FreshConversationDraft>;
   isLoading: boolean;
   isStreaming: boolean;
   sidebarOpen: boolean;
@@ -57,6 +63,8 @@ interface ChatState {
   
   setMessages: (convId: string, msgs: Message[]) => void;
   addMessage: (convId: string, msg: Message) => void;
+  markFreshConversation: (id: string, prompt?: string, mode?: FreshConversationDraft['mode']) => void;
+  consumeFreshConversation: (id: string) => FreshConversationDraft | undefined;
   updateLastMessage: (
     convId: string,
     content: string,
@@ -84,6 +92,7 @@ export const useChatStore = create<ChatState>((set) => ({
   conversations: [],
   activeConversationId: null,
   messages: {},
+  pendingFreshConversations: {},
   isLoading: false,
   isStreaming: false,
   sidebarOpen: false,
@@ -113,6 +122,24 @@ export const useChatStore = create<ChatState>((set) => ({
         [convId]: [...(s.messages[convId] || []), msg],
       },
     })),
+  markFreshConversation: (id, prompt, mode = 'text') =>
+    set((s) => ({
+      pendingFreshConversations: {
+        ...s.pendingFreshConversations,
+        [id]: { prompt, mode },
+      },
+    })),
+  consumeFreshConversation: (id) => {
+    let draft: FreshConversationDraft | undefined;
+    set((s) => {
+      draft = s.pendingFreshConversations[id];
+      if (!draft) return s;
+      const pendingFreshConversations = { ...s.pendingFreshConversations };
+      delete pendingFreshConversations[id];
+      return { pendingFreshConversations };
+    });
+    return draft;
+  },
   updateLastMessage: (convId, content, done = false, streamStatus) =>
     set((s) => {
       const msgs = [...(s.messages[convId] || [])];

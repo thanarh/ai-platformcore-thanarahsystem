@@ -1,0 +1,23 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300..700&family=Noto+Sans+Arabic:wght@300..700&display=swap");
+
+.chat-flow-preview {
+  --thanarah-green: #2d8a5e;
+  --thanarah-dark: #1a5f3f;
+  --thanarah-light: #f0f9f4;
+  --chat-bg: #f8fbfc;
+  --chat-border: #edf1f2;
+  --chat-ink: #17232c;
+  --chat-muted: #69767e;
+  box-sizing: border-box;
+  font-family: Inter, system-ui, sans-serif;
+}
+
+.chat-flow-preview *,
+.chat-flow-preview *::before,
+.chat-flow-preview *::after {
+  box-sizing: inherit;
+}
+
+.chat-flow-preview .font-arabic {
+  font-family: "Noto Sans Arabic", Tahoma, sans-serif;
+}

@@ -1,7 +1,7 @@
 'use client';
 export const dynamic = 'force-dynamic';
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { useParams, useSearchParams } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { Send, Square, Copy, ExternalLink, Globe2, Menu, ThumbsUp, ThumbsDown, Pin, Sparkles, Mic, Type, Wand2, Paperclip, FileText, X, ListTodo, Loader2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -23,6 +23,7 @@ type ChatAttachment = {
 
 export default function ChatPage() {
   const params = useParams();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const convId = params.id as string;
 
@@ -31,7 +32,7 @@ export default function ChatPage() {
     messages, addMessage, setMessages, updateStreamingMessage,
     finalizeMessage, updateMessage,
     setStreaming, setLoading, isLoading, toggleSidebar,
-    updateConversation,
+    updateConversation, consumeFreshConversation,
   } = useChatStore();
 
   const [input, setInput] = useState('');
@@ -51,11 +52,15 @@ export default function ChatPage() {
   const [isExtractingFile, setIsExtractingFile] = useState(false);
   const [messagesLoadedForConvId, setMessagesLoadedForConvId] = useState<string | null>(null);
   const [attachmentError, setAttachmentError] = useState('');
+  const [entryAction, setEntryAction] = useState<'text' | 'voice' | 'attachment'>('text');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesViewportRef = useRef<HTMLDivElement>(null);
+  const shouldStickToBottomRef = useRef(true);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const streamControllersRef = useRef(new Map<string, AbortController>());
   const autoSubmittedPromptRef = useRef<string | null>(null);
+  const freshConversationRouteRef = useRef<string | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recordingStreamRef = useRef<MediaStream | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -80,11 +85,31 @@ export default function ChatPage() {
 
   useEffect(() => {
     if (!convId) return;
+    if (freshConversationRouteRef.current !== convId) {
+      freshConversationRouteRef.current = null;
+    }
+    if (
+      useChatStore.getState().pendingFreshConversations[convId]
+      || freshConversationRouteRef.current === convId
+    ) {
+      freshConversationRouteRef.current = convId;
+      setMessagesLoadedForConvId(convId);
+      setLoading(false);
+      return;
+    }
+
+    let active = true;
     setMessagesLoadedForConvId(null);
     setLoading(true);
     messagesApi.list(convId)
       .then((msgs) => {
-        setMessages(convId, msgs);
+        if (!active) return;
+        const currentMessages = useChatStore.getState().messages[convId] || [];
+        const loadedIds = new Set(msgs.map((message) => message._id).filter(Boolean));
+        const optimisticMessages = currentMessages.filter(
+          (message) => !message._id || !loadedIds.has(message._id),
+        );
+        setMessages(convId, [...msgs, ...optimisticMessages]);
         const savedFeedback: Record<string, 'up' | 'down'> = {};
         msgs.forEach((message: Message) => {
           if (message._id && message.feedback?.rating) savedFeedback[message._id] = message.feedback.rating;
@@ -93,13 +118,19 @@ export default function ChatPage() {
       })
       .catch(() => {})
       .finally(() => {
+        if (!active) return;
         setMessagesLoadedForConvId(convId);
         setLoading(false);
       });
+    return () => {
+      active = false;
+    };
   }, [convId]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (!shouldStickToBottomRef.current) return;
+    const viewport = messagesViewportRef.current;
+    if (viewport) viewport.scrollTop = viewport.scrollHeight;
   }, [convMessages]);
 
   const speakResponse = useCallback(async (content: string, language: 'ar' | 'en') => {
@@ -139,7 +170,9 @@ export default function ChatPage() {
       skillId?: string;
     },
   ) => {
-    const typedContent = (overrideContent || input).trim();
+    const typedContent = requestOptions?.inputMode === 'voice' && overrideContent
+      ? [input.trim(), overrideContent.trim()].filter(Boolean).join('\n')
+      : (overrideContent || input).trim();
     const attachmentContext = attachments.map((file) => (
       `\n\n[مرفق للتحليل: ${file.name}]\n${file.content}${file.truncated ? '\n[تم اختصار الملف لطوله الكبير]' : ''}`
     )).join('');
@@ -149,6 +182,7 @@ export default function ChatPage() {
     setInput('');
     setAttachments([]);
     setAttachmentError('');
+    setEntryAction('text');
     if (streamControllersRef.current.size === 0) setExecutionEvents([]);
     setStreaming(true);
     const controller = new AbortController();
@@ -245,21 +279,52 @@ export default function ChatPage() {
   }, [input, attachments, convId, token, inputMode, selectedSkillId, addMessage, finalizeMessage, setStreaming, updateStreamingMessage, updateConversation, speakResponse]);
 
   useEffect(() => {
+    if (!convId || !token) return;
+
+    const pendingFresh = consumeFreshConversation(convId);
+    if (pendingFresh) {
+      freshConversationRouteRef.current = convId;
+      const freshPrompt = pendingFresh.prompt?.trim() || searchParams?.get('prompt')?.trim();
+      const freshMode = pendingFresh.mode || 'text';
+      setEntryAction(freshMode);
+      if (freshMode === 'voice') setInputMode('voice');
+
+      if (freshPrompt && freshMode !== 'text') {
+        setInput(freshPrompt);
+        return;
+      }
+
+      if (freshPrompt) {
+        const requestKey = `${convId}\u0000${freshPrompt}`;
+        if (autoSubmittedPromptRef.current === requestKey) return;
+        autoSubmittedPromptRef.current = requestKey;
+        router.replace(`/chat/${convId}`, { scroll: false });
+        void handleSend(freshPrompt);
+      }
+      return;
+    }
+
     const prompt = searchParams?.get('prompt')?.trim();
     if (
       !prompt
-      || !token
       || messagesLoadedForConvId !== convId
       || convMessages.length > 0
-    ) {
-      return;
-    }
+    ) return;
 
     const requestKey = `${convId}\u0000${prompt}`;
     if (autoSubmittedPromptRef.current === requestKey) return;
     autoSubmittedPromptRef.current = requestKey;
     void handleSend(prompt);
-  }, [convId, searchParams, token, messagesLoadedForConvId, convMessages.length, handleSend]);
+  }, [
+    convId,
+    searchParams,
+    token,
+    messagesLoadedForConvId,
+    convMessages.length,
+    handleSend,
+    consumeFreshConversation,
+    router,
+  ]);
 
   const handleFileSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFiles = Array.from(event.target.files || []);
@@ -274,6 +339,7 @@ export default function ChatPage() {
     try {
       const extractedFiles = await Promise.all(selectedFiles.map((file) => filesApi.extract(file)));
       setAttachments((current) => [...current, ...extractedFiles]);
+      setEntryAction('text');
     } catch (error: any) {
       const message = error?.response?.data?.message;
       setAttachmentError(Array.isArray(message) ? message.join('، ') : (message || 'تعذر قراءة الملف. جرّب PDF أو ملفًا نصيًا أصغر.'));
@@ -294,6 +360,7 @@ export default function ChatPage() {
 
   const startVoiceCapture = useCallback(async () => {
     setInputMode('voice');
+    setEntryAction('voice');
     setVoiceError('');
     try {
       if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
@@ -485,7 +552,15 @@ export default function ChatPage() {
       )}
 
       {/* Messages */}
-      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-3 sm:px-4 py-4 sm:py-6 space-y-4 sm:space-y-6">
+      <div
+        ref={messagesViewportRef}
+        onScroll={(event) => {
+          const viewport = event.currentTarget;
+          shouldStickToBottomRef.current =
+            viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 120;
+        }}
+        className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-3 sm:px-4 py-4 sm:py-6 space-y-4 sm:space-y-6"
+      >
         {isLoading && convMessages.length === 0 && (
           <div className="flex justify-center py-12">
             <div className="w-5 h-5 border-2 border-thanarah-600 border-t-transparent rounded-full animate-spin" />
@@ -541,7 +616,12 @@ export default function ChatPage() {
               type="button"
               onClick={() => fileInputRef.current?.click()}
               disabled={isExtractingFile}
-              className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-arabic text-gray-500 transition hover:bg-gray-100 hover:text-thanarah-700 disabled:cursor-wait disabled:opacity-60"
+              className={cn(
+                'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-arabic transition disabled:cursor-wait disabled:opacity-60',
+                entryAction === 'attachment'
+                  ? 'bg-thanarah-50 text-thanarah-800 ring-1 ring-thanarah-200'
+                  : 'text-gray-500 hover:bg-gray-100 hover:text-thanarah-700',
+              )}
               title="إرفاق ملف لتحليله"
             >
               {isExtractingFile ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Paperclip className="h-3.5 w-3.5" />}
@@ -592,6 +672,12 @@ export default function ChatPage() {
               </span>
             )}
           </div>
+
+          {entryAction === 'attachment' && attachments.length === 0 && !isExtractingFile && (
+            <p role="status" className="font-arabic px-2 text-[10px] text-thanarah-700">
+              اختر ملفًا، ثم اكتب رسالتك أو أرسل الملف مباشرة.
+            </p>
+          )}
 
           {showTools && (
             <div className="rounded-xl border border-gray-200 bg-white p-2 shadow-sm" role="menu" aria-label="أدوات المحادثة">

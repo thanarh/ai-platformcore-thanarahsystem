@@ -16,7 +16,7 @@ import {
   Sparkles,
   ListTodo,
 } from 'lucide-react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { ThanarahIcon } from '@/components/ThanarahLogo';
 import { useAuthStore } from '@/store/auth';
 import { useChatStore } from '@/store/chat';
@@ -53,15 +53,25 @@ const shortcuts = [
 
 export default function ChatHomePage() {
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const { user } = useAuthStore();
-  const { setActiveConversation, addConversation } = useChatStore();
+  const { setActiveConversation, addConversation, markFreshConversation } = useChatStore();
   const [input, setInput] = useState('');
   const [showTaskAssistant, setShowTaskAssistant] = useState(false);
   const [webSearchActive, setWebSearchActive] = useState(false);
   const [startingChat, setStartingChat] = useState(false);
+  const [startingPrompt, setStartingPrompt] = useState('');
+  const [startingMode, setStartingMode] = useState<'text' | 'voice' | 'attachment'>('text');
   const [startError, setStartError] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (pathname !== '/chat') return;
+    setStartingChat(false);
+    setStartingPrompt('');
+    setStartingMode('text');
+  }, [pathname]);
 
   useEffect(() => {
     setWebSearchActive(searchParams.get('tool') === 'search');
@@ -79,19 +89,28 @@ export default function ChatHomePage() {
     router.replace('/chat');
   };
 
-  const startChat = async (prompt?: string, forceWebSearch = false) => {
+  const startChat = async (
+    prompt?: string,
+    forceWebSearch = false,
+    mode: 'text' | 'voice' | 'attachment' = 'text',
+  ) => {
     if (startingChat) return;
-    setStartingChat(true);
-    setStartError('');
     const trimmedPrompt = prompt?.trim();
     const initialPrompt = forceWebSearch && trimmedPrompt
       ? `ابحث في الإنترنت عن: ${trimmedPrompt}`
       : trimmedPrompt;
+    const shouldAutoSend = mode === 'text' && Boolean(initialPrompt);
+    setStartingChat(true);
+    setStartingPrompt(initialPrompt || '');
+    setStartingMode(mode);
+    setStartError('');
     try {
       const conv = await conversationsApi.create();
       addConversation(conv);
       setActiveConversation(conv._id);
-      router.push(initialPrompt
+      markFreshConversation(conv._id, initialPrompt, mode);
+      setInput('');
+      router.push(shouldAutoSend
         ? `/chat/${conv._id}?prompt=${encodeURIComponent(initialPrompt)}`
         : `/chat/${conv._id}`);
     } catch (error: any) {
@@ -103,8 +122,9 @@ export default function ChatHomePage() {
             ? serverMessage
             : 'تعذر إنشاء المحادثة. تحقق من اتصالك ثم حاول مرة أخرى.',
       );
-    } finally {
       setStartingChat(false);
+      setStartingPrompt('');
+      setStartingMode('text');
     }
   };
 
@@ -156,6 +176,59 @@ export default function ChatHomePage() {
       </header>
 
       <main className="relative z-10 flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-5 pb-28 sm:px-8">
+        {startingChat ? (
+          <div className="flex w-full max-w-[660px] flex-1 flex-col pb-6 pt-5 sm:pb-8">
+            <div className="mt-auto space-y-5" role="status" aria-live="polite">
+              {startingPrompt && startingMode === 'text' && (
+                <div className="flex justify-start animate-message-in">
+                  <div className="font-arabic max-w-[88%] rounded-[22px] rounded-tl-md bg-[#16815b] px-4 py-3.5 text-right text-sm leading-7 text-white shadow-[0_8px_22px_rgba(22,129,91,0.16)]">
+                    {startingPrompt}
+                  </div>
+                </div>
+              )}
+              {startingPrompt && startingMode !== 'text' && (
+                <div className="flex justify-start animate-message-in">
+                  <div className="font-arabic max-w-[88%] rounded-[18px] border border-[#dcebe2] bg-white px-4 py-3 text-right text-xs leading-6 text-[#46574e] shadow-[0_5px_18px_rgba(40,75,91,0.045)]">
+                    <span className="mb-1 block text-[10px] font-semibold text-[#16815b]">مسودة محفوظة</span>
+                    {startingPrompt}
+                  </div>
+                </div>
+              )}
+              <div className="flex items-start gap-3 animate-message-in">
+                <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-white text-[#16815b] shadow-[0_4px_16px_rgba(40,75,91,0.08)]">
+                  <ThanarahIcon className="h-5 w-5" />
+                </div>
+                <div className="max-w-[88%] rounded-[20px] rounded-tr-md border border-[#e9efed] bg-white px-4 py-3.5 shadow-[0_6px_20px_rgba(40,75,91,0.045)]">
+                  <p className="font-arabic text-xs font-semibold text-[#23684d]">
+                    {startingMode === 'voice'
+                      ? 'جارٍ فتح مساحة الصوت'
+                      : startingMode === 'attachment'
+                        ? 'جارٍ تجهيز مساحة إرفاق الملف'
+                        : 'تم استلام سؤالك'}
+                  </p>
+                  <p className="font-arabic mt-1 text-xs leading-6 text-[#69767e]">
+                    {startingMode === 'voice'
+                      ? startingPrompt
+                        ? 'حفظنا سؤالك كمسودة. ابدأ التسجيل لإرساله مع كلامك.'
+                        : 'المحادثة تفتح على وضع الصوت. اضغط «تحدث» لبدء التسجيل.'
+                      : startingMode === 'attachment'
+                        ? startingPrompt
+                          ? 'حفظنا سؤالك كمسودة. أرفق الملف ثم أرسل الاثنين معًا.'
+                          : 'أرفق الملف ثم اكتب رسالتك أو أرسله مباشرة.'
+                        : startingPrompt
+                          ? 'جارٍ تجهيز المحادثة لبدء الرد.'
+                          : 'المحادثة جاهزة. اكتب رسالتك للبدء.'}
+                  </p>
+                  <span className="mt-2 flex items-center gap-1.5" aria-hidden="true">
+                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#16815b]" />
+                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#73b894] [animation-delay:120ms]" />
+                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#b7d9c5] [animation-delay:240ms]" />
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
         <div className="w-full max-w-[660px] pt-3 sm:pt-5">
           <section className="flex flex-col items-center text-center">
             <div className="flex h-[66px] w-[66px] items-center justify-center rounded-[19px] bg-white shadow-[0_10px_26px_rgba(57,112,95,0.12)]">
@@ -212,21 +285,21 @@ export default function ChatHomePage() {
               <div className="flex flex-shrink-0 items-center gap-1" dir="ltr">
                 <button
                   type="button"
-                  onClick={() => void startChat()}
+                  onClick={() => void startChat(input, webSearchActive, 'attachment')}
                   disabled={startingChat}
                   className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#f8fafb] text-[#69767e] transition hover:bg-[#eef5f2] hover:text-[#16815b]"
                   aria-label="إرفاق ملف"
-                  title="إرفاق ملف من داخل المحادثة"
+                  title="افتح المحادثة لإرفاق ملف"
                 >
                   <Paperclip className="h-[18px] w-[18px]" />
                 </button>
                 <button
                   type="button"
-                  onClick={() => void startChat()}
+                  onClick={() => void startChat(input, webSearchActive, 'voice')}
                   disabled={startingChat}
                   className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#f8fafb] text-[#69767e] transition hover:bg-[#eef5f2] hover:text-[#16815b]"
                   aria-label="استخدام الصوت"
-                  title="استخدام الصوت من داخل المحادثة"
+                  title="افتح المحادثة لاستخدام الصوت"
                 >
                   <Mic className="h-[18px] w-[18px]" />
                 </button>
@@ -273,6 +346,7 @@ export default function ChatHomePage() {
             <ChevronDown className="h-3.5 w-3.5" />
           </button>
         </div>
+        )}
       </main>
 
       <div className="pointer-events-none absolute bottom-[-90px] left-[-110px] z-0 h-[255px] w-[72%] rotate-[-7deg] rounded-[50%] border-t border-[#dceced] bg-[#edf5f6]/90 sm:h-[300px]" />
