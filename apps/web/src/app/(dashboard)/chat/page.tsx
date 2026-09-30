@@ -178,7 +178,7 @@ export default function ChatHomePage() {
       <main className="relative z-10 flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-5 pb-28 sm:px-8">
         {startingChat ? (
           <div className="flex w-full max-w-[660px] flex-1 flex-col pb-6 pt-5 sm:pb-8">
-            <div className="mt-auto space-y-5" role="status" aria-live="polite">
+            <div className="mt-auto space-y-5">
               {startingPrompt && startingMode === 'text' && (
                 <div className="flex justify-start animate-message-in">
                   <div className="font-arabic max-w-[88%] rounded-[22px] rounded-tl-md bg-[#16815b] px-4 py-3.5 text-right text-sm leading-7 text-white shadow-[0_8px_22px_rgba(22,129,91,0.16)]">
@@ -194,38 +194,32 @@ export default function ChatHomePage() {
                   </div>
                 </div>
               )}
-              <div className="flex items-start gap-3 animate-message-in">
-                <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-white text-[#16815b] shadow-[0_4px_16px_rgba(40,75,91,0.08)]">
-                  <ThanarahIcon className="h-5 w-5" />
-                </div>
-                <div className="max-w-[88%] rounded-[20px] rounded-tr-md border border-[#e9efed] bg-white px-4 py-3.5 shadow-[0_6px_20px_rgba(40,75,91,0.045)]">
-                  <p className="font-arabic text-xs font-semibold text-[#23684d]">
-                    {startingMode === 'voice'
-                      ? 'جارٍ فتح مساحة الصوت'
-                      : startingMode === 'attachment'
-                        ? 'جارٍ تجهيز مساحة إرفاق الملف'
-                        : 'تم استلام سؤالك'}
-                  </p>
-                  <p className="font-arabic mt-1 text-xs leading-6 text-[#69767e]">
-                    {startingMode === 'voice'
-                      ? startingPrompt
-                        ? 'حفظنا النص كمسودة. سيبدأ التسجيل تلقائيًا عند فتح المحادثة.'
-                        : 'سيبدأ التسجيل تلقائيًا فور فتح المحادثة.'
-                      : startingMode === 'attachment'
+              {startingMode !== 'text' && (
+                <div className="flex items-start gap-3 animate-message-in" role="status" aria-live="polite">
+                  <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-white text-[#16815b] shadow-[0_4px_16px_rgba(40,75,91,0.08)]">
+                    <ThanarahIcon className="h-5 w-5" />
+                  </div>
+                  <div className="max-w-[88%] rounded-[20px] rounded-tr-md border border-[#e9efed] bg-white px-4 py-3.5 shadow-[0_6px_20px_rgba(40,75,91,0.045)]">
+                    <p className="font-arabic text-xs font-semibold text-[#23684d]">
+                      {startingMode === 'voice' ? 'جارٍ فتح مساحة الصوت' : 'جارٍ تجهيز مساحة إرفاق الملف'}
+                    </p>
+                    <p className="font-arabic mt-1 text-xs leading-6 text-[#69767e]">
+                      {startingMode === 'voice'
                         ? startingPrompt
-                          ? 'حفظنا سؤالك كمسودة. أرفق الملف ثم أرسل الاثنين معًا.'
-                          : 'أرفق الملف ثم اكتب رسالتك أو أرسله مباشرة.'
+                          ? 'حفظنا النص كمسودة. سيبدأ التسجيل تلقائيًا عند فتح المحادثة.'
+                          : 'سيبدأ التسجيل تلقائيًا فور فتح المحادثة.'
                         : startingPrompt
-                          ? 'جارٍ تجهيز المحادثة لبدء الرد.'
-                          : 'المحادثة جاهزة. اكتب رسالتك للبدء.'}
-                  </p>
-                  <span className="mt-2 flex items-center gap-1.5" aria-hidden="true">
-                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#16815b]" />
-                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#73b894] [animation-delay:120ms]" />
-                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#b7d9c5] [animation-delay:240ms]" />
-                  </span>
+                          ? 'حفظنا سؤالك كمسودة. أرفق الملف ثم أرسل الاثنين معًا.'
+                          : 'أرفق الملف ثم اكتب رسالتك أو أرسله مباشرة.'}
+                    </p>
+                    <span className="mt-2 flex items-center gap-1.5" aria-hidden="true">
+                      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#16815b]" />
+                      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#73b894] [animation-delay:120ms]" />
+                      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#b7d9c5] [animation-delay:240ms]" />
+                    </span>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           </div>
         ) : (
