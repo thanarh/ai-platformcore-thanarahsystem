@@ -128,7 +128,7 @@ export const aiApi = {
   capabilities: () => api.get('/ai/capabilities').then((r) => r.data),
   skills: () => api.get('/ai/skills').then((r) => r.data),
   voiceCapabilities: () => api.get('/ai/voice/capabilities').then((r) => r.data),
-  voiceTranscribe: (conversationId: string, audio: Blob, language: 'ar' | 'en') => {
+  voiceTranscribe: (conversationId: string, audio: Blob, language: 'ar' | 'en' | 'auto') => {
     const formData = new FormData();
     formData.append('audio', audio, 'voice-input.webm');
     formData.append('conversationId', conversationId);

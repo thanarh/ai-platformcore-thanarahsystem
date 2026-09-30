@@ -66,6 +66,53 @@ SECTOR_INSTRUCTIONS_EN = {
 }
 
 
+def _normalize_social_message(text: str) -> str:
+    normalized = text.casefold().strip()
+    normalized = re.sub(r"[\u064b-\u065f\u0670\u0640]", "", normalized)
+    normalized = normalized.translate(
+        str.maketrans({"أ": "ا", "إ": "ا", "آ": "ا", "ى": "ي"})
+    )
+    normalized = re.sub(r"[^\w]+", " ", normalized)
+    return " ".join(normalized.split())
+
+
+def _build_quick_social_phrases() -> dict[str, str]:
+    greetings_ar = (
+        "هلا", "ياهلا", "يا هلا", "هلا بك", "هلا والله", "مرحبا", "مرحبا بك",
+        "اهلا", "اهلا بك", "اهلين", "اهلا وسهلا", "السلام عليكم",
+        "السلام عليكم ورحمة الله وبركاته", "صباح الخير", "مساء الخير",
+    )
+    checkins_ar = (
+        "كيفك", "كيف حالك", "كيف الحال", "شلونك", "شخبارك", "وش اخبارك",
+        "ايش اخبارك", "اخبارك", "كيف امورك", "كيف الاحوال", "عامل ايه", "ازيك",
+    )
+    greetings_en = ("hi", "hello", "hey", "howdy", "good morning", "good evening", "good afternoon")
+    checkins_en = ("how are you", "how are you doing", "how is it going", "how's it going", "what's up")
+    phrases: dict[str, str] = {}
+
+    def add(phrase: str, intent: str) -> None:
+        normalized = _normalize_social_message(phrase)
+        if normalized:
+            phrases[normalized] = intent
+
+    for greetings, checkins in ((greetings_ar, checkins_ar), (greetings_en, checkins_en)):
+        for greeting in greetings:
+            add(greeting, "greeting")
+        for checkin in checkins:
+            add(checkin, "checkin")
+        for greeting in greetings:
+            for checkin in checkins:
+                add(f"{greeting} {checkin}", "checkin")
+                add(f"{checkin} {greeting}", "checkin")
+                for second_checkin in checkins:
+                    add(f"{greeting} {checkin} {second_checkin}", "checkin")
+
+    return phrases
+
+
+QUICK_SOCIAL_PHRASES = _build_quick_social_phrases()
+
+
 class IntelligenceRouter:
     """
     Thanarah Intelligence Router.
@@ -133,6 +180,37 @@ class IntelligenceRouter:
         if len(text) > 240:
             return "balanced"
         return "fast"
+
+    @staticmethod
+    def _quick_social_response(chat_request: ChatRequest) -> str | None:
+        # Explicit tool/skill requests must keep their normal routing.
+        if chat_request.skillId:
+            return None
+        latest_user_message = next(
+            (message.content for message in reversed(chat_request.messages) if message.role == "user"),
+            "",
+        )
+        normalized = _normalize_social_message(latest_user_message)
+        if not normalized or len(normalized) > 140:
+            return None
+        intent = QUICK_SOCIAL_PHRASES.get(normalized)
+        if not intent:
+            return None
+
+        arabic = bool(re.search(r"[\u0600-\u06ff]", latest_user_message))
+        if intent == "checkin":
+            return (
+                "بخير، شكرًا لسؤالك! كيف أقدر أساعدك؟"
+                if arabic
+                else "I'm well, thanks for asking. How can I help?"
+            )
+        if arabic and normalized.startswith("السلام عليكم"):
+            return "وعليكم السلام! أنا ثنارة. كيف أقدر أساعدك؟"
+        return (
+            "هلا بك! أنا ثنارة، كيف أقدر أساعدك؟"
+            if arabic
+            else "Hello! I'm Thanarah. How can I help?"
+        )
 
     def _trim_messages(self, request: ChatRequest) -> list:
         tenant_config = request.tenantConfig or {}
@@ -724,6 +802,28 @@ class IntelligenceRouter:
                 requestId=telemetry.request_id,
             )
 
+        quick_social_reply = self._quick_social_response(chat_request)
+        if quick_social_reply:
+            route = RouteDecision(
+                backend_id="quick-social",
+                reason="Answered a short greeting or check-in without model routing",
+                rag_enabled=False,
+                fallback_order=[],
+            )
+            telemetry.finish(
+                route=route.backend_id,
+                model="none",
+                cache_hit=False,
+                input_tokens=0,
+                output_tokens=0,
+            )
+            return ChatResponse(
+                content=quick_social_reply,
+                backend=route.backend_id,
+                routeDecision=route.reason,
+                requestId=telemetry.request_id,
+            )
+
         cache_started = time.perf_counter()
         cache_task = asyncio.create_task(response_cache_service.get(chat_request))
         profile_task = asyncio.create_task(
@@ -948,6 +1048,27 @@ class IntelligenceRouter:
                 yield urgent_message
 
             return _urgent_medical_stream(), route, [], telemetry, []
+
+        quick_social_reply = self._quick_social_response(chat_request)
+        if quick_social_reply:
+            route = RouteDecision(
+                backend_id="quick-social",
+                reason="Answered a short greeting or check-in without model routing",
+                rag_enabled=False,
+                fallback_order=[],
+            )
+
+            async def _quick_social_stream() -> AsyncGenerator[str, None]:
+                telemetry.finish(
+                    route=route.backend_id,
+                    model="none",
+                    cache_hit=False,
+                    input_tokens=0,
+                    output_tokens=0,
+                )
+                yield quick_social_reply
+
+            return _quick_social_stream(), route, [], telemetry, []
 
         cache_started = time.perf_counter()
         cache_task = asyncio.create_task(response_cache_service.get(chat_request))

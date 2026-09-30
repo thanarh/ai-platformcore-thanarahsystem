@@ -43,7 +43,7 @@ export default function ChatPage() {
   const [voiceState, setVoiceState] = useState<VoiceState>('IDLE');
   const [voiceError, setVoiceError] = useState('');
   const [voiceAvailable, setVoiceAvailable] = useState(false);
-  const [voiceLanguage, setVoiceLanguage] = useState<'ar' | 'en'>('ar');
+  const [voiceLanguage] = useState<'auto'>('auto');
   const [showTools, setShowTools] = useState(false);
   const [selectedSkillId, setSelectedSkillId] = useState<string | undefined>();
   const [activeRequestCount, setActiveRequestCount] = useState(0);
@@ -61,6 +61,8 @@ export default function ChatPage() {
   const streamControllersRef = useRef(new Map<string, AbortController>());
   const autoSubmittedPromptRef = useRef<string | null>(null);
   const freshConversationRouteRef = useRef<string | null>(null);
+  const autoStartVoiceConversationRef = useRef<string | null>(null);
+  const voiceStartPendingRef = useRef(false);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recordingStreamRef = useRef<MediaStream | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -287,7 +289,10 @@ export default function ChatPage() {
       const freshPrompt = pendingFresh.prompt?.trim() || searchParams?.get('prompt')?.trim();
       const freshMode = pendingFresh.mode || 'text';
       setEntryAction(freshMode);
-      if (freshMode === 'voice') setInputMode('voice');
+      if (freshMode === 'voice') {
+        setInputMode('voice');
+        autoStartVoiceConversationRef.current = convId;
+      }
 
       if (freshPrompt && freshMode !== 'text') {
         setInput(freshPrompt);
@@ -359,6 +364,8 @@ export default function ChatPage() {
   };
 
   const startVoiceCapture = useCallback(async () => {
+    if (voiceStartPendingRef.current || recorderRef.current) return;
+    voiceStartPendingRef.current = true;
     setInputMode('voice');
     setEntryAction('voice');
     setVoiceError('');
@@ -400,14 +407,15 @@ export default function ChatPage() {
           const result = await aiApi.voiceTranscribe(convId, audio, voiceLanguage);
           const transcript = String(result?.transcript || '').trim();
           if (!transcript) throw new Error('لم يتم العثور على كلام واضح في التسجيل.');
+          const detectedLanguage: 'ar' | 'en' = result?.language === 'en' ? 'en' : 'ar';
           setInput(transcript);
           void handleSend(transcript, {
             inputMode: 'voice',
             speakResponse: true,
-            language: voiceLanguage,
+            language: detectedLanguage,
             voiceMetadata: {
               sessionId: `voice-${Date.now()}`,
-              language: result.language || voiceLanguage,
+              language: detectedLanguage,
               transcriptionStatus: 'completed',
               audioMimeType: audio.type,
               durationMs: result.durationMs || Date.now() - (recordingStartedAtRef.current || Date.now()),
@@ -431,8 +439,21 @@ export default function ChatPage() {
       recordingStreamRef.current = null;
       setVoiceError(error?.message || 'اسمح للمتصفح باستخدام الميكروفون ثم حاول مرة أخرى.');
       setVoiceState('ERROR');
+    } finally {
+      voiceStartPendingRef.current = false;
     }
   }, [convId, handleSend, voiceLanguage]);
+
+  useEffect(() => {
+    if (
+      !token
+      || autoStartVoiceConversationRef.current !== convId
+      || voiceStartPendingRef.current
+      || recorderRef.current
+    ) return;
+    autoStartVoiceConversationRef.current = null;
+    void startVoiceCapture();
+  }, [convId, startVoiceCapture, token]);
 
   const stopVoiceCapture = useCallback(() => {
     if (recorderRef.current && recorderRef.current.state !== 'inactive') {
@@ -498,8 +519,8 @@ export default function ChatPage() {
           <ListTodo className="h-3.5 w-3.5" />
           مساعد المهام
         </button>
-        <span className="inline-flex items-center rounded-full bg-amber-50 border border-amber-200 px-2.5 py-1 text-[10px] sm:text-xs text-amber-800 font-arabic whitespace-nowrap" dir="rtl">
-          نسخة تجريبية · اكتمال المشروع 100%
+        <span className="font-arabic text-xs text-gray-500 whitespace-nowrap" dir="rtl">
+          محادثة مع ثنارة
         </span>
       </div>
 
@@ -641,7 +662,7 @@ export default function ChatPage() {
             </button>
             <button
               type="button"
-              onClick={() => { setInputMode('voice'); setVoiceError(''); }}
+              onClick={() => void startVoiceCapture()}
               className={cn(
                 'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-arabic transition',
                 inputMode === 'voice' ? 'bg-thanarah-100 text-thanarah-800' : 'text-gray-500 hover:bg-gray-100',
@@ -741,15 +762,6 @@ export default function ChatPage() {
                 <Mic className="h-3 w-3" />
                 {voiceState === 'LISTENING' ? 'إيقاف' : 'تحدث'}
               </button>
-              <select
-                value={voiceLanguage}
-                onChange={(event) => setVoiceLanguage(event.target.value as 'ar' | 'en')}
-                className="rounded-lg border border-gray-200 bg-white px-1.5 py-1 text-[10px] text-gray-600 outline-none"
-                aria-label="لغة الصوت"
-              >
-                <option value="ar">العربية</option>
-                <option value="en">English</option>
-              </select>
             </div>
           )}
 

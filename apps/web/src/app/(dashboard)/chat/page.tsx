@@ -209,8 +209,8 @@ export default function ChatHomePage() {
                   <p className="font-arabic mt-1 text-xs leading-6 text-[#69767e]">
                     {startingMode === 'voice'
                       ? startingPrompt
-                        ? 'حفظنا سؤالك كمسودة. ابدأ التسجيل لإرساله مع كلامك.'
-                        : 'المحادثة تفتح على وضع الصوت. اضغط «تحدث» لبدء التسجيل.'
+                        ? 'حفظنا النص كمسودة. سيبدأ التسجيل تلقائيًا عند فتح المحادثة.'
+                        : 'سيبدأ التسجيل تلقائيًا فور فتح المحادثة.'
                       : startingMode === 'attachment'
                         ? startingPrompt
                           ? 'حفظنا سؤالك كمسودة. أرفق الملف ثم أرسل الاثنين معًا.'
@@ -299,7 +299,7 @@ export default function ChatHomePage() {
                   disabled={startingChat}
                   className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#f8fafb] text-[#69767e] transition hover:bg-[#eef5f2] hover:text-[#16815b]"
                   aria-label="استخدام الصوت"
-                  title="افتح المحادثة لاستخدام الصوت"
+                  title="ابدأ التسجيل وسيتم اكتشاف اللغة تلقائيًا"
                 >
                   <Mic className="h-[18px] w-[18px]" />
                 </button>
