@@ -1,4 +1,5 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field
 from typing import Optional
 
 
@@ -81,6 +82,7 @@ class Settings(BaseSettings):
     rag_context_limit: int = 3
     rag_chunk_size: int = 350
     rag_chunk_overlap: int = 40
+    rag_embedding_batch_size: int = Field(default=32, ge=1, le=256)
 
     # Phase 3 local web intelligence. Disabled until a verified SearXNG
     # instance and the security/latency checks are complete.

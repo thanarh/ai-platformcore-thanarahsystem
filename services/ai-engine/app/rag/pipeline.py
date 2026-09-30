@@ -9,7 +9,7 @@ import io
 import re
 import time
 from datetime import datetime, timezone
-from typing import Any, List, Optional
+from typing import Any, List, Optional, overload
 import numpy as np
 from app.database import get_db
 from app.embeddings import embedding_service
@@ -34,7 +34,13 @@ def cosine_similarity(a: List[float], b: List[float]) -> float:
 class EmbeddingModel:
     """Compatibility wrapper around the local embedding service."""
 
-    def encode(self, text: str) -> List[float]:
+    @overload
+    def encode(self, text: str) -> List[float]: ...
+
+    @overload
+    def encode(self, text: List[str]) -> List[List[float]]: ...
+
+    def encode(self, text: str | List[str]) -> List[float] | List[List[float]]:
         return embedding_service.encode(text)
 
 
@@ -157,31 +163,40 @@ class RAGPipeline:
         # compatible with the legacy path.
         await db.knowledge_chunks.delete_many({"sourceId": source_id, "tenantId": tenant_id})
 
-        # Embed and store
+        # Embed bounded batches and store each chunk with its corresponding vector.
         stored = 0
         embeddings: list[list[float]] = []
-        for i, chunk in enumerate(chunks):
-            embedding = self.embedder.encode(chunk)
-            embeddings.append(embedding)
-            await db.knowledge_chunks.insert_one({
-                "sourceId": source_id,
-                "tenantId": tenant_id,
-                "documentId": source_id,
-                "documentVersion": document_version,
-                "clinicId": clinic_id,
-                "language": language,
-                "category": category,
-                "accessLevel": access_level,
-                "status": "active",
-                "content": chunk,
-                "embedding": embedding,
-                "chunkId": f"{source_id}:{document_version}:{i}",
-                "chunkIndex": i,
-                "totalChunks": len(chunks),
-                "createdAt": now,
-                "updatedAt": now,
-            })
-            stored += 1
+        batch_size = settings.rag_embedding_batch_size
+        for batch_start in range(0, len(chunks), batch_size):
+            chunk_batch = chunks[batch_start : batch_start + batch_size]
+            batch_embeddings = await asyncio.to_thread(self.embedder.encode, chunk_batch)
+            if len(batch_embeddings) != len(chunk_batch):
+                raise ValueError(
+                    "Embedding service returned a different number of vectors than input chunks"
+                )
+
+            embeddings.extend(batch_embeddings)
+            for offset, (chunk, embedding) in enumerate(zip(chunk_batch, batch_embeddings)):
+                chunk_index = batch_start + offset
+                await db.knowledge_chunks.insert_one({
+                    "sourceId": source_id,
+                    "tenantId": tenant_id,
+                    "documentId": source_id,
+                    "documentVersion": document_version,
+                    "clinicId": clinic_id,
+                    "language": language,
+                    "category": category,
+                    "accessLevel": access_level,
+                    "status": "active",
+                    "content": chunk,
+                    "embedding": embedding,
+                    "chunkId": f"{source_id}:{document_version}:{chunk_index}",
+                    "chunkIndex": chunk_index,
+                    "totalChunks": len(chunks),
+                    "createdAt": now,
+                    "updatedAt": now,
+                })
+                stored += 1
 
         if qdrant_store.enabled:
             try:
