@@ -7,7 +7,7 @@ import { UsersService } from '../users/users.service';
 import { Notification, NotificationDocument } from './schemas/notification.schema';
 import { PushSubscription, PushSubscriptionDocument } from './schemas/push-subscription.schema';
 import * as webpush from 'web-push';
-import WebSocket, { WebSocketServer } from 'ws';
+import { WebSocket, WebSocketServer } from 'ws';
 import { IncomingMessage, Server } from 'http';
 
 export interface FireNotificationInput {
