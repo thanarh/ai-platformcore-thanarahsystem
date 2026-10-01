@@ -422,6 +422,17 @@ class SearXNGClient:
         payload = response.json()
         if not isinstance(payload, dict) or not isinstance(payload.get("results"), list):
             raise ValueError("SearXNG returned a malformed JSON response")
+        if not payload["results"] and effective_language.casefold().startswith("ar"):
+            # Some general engines, including the current Bing adapter, return
+            # no results for Arabic when the locale is fixed to "ar". Let the
+            # engine choose across languages before treating the search as empty.
+            fallback_params = dict(params)
+            fallback_params["language"] = "all"
+            response = await self._request("/search", fallback_params)
+            response.raise_for_status()
+            payload = response.json()
+            if not isinstance(payload, dict) or not isinstance(payload.get("results"), list):
+                raise ValueError("SearXNG returned a malformed JSON response")
 
         limit = max(1, min(max_results or settings.web_max_results, 20))
         results: list[SearchResult] = []

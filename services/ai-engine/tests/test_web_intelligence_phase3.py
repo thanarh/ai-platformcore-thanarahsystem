@@ -240,6 +240,39 @@ class WebIntelligencePhase3Tests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(results[0].url, "https://public.example/page")
         self.assertEqual(results[0].rank, 1)
 
+    async def test_arabic_search_retries_all_languages_when_locale_returns_no_results(self):
+        request_languages = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            request_languages.append(request.url.params.get("language"))
+            if request.url.params.get("language") == "ar":
+                return httpx.Response(200, json={"results": []})
+            return httpx.Response(
+                200,
+                json={
+                    "results": [{
+                        "title": "تعريف الحب: ما هو الحب",
+                        "url": "https://public.example/meaning-of-love",
+                        "content": "الحب عاطفة قوية ومودة تجاه الآخرين.",
+                        "engine": "bing",
+                    }]
+                },
+            )
+
+        class BingOnlySearXNGClient(SearXNGClient):
+            async def active_engines(self, _category):
+                return ["bing"]
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            results = await BingOnlySearXNGClient(
+                "http://searxng.test",
+                client=client,
+            ).search("ابحث عن معنى الحب", language="ar", max_results=3)
+
+        self.assertEqual(request_languages, ["ar", "all"])
+        self.assertEqual(len(results), 1)
+        self.assertIn("الحب", results[0].title)
+
     async def test_search_rejects_malformed_json(self):
         def handler(_request: httpx.Request) -> httpx.Response:
             return httpx.Response(200, json={"unexpected": []})

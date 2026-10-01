@@ -9,7 +9,7 @@
 - [Ollama warm readiness](ollama-warm-readiness.md) — `/api/ps` model presence does not guarantee a warm first generation; validate with real generation
 - [SSE measurement](sse-measurement.md) — use a non-buffering client read such as `read1()` when timing incremental SSE delivery
 - [Phase 2D foundation boundary](phase2d-foundation.md) — task, skill, artifact, and event layers are contracts first; real tool execution remains explicitly gated
-- [Local SearXNG limits](searxng-local-constraints.md) — IPv4 binding and an explicit User-Agent are required; keep the enabled engine set local and verified
+- [Local SearXNG limits](searxng-local-constraints.md) — verify engines live, send an explicit User-Agent, and retry Arabic searches across languages when `ar` is empty
 - [Phase 5 persistence boundary](phase5-persistence-boundary.md) — bounded task execution and artifact generation are implemented, but metadata remains in-memory until durable storage is approved
 - [Python 3.13 speech runtime](python313-speech-runtime.md) — pass the faster-whisper Nix closure through VOICE_STT_PYTHONPATH; never glob-scan /nix/store at app startup
 - [Phase 8.1 benchmark validity](phase81-benchmarking.md) — separate SearXNG outages and cold model reloads from causal warm-path performance claims

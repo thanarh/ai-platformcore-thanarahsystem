@@ -126,3 +126,16 @@ of the news engines.
 **How to apply:** Strip recognized lookup wording before search, language
 selection, and relevance scoring; normalize only narrow, context-supported
 Arabic typos rather than broadly rewriting user text.
+
+For Arabic general searches, a healthy engine probe does not guarantee that the
+engine returns results under SearXNG's fixed `ar` locale. If that locale returns
+no results, retry with `language=all` before concluding that the search is empty;
+retain the normal relevance filter and verified-page requirements.
+
+**Why:** Live Bing searches for common Arabic questions returned zero results
+under `ar`, while the same queries returned relevant Arabic pages with
+`language=all`.
+
+**How to apply:** Exercise the exact Arabic query through the full pipeline,
+including locale retry, lexical relevance, page fetching, extraction, and
+citations. Do not count raw results as success or weaken the relevance filter.
