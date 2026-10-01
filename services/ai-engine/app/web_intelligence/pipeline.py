@@ -25,6 +25,8 @@ from app.web_intelligence.search import (
     SearXNGClient,
     extract_direct_urls,
     filter_and_score_results,
+    is_current_model_year_source_candidate,
+    is_university_ranking_source_candidate,
     normalize_search_query,
     normalize_wikipedia_query,
     select_diverse_results,
@@ -237,6 +239,7 @@ class WebIntelligencePipeline:
             decision.category == "general"
             and not same_day_requested
             and "time_sensitive_information" not in decision.signals
+            and "university_ranking_request" not in decision.signals
             and not direct_urls
         )
 
@@ -324,6 +327,18 @@ class WebIntelligencePipeline:
                             item.published_at, target_date, timezone_name
                         )
                     ]
+            if "university_ranking_request" in decision.signals:
+                search_results = [
+                    item
+                    for item in search_results
+                    if is_university_ranking_source_candidate(item)
+                ]
+            if "current_vehicle_model_query" in decision.signals:
+                search_results = [
+                    item
+                    for item in search_results
+                    if is_current_model_year_source_candidate(item, query)
+                ]
             for item in search_results:
                 await self._emit_event(
                     result,

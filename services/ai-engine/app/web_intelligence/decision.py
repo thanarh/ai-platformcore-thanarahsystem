@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import re
+import unicodedata
 from typing import Any, Literal
 
 from app.config import settings
@@ -105,23 +107,39 @@ _CAR_BRAND_TERMS = (
     "nissan",
     "تسلا",
     "tesla",
+    "اكسنت",
+    "أكسنت",
+    "accent",
+    "كرولا",
+    "كورولا",
+    "corolla",
 )
-_UNIVERSITY_RANKING_TERMS = (
-    "افضل جامعة",
-    "أفضل جامعة",
-    "احسن جامعة",
-    "أحسن جامعة",
-    "افضل جامعات",
-    "أفضل جامعات",
-    "احسن جامعات",
-    "أحسن جامعات",
-    "ترتيب الجامعات",
-    "تصنيف الجامعات",
-    "best university",
-    "best universities",
-    "top universities",
-    "university ranking",
-    "university rankings",
+_UNIVERSITY_ENTITY_TERMS = (
+    "جامع",
+    "university",
+    "universities",
+    "college",
+    "colleges",
+)
+_UNIVERSITY_RANKING_INTENT_TERMS = (
+    "افضل",
+    "أفضل",
+    "الافضل",
+    "الأفضل",
+    "احسن",
+    "أحسن",
+    "الاحسن",
+    "الأحسن",
+    "اعلى",
+    "أعلى",
+    "ترتيب",
+    "تصنيف",
+    "best",
+    "top",
+    "ranking",
+    "rankings",
+    "ranked",
+    "highest",
 )
 _ORGANIZATION_LOOKUP_QUERY = re.compile(
     r"(?:من\s+(?:هي|هيا|هو|هوا)\s+(?:شركة|مؤسسة|استوديو)|"
@@ -203,6 +221,30 @@ _TECHNICAL_TERMS = (
 )
 
 
+def is_university_ranking_query(query: str) -> bool:
+    text = " ".join((query or "").casefold().split())
+    has_university = any(term.casefold() in text for term in _UNIVERSITY_ENTITY_TERMS)
+    has_ranking_intent = any(
+        term.casefold() in text for term in _UNIVERSITY_RANKING_INTENT_TERMS
+    )
+    return has_university and has_ranking_intent
+
+
+def is_recent_vehicle_model_query(query: str) -> bool:
+    text = (query or "").casefold()
+    if not any(term.casefold() in text for term in _CAR_BRAND_TERMS):
+        return False
+    ascii_digits = "".join(
+        str(unicodedata.decimal(char)) if char.isdecimal() else char
+        for char in text
+    )
+    current_year = datetime.now(timezone.utc).year
+    return any(
+        int(year) >= current_year - 1
+        for year in re.findall(r"(?<!\d)20\d{2}(?!\d)", ascii_digits)
+    )
+
+
 def classify_search_category(query: str) -> SearchCategory:
     """Choose a search category using auditable lexical signals.
 
@@ -258,8 +300,18 @@ def decide_web(
         signals.append("explicit_tool_selection")
     if any(term.casefold() in text for term in _EXPLICIT_TERMS):
         signals.append("explicit_search_request")
-    if category == "news" or any(term.casefold() in text for term in _CURRENT_TERMS):
+    university_ranking_query = is_university_ranking_query(query)
+    recent_vehicle_query = is_recent_vehicle_model_query(query)
+    if (
+        category == "news"
+        or any(term.casefold() in text for term in _CURRENT_TERMS)
+        or recent_vehicle_query
+    ):
         signals.append("time_sensitive_information")
+    if university_ranking_query:
+        signals.append("university_ranking_request")
+    if recent_vehicle_query:
+        signals.append("current_vehicle_model_query")
     is_car_comparison = (
         any(term in text for term in _COMPARISON_QUERY_TERMS)
         and any(term.casefold() in text for term in _CAR_BRAND_TERMS)
@@ -268,7 +320,7 @@ def decide_web(
         any(term.casefold() in text for term in _EXTERNAL_LOOKUP_TERMS)
         or any(term.casefold() in text for term in _EVENT_QUERY_TERMS)
         or is_car_comparison
-        or any(term.casefold() in text for term in _UNIVERSITY_RANKING_TERMS)
+        or university_ranking_query
     ):
         signals.append("external_factual_lookup")
     if _ORGANIZATION_LOOKUP_QUERY.search(text):

@@ -19,8 +19,13 @@ from app.telemetry import RequestTelemetry
 from app.foundation.runtime_context import UserRuntimeContext
 from app.web_intelligence import web_intelligence_pipeline
 from app.language_policy import detect_language, response_language_instruction
-from app.web_intelligence.decision import WebDecision, requires_same_day_results
-from app.web_intelligence.search import extract_direct_urls
+from app.web_intelligence.decision import (
+    WebDecision,
+    is_recent_vehicle_model_query,
+    is_university_ranking_query,
+    requires_same_day_results,
+)
+from app.web_intelligence.search import extract_direct_urls, is_search_request_missing_topic
 from app.medical_triage import urgent_dvt_response
 
 logger = logging.getLogger(__name__)
@@ -415,6 +420,16 @@ class IntelligenceRouter:
                     "تعذّر فتح الرابط الذي أرسلته أو استخراج محتواه، لذلك لا أستطيع تأكيد معلومات عنه. "
                     "يمكنك إرسال نص الصفحة أو رابط بديل."
                 )
+            if is_university_ranking_query(query):
+                return (
+                    "لم أعثر على مصدر موثوق يثبت ترتيبًا عالميًا للجامعات. "
+                    "هل تريد ترتيب QS أو THE أو ARWU، ولأي سنة؟"
+                )
+            if is_recent_vehicle_model_query(query):
+                return (
+                    "لم أعثر على مصدر حديث موثوق لمقارنة طرازات السيارات لهذه السنة. "
+                    "تختلف المواصفات حسب السوق والفئة؛ ما الدولة أو الفئة التي تقصدها؟"
+                )
             if weather_query and (requires_current_source or requires_same_day_results(query)):
                 return (
                     "تختلف درجة الحرارة داخل السعودية حسب المدينة، ولم تصلني قراءة طقس مباشرة الآن. "
@@ -436,6 +451,16 @@ class IntelligenceRouter:
             return (
                 "I couldn't open the URL you supplied or extract its content, so I can't confirm facts about it. "
                 "You can paste the page text or provide an alternate URL."
+            )
+        if is_university_ranking_query(query):
+            return (
+                "I couldn't verify a reliable global university ranking. "
+                "Would you like QS, THE, or ARWU, and for which year?"
+            )
+        if is_recent_vehicle_model_query(query):
+            return (
+                "I couldn't find a current, verifiable comparison for these model years. "
+                "Specifications vary by market and trim; which country or trim do you mean?"
             )
         if weather_query and (requires_current_source or requires_same_day_results(query)):
             return (
@@ -460,6 +485,7 @@ class IntelligenceRouter:
             web_result.decision.use_web
             and not web_result.sources
             and "time_sensitive_information" not in web_result.decision.signals
+            and "university_ranking_request" not in web_result.decision.signals
             and not extract_direct_urls(query)
         )
 
@@ -516,6 +542,14 @@ class IntelligenceRouter:
             f"I didn't understand the single letter “{last_user_message}.” "
             "Was that accidental, or would you like to continue your previous question?"
         )
+
+    @staticmethod
+    def _search_topic_clarification(query: str) -> str | None:
+        if not is_search_request_missing_topic(query):
+            return None
+        if detect_language(query, fallback="ar") == "ar":
+            return "ما الموضوع الذي تريد البحث عنه؟"
+        return "What topic would you like me to search for?"
 
     @staticmethod
     def _is_entity_question(query: str) -> bool:
@@ -867,6 +901,28 @@ class IntelligenceRouter:
                 requestId=telemetry.request_id,
             )
 
+        search_topic_clarification = self._search_topic_clarification(last_user_message)
+        if search_topic_clarification:
+            route = RouteDecision(
+                backend_id="clarification",
+                reason="Search requested without a topic",
+                rag_enabled=False,
+                fallback_order=[],
+            )
+            telemetry.finish(
+                route=route.backend_id,
+                model="none",
+                cache_hit=False,
+                input_tokens=0,
+                output_tokens=0,
+            )
+            return ChatResponse(
+                content=search_topic_clarification,
+                backend=route.backend_id,
+                routeDecision=route.reason,
+                requestId=telemetry.request_id,
+            )
+
         quick_social_reply = self._quick_social_response(chat_request)
         if quick_social_reply:
             route = RouteDecision(
@@ -1120,6 +1176,27 @@ class IntelligenceRouter:
                 yield urgent_message
 
             return _urgent_medical_stream(), route, [], telemetry, []
+
+        search_topic_clarification = self._search_topic_clarification(last_user_message)
+        if search_topic_clarification:
+            route = RouteDecision(
+                backend_id="clarification",
+                reason="Search requested without a topic",
+                rag_enabled=False,
+                fallback_order=[],
+            )
+
+            async def _search_topic_clarification_stream() -> AsyncGenerator[str, None]:
+                telemetry.finish(
+                    route=route.backend_id,
+                    model="none",
+                    cache_hit=False,
+                    input_tokens=0,
+                    output_tokens=0,
+                )
+                yield search_topic_clarification
+
+            return _search_topic_clarification_stream(), route, [], telemetry, []
 
         quick_social_reply = self._quick_social_response(chat_request)
         if quick_social_reply:

@@ -21,12 +21,28 @@ _WIKIPEDIA_MIN_REQUEST_INTERVAL_SECONDS = 1.0
 
 _SEARCH_COMMAND_PREFIX = re.compile(
     r"^\s*(?:"
-    r"(?:ابحث|أبحث|فتش|فتّش)\s+(?:(?:في|على)\s+(?:ال)?(?:إنترنت|انترنت|ويب)\s+عن|عن)"
-    r"|(?:search|research)\s+(?:(?:the\s+)?(?:web|internet)|online)\s+(?:for|about)"
+    r"(?:ابحث|أبحث|فتش|فتّش)\s+(?:(?:في|على|عبر)\s+(?:ال)?"
+    r"(?:إنترنت|انترنت|ويب|جوجل|غوغل|قوقل|بينغ|google|bing|duckduckgo)\s+عن|عن)"
+    r"|(?:search|research)\s+(?:(?:the\s+)?(?:web|internet)|online|"
+    r"(?:(?:on|in)\s+(?:google|bing|duckduckgo)))\s+(?:for|about)"
     r"|(?:search|research)\s+(?:for|about)"
     r"|look\s+up"
     r"|find\s+online(?:\s+for)?"
     r")\s*[:：–—-]?\s*",
+    re.IGNORECASE,
+)
+_SEARCH_REQUEST_WITHOUT_TOPIC = re.compile(
+    r"^\s*(?:"
+    r"(?:ابحث|أبحث|فتش|فتّش)"
+    r"(?:\s+(?:(?:في|على|عبر)\s+(?:ال)?"
+    r"(?:إنترنت|انترنت|ويب|جوجل|غوغل|قوقل|بينغ|google|bing|duckduckgo)))?"
+    r"(?:\s+عن)?"
+    r"|(?:search|research)"
+    r"(?:\s+(?:(?:the\s+)?web|internet|online|google|bing|duckduckgo|"
+    r"(?:on|in)\s+(?:google|bing|duckduckgo)))?"
+    r"(?:\s+(?:for|about))?"
+    r"|look\s+up|find\s+online"
+    r")\s*[.!?؟،]*$",
     re.IGNORECASE,
 )
 _ARABIC_COMPANY_QUESTION_PREFIX = re.compile(
@@ -127,6 +143,8 @@ _WIKIPEDIA_QUERY_FRAMING = {
 def normalize_search_query(query: str) -> str:
     """Clean search instructions and keep direct URLs from polluting query terms."""
     original = (query or "").strip()
+    if _SEARCH_REQUEST_WITHOUT_TOPIC.fullmatch(original):
+        return ""
     normalized = _SEARCH_COMMAND_PREFIX.sub("", original, count=1).strip(" \t:：–—-")
     normalized = _ARABIC_COMPANY_QUESTION_PREFIX.sub("", normalized, count=1)
     normalized = _ARABIC_ORGANIZATION_PREFIX.sub("", normalized, count=1)
@@ -146,6 +164,10 @@ def normalize_search_query(query: str) -> str:
         brand_terms = " ".join(labels[:-1]) if len(labels) > 1 else host
         normalized = " ".join(part for part in (normalized, brand_terms) if part)
     return normalized or original
+
+
+def is_search_request_missing_topic(query: str) -> bool:
+    return bool((query or "").strip() and _SEARCH_REQUEST_WITHOUT_TOPIC.fullmatch((query or "").strip()))
 
 
 def normalize_wikipedia_query(query: str) -> str:
@@ -242,6 +264,55 @@ class SearchResult:
             "engines": list(self.engines),
             "category": self.category,
         }
+
+
+_UNIVERSITY_RANKING_SOURCE_DOMAINS = {
+    "topuniversities.com",
+    "timeshighereducation.com",
+    "shanghairanking.com",
+    "cwur.org",
+    "usnews.com",
+}
+_UNIVERSITY_RANKING_MARKERS = (
+    "ranking",
+    "rankings",
+    "ranked",
+    "تصنيف",
+    "ترتيب",
+)
+
+
+def is_university_ranking_source_candidate(result: SearchResult) -> bool:
+    hostname = (urlparse(result.url).hostname or "").casefold()
+    trusted_publisher = any(
+        hostname == domain or hostname.endswith(f".{domain}")
+        for domain in _UNIVERSITY_RANKING_SOURCE_DOMAINS
+    )
+    if not trusted_publisher:
+        return False
+    text = _normalize_lexical_text(f"{result.title} {result.snippet}")
+    return any(marker in text for marker in _UNIVERSITY_RANKING_MARKERS)
+
+
+def is_current_model_year_source_candidate(result: SearchResult, query: str) -> bool:
+    query_digits = "".join(
+        str(unicodedata.decimal(char)) if char.isdecimal() else char
+        for char in query
+    )
+    requested_years = set(re.findall(r"(?<!\d)20\d{2}(?!\d)", query_digits))
+    if not requested_years:
+        return False
+
+    hostname = (urlparse(result.url).hostname or "").casefold()
+    if hostname == "wikipedia.org" or hostname.endswith(".wikipedia.org"):
+        return False
+
+    result_text = f"{result.title} {result.snippet}"
+    result_digits = "".join(
+        str(unicodedata.decimal(char)) if char.isdecimal() else char
+        for char in result_text
+    )
+    return any(year in result_digits for year in requested_years)
 
 
 class SearXNGClient:

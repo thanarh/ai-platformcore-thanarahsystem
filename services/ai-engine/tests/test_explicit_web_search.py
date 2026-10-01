@@ -8,6 +8,87 @@ from app.web_intelligence.pipeline import WebPipelineResult
 
 
 class ExplicitWebSearchTests(unittest.IsolatedAsyncioTestCase):
+    async def test_provider_only_search_request_asks_for_a_topic_in_both_routes(self):
+        router = IntelligenceRouter(registry=None)
+        normal_request = ChatRequest(
+            messages=[ChatMessage(role="user", content="ابحث في جوجل")],
+            tenantId="tenant-a",
+            runtimeContext={"language": "ar"},
+        )
+        streaming_request = ChatRequest(
+            messages=[ChatMessage(role="user", content="ابحث في جوجل")],
+            tenantId="tenant-a",
+            runtimeContext={"language": "ar"},
+            stream=True,
+        )
+
+        with patch.object(
+            router,
+            "_load_web_context",
+            new_callable=AsyncMock,
+        ) as load_web:
+            normal_response = await router.route(normal_request)
+            stream, stream_route, sources, _telemetry, events = await router.stream_route(
+                streaming_request
+            )
+            streamed_content = "".join([part async for part in stream])
+
+        self.assertEqual(normal_response.backend, "clarification")
+        self.assertEqual(normal_response.content, "ما الموضوع الذي تريد البحث عنه؟")
+        self.assertEqual(stream_route.backend_id, "clarification")
+        self.assertEqual(streamed_content, normal_response.content)
+        self.assertEqual(sources, [])
+        self.assertEqual(events, [])
+        load_web.assert_not_awaited()
+
+    async def test_unverified_rankings_and_recent_car_specs_do_not_use_model_fallback(self):
+        router = IntelligenceRouter(registry=None)
+        ranking_query = "ابحث عن احسن الجامعات في العالم"
+        vehicle_query = "الفرق بين الأكسنت ٢٠٢٦ والكرولا ٢٠٢٦"
+        ranking_result = WebPipelineResult(
+            decision=WebDecision(
+                True,
+                "web_signal_detected",
+                ("university_ranking_request",),
+                "general",
+            ),
+            sources=[],
+        )
+        vehicle_result = WebPipelineResult(
+            decision=WebDecision(
+                True,
+                "web_signal_detected",
+                ("time_sensitive_information", "current_vehicle_model_query"),
+                "general",
+            ),
+            sources=[],
+        )
+
+        self.assertFalse(
+            router._can_use_general_knowledge_after_web_failure(
+                ranking_query,
+                ranking_result,
+            )
+        )
+        self.assertFalse(
+            router._can_use_general_knowledge_after_web_failure(
+                vehicle_query,
+                vehicle_result,
+            )
+        )
+        self.assertIn(
+            "QS أو THE أو ARWU",
+            router._web_unavailable_message(ranking_query, "No verified web search results"),
+        )
+        self.assertIn(
+            "السوق والفئة",
+            router._web_unavailable_message(
+                vehicle_query,
+                "No verified web search results",
+                requires_current_source=True,
+            ),
+        )
+
     async def test_selected_chat_skill_reaches_the_search_pipeline_as_explicit(self):
         result = WebPipelineResult(
             decision=WebDecision(True, "web_signal_detected", ("explicit_tool_selection",), "general"),

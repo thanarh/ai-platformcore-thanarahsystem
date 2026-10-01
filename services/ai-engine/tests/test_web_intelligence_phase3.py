@@ -10,6 +10,8 @@ from app.config import settings
 from app.web_intelligence.decision import (
     classify_search_category,
     decide_web,
+    is_recent_vehicle_model_query,
+    is_university_ranking_query,
     requires_same_day_results,
 )
 from app.web_intelligence.extractor import extract_html
@@ -20,6 +22,9 @@ from app.web_intelligence.search import (
     _effective_language,
     extract_direct_urls,
     filter_and_score_results,
+    is_current_model_year_source_candidate,
+    is_search_request_missing_topic,
+    is_university_ranking_source_candidate,
     normalize_search_query,
     select_diverse_results,
 )
@@ -67,6 +72,38 @@ class WebIntelligencePhase3Tests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(current_weather.use_web)
         self.assertIn("time_sensitive_information", current_weather.signals)
         self.assertFalse(health_question.use_web)
+
+    def test_ranking_and_recent_vehicle_queries_fail_closed_without_current_evidence(self):
+        ranking_query = "ابحث عن احسن الجامعات في العالم"
+        vehicle_query = "الفرق بين الأكسنت ٢٠٢٦ والكرولا ٢٠٢٦"
+
+        self.assertTrue(is_university_ranking_query(ranking_query))
+        self.assertTrue(is_recent_vehicle_model_query(vehicle_query))
+        with patch.object(settings, "web_search_enabled", True):
+            ranking_decision = decide_web(ranking_query)
+            vehicle_decision = decide_web(vehicle_query)
+
+        self.assertIn("university_ranking_request", ranking_decision.signals)
+        self.assertIn("time_sensitive_information", vehicle_decision.signals)
+        self.assertIn("current_vehicle_model_query", vehicle_decision.signals)
+
+    def test_search_provider_without_topic_is_clarified_and_search_prefix_is_removed(self):
+        for query in ("ابحث في جوجل", "Search Google", "search on Google", "ابحث في جوجل عن"):
+            with self.subTest(query=query):
+                self.assertTrue(is_search_request_missing_topic(query))
+                self.assertEqual(normalize_search_query(query), "")
+
+        self.assertFalse(
+            is_search_request_missing_topic("ابحث في جوجل عن احسن الجامعات في العالم")
+        )
+        self.assertEqual(
+            normalize_search_query("ابحث في جوجل عن احسن الجامعات في العالم"),
+            "احسن الجامعات في العالم",
+        )
+        self.assertEqual(
+            normalize_search_query("Search on Google for best universities"),
+            "best universities",
+        )
 
     def test_selected_search_tool_forces_search_but_respects_both_gates(self):
         self.assertFalse(decide_web("Python package", explicit_request=True).use_web)
@@ -187,6 +224,65 @@ class WebIntelligencePhase3Tests(unittest.IsolatedAsyncioTestCase):
             filter_and_score_results(university_query, [university_result]),
             [university_result],
         )
+
+    def test_ranking_sources_require_a_ranking_publisher_and_explicit_ranking_result(self):
+        from app.web_intelligence.search import SearchResult
+
+        official_result = SearchResult(
+            title="QS World University Rankings 2026",
+            url="https://www.topuniversities.com/world-university-rankings",
+            snippet="See the global ranking results for this year.",
+            source="fixture",
+            rank=1,
+        )
+        wikipedia_result = SearchResult(
+            title="List of oldest universities",
+            url="https://en.wikipedia.org/wiki/List_of_oldest_universities",
+            snippet="A list of universities around the world.",
+            source="wikipedia",
+            rank=1,
+        )
+        unrelated_publisher_result = SearchResult(
+            title="University rankings",
+            url="https://education.example/rankings",
+            snippet="A list of universities around the world.",
+            source="fixture",
+            rank=1,
+        )
+
+        self.assertTrue(is_university_ranking_source_candidate(official_result))
+        self.assertFalse(is_university_ranking_source_candidate(wikipedia_result))
+        self.assertFalse(is_university_ranking_source_candidate(unrelated_publisher_result))
+
+    def test_current_model_year_sources_must_name_the_requested_year_and_not_be_wikipedia(self):
+        from app.web_intelligence.search import SearchResult
+
+        query = "الفرق بين الأكسنت ٢٠٢٦ والكرولا ٢٠٢٦"
+        current_source = SearchResult(
+            title="2026 Hyundai Accent and Toyota Corolla comparison",
+            url="https://cars.example/reviews/2026-comparison",
+            snippet="A comparison of the 2026 Accent and Corolla.",
+            source="fixture",
+            rank=1,
+        )
+        stale_source = SearchResult(
+            title="2024 Accent and Corolla comparison",
+            url="https://cars.example/reviews/2024-comparison",
+            snippet="Specifications for the 2024 models.",
+            source="fixture",
+            rank=1,
+        )
+        wikipedia_source = SearchResult(
+            title="2026 Hyundai Accent and Toyota Corolla comparison",
+            url="https://en.wikipedia.org/wiki/Hyundai_Accent",
+            snippet="A comparison of the 2026 Accent and Corolla.",
+            source="wikipedia",
+            rank=1,
+        )
+
+        self.assertTrue(is_current_model_year_source_candidate(current_source, query))
+        self.assertFalse(is_current_model_year_source_candidate(stale_source, query))
+        self.assertFalse(is_current_model_year_source_candidate(wikipedia_source, query))
 
     def test_extractor_removes_noise_and_keeps_metadata(self):
         html = b"""
@@ -527,6 +623,113 @@ class WebIntelligencePhase3Tests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(history_result.sources)
         self.assertIn("الحرب العالمية الثانية", history_result.context)
         self.assertFalse(weather_result.sources)
+
+    async def test_pipeline_rejects_unverified_university_ranking_sources(self):
+        from app.web_intelligence.search import SearchResult
+
+        wikipedia_queries = []
+        fetched_urls = []
+
+        class Search:
+            base_url = "http://searxng.test"
+
+            async def search(self, *_args, **_kwargs):
+                return [
+                    SearchResult(
+                        title="قائمة الجامعات في العالم",
+                        url="https://ar.wikipedia.org/wiki/List_of_universities",
+                        snippet="قائمة بأسماء الجامعات حول العالم.",
+                        source="wikipedia",
+                        rank=1,
+                    )
+                ]
+
+            async def search_wikipedia(self, query, **_kwargs):
+                wikipedia_queries.append(query)
+                return []
+
+        class Fetcher:
+            async def fetch(self, url):
+                fetched_urls.append(url)
+                raise AssertionError("Unverified ranking results must not be fetched")
+
+        with patch.object(settings, "web_search_enabled", True):
+            result = await WebIntelligencePipeline(
+                search_client=Search(),
+                fetcher=Fetcher(),
+            ).run(
+                "ابحث عن احسن الجامعات في العالم",
+                tenant_id="tenant-a",
+            )
+
+        self.assertIn("university_ranking_request", result.decision.signals)
+        self.assertFalse(result.sources)
+        self.assertFalse(wikipedia_queries)
+        self.assertFalse(fetched_urls)
+        self.assertNotIn("source_found", [event["event"] for event in result.events])
+
+    async def test_pipeline_does_not_use_stable_fallback_for_recent_vehicle_years(self):
+        wikipedia_queries = []
+
+        class Search:
+            base_url = "http://searxng.test"
+
+            async def search(self, *_args, **_kwargs):
+                return []
+
+            async def search_wikipedia(self, query, **_kwargs):
+                wikipedia_queries.append(query)
+                return []
+
+        with patch.object(settings, "web_search_enabled", True):
+            result = await WebIntelligencePipeline(search_client=Search()).run(
+                "ابحث عن الفرق بين الأكسنت ٢٠٢٦ والكرولا ٢٠٢٦",
+                tenant_id="tenant-a",
+            )
+
+        self.assertIn("current_vehicle_model_query", result.decision.signals)
+        self.assertIn("time_sensitive_information", result.decision.signals)
+        self.assertFalse(result.sources)
+        self.assertFalse(wikipedia_queries)
+
+    async def test_pipeline_rejects_wikipedia_for_recent_vehicle_year_queries(self):
+        from app.web_intelligence.search import SearchResult
+
+        fetched_urls = []
+
+        class Search:
+            base_url = "http://searxng.test"
+
+            async def search(self, *_args, **_kwargs):
+                return [
+                    SearchResult(
+                        title="2026 Hyundai Accent and Toyota Corolla comparison",
+                        url="https://en.wikipedia.org/wiki/Hyundai_Accent",
+                        snippet="Comparison of the Accent and Corolla for 2026.",
+                        source="wikipedia",
+                        rank=1,
+                    )
+                ]
+
+            async def search_wikipedia(self, *_args, **_kwargs):
+                raise AssertionError("Current model-year queries must not use Wikipedia fallback")
+
+        class Fetcher:
+            async def fetch(self, url):
+                fetched_urls.append(url)
+                raise AssertionError("Wikipedia model pages must not be fetched as current evidence")
+
+        with patch.object(settings, "web_search_enabled", True):
+            result = await WebIntelligencePipeline(
+                search_client=Search(),
+                fetcher=Fetcher(),
+            ).run(
+                "ابحث عن الفرق بين الأكسنت ٢٠٢٦ والكرولا ٢٠٢٦",
+                tenant_id="tenant-a",
+            )
+
+        self.assertFalse(result.sources)
+        self.assertFalse(fetched_urls)
 
     async def test_pipeline_publishes_source_and_fetch_progress_before_fetch_finishes(self):
         from app.web_intelligence.search import SearchResult
