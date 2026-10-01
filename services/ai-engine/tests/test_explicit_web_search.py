@@ -21,16 +21,22 @@ class ExplicitWebSearchTests(unittest.IsolatedAsyncioTestCase):
             runtimeContext={"language": "en"},
             skillId="web_search",
         )
+        async def progress_callback(_event):
+            return None
 
         with patch(
             "app.router.intelligence_router.web_intelligence_pipeline.run",
             new_callable=AsyncMock,
             return_value=result,
         ) as run:
-            loaded = await IntelligenceRouter(registry=None)._load_web_context(request)
+            loaded = await IntelligenceRouter(registry=None)._load_web_context(
+                request,
+                event_callback=progress_callback,
+            )
 
         self.assertIs(loaded, result)
         self.assertTrue(run.await_args.kwargs["explicit_request"])
+        self.assertIs(run.await_args.kwargs["event_callback"], progress_callback)
         self.assertEqual(run.await_args.args[0], "What is new in Python?")
         self.assertRegex(run.await_args.kwargs["as_of_date"], r"^\d{4}-\d{2}-\d{2}$")
 
@@ -259,8 +265,9 @@ class ExplicitWebSearchTests(unittest.IsolatedAsyncioTestCase):
             answer = "".join([part async for part in stream])
 
         self.assertEqual(sources, [])
-        self.assertIn("لم أعثر على تقارير موثوقة منشورة اليوم", answer)
+        self.assertIn("لم يصلني مصدر حديث يمكن التحقق منه الآن", answer)
         self.assertNotIn("الكويت", answer)
+        self.assertNotIn("لم أتمكن من العثور على مصادر موثوقة لهذا البحث الآن", answer)
 
     async def test_non_stream_does_not_generate_claims_when_web_search_has_no_sources(self):
         web_result = WebPipelineResult(
@@ -305,9 +312,86 @@ class ExplicitWebSearchTests(unittest.IsolatedAsyncioTestCase):
         ):
             response = await router.route(request)
 
-        self.assertIn("لم أعثر على تقارير موثوقة منشورة اليوم", response.content)
+        self.assertIn("لم يصلني مصدر حديث يمكن التحقق منه الآن", response.content)
         self.assertNotIn("الكويت", response.content)
         self.assertEqual(response.backend, "web-search-unavailable")
+
+    async def test_stable_search_without_sources_uses_disclosed_general_knowledge(self):
+        web_result = WebPipelineResult(
+            decision=WebDecision(
+                True,
+                "web_signal_detected",
+                ("external_factual_lookup",),
+                "general",
+            ),
+            error="No verified web search results",
+        )
+        generated_requests = []
+
+        class FakeBackend:
+            default_model = "fixture"
+
+            async def stream_chat(self, ai_request):
+                generated_requests.append(ai_request)
+                yield "إجابة عامة من المعرفة العامة."
+
+        backend = FakeBackend()
+
+        class FakeRegistry:
+            def get(self, _backend_id):
+                return backend
+
+        router = IntelligenceRouter(registry=FakeRegistry())
+        request = ChatRequest(
+            messages=[ChatMessage(role="user", content="ما اللي حصل في الحرب العالمية الثانية")],
+            tenantId="tenant-a",
+            runtimeContext={"language": "ar"},
+            skillId="web_search",
+            stream=True,
+        )
+
+        with (
+            patch(
+                "app.router.intelligence_router.response_cache_service.get",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "app.router.intelligence_router.response_cache_service.store",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "app.router.intelligence_router.daily_learning_service.profile",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch.object(
+                router,
+                "_decide_route",
+                return_value=RouteDecision(backend_id="fixture", reason="test"),
+            ),
+            patch.object(
+                router,
+                "_load_context_sources",
+                new_callable=AsyncMock,
+                return_value=([], [], {}),
+            ),
+            patch.object(
+                router,
+                "_load_web_context",
+                new_callable=AsyncMock,
+                return_value=web_result,
+            ),
+        ):
+            stream, route, _sources, _telemetry, _events = await router.stream_route(request)
+            answer = "".join([part async for part in stream])
+
+        self.assertEqual(answer, "إجابة عامة من المعرفة العامة.")
+        self.assertEqual(route.backend_id, "fixture")
+        self.assertEqual(len(generated_requests), 1)
+        self.assertIn("إجابة عامة", generated_requests[0].system_prompt)
+        self.assertIn("غير مستندة إلى نتائج بحث مباشرة", generated_requests[0].system_prompt)
+        self.assertNotIn("لم أتمكن من العثور على مصادر موثوقة لهذا البحث الآن", answer)
 
     async def test_same_day_news_returns_verified_headlines_without_model(self):
         source = {

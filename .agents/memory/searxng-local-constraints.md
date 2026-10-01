@@ -139,3 +139,19 @@ under `ar`, while the same queries returned relevant Arabic pages with
 **How to apply:** Exercise the exact Arabic query through the full pipeline,
 including locale retry, lexical relevance, page fetching, extraction, and
 citations. Do not count raw results as success or weaken the relevance filter.
+
+When SearXNG has no relevant evidence for a stable general question, the direct
+MediaWiki search API can be used as a secondary source. Send a concise topic
+query, include a descriptive User-Agent, and serialize requests with at least a
+one-second interval per client. Skip this fallback for current/time-sensitive
+questions and queries containing direct URLs. A university list page is not
+evidence of a ranking.
+
+**Why:** Live Arabic queries found useful history, university, and vehicle pages
+through MediaWiki's API when SearXNG returned nothing, but rapid API requests
+were rate-limited. Current weather still had no evidence, and a list of Egyptian
+universities did not establish a ranking.
+
+**How to apply:** Preserve relevance scoring, SSRF-safe page fetching, and
+source verification after fallback results. Keep current weather, news, and
+prices evidence-gated; do not infer rankings from page order or model knowledge.

@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import logging
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from typing import Any
@@ -25,6 +26,7 @@ from app.web_intelligence.search import (
     extract_direct_urls,
     filter_and_score_results,
     normalize_search_query,
+    normalize_wikipedia_query,
     select_diverse_results,
 )
 
@@ -69,6 +71,20 @@ class WebIntelligencePipeline:
     @staticmethod
     def _event(name: str, **payload: Any) -> dict[str, Any]:
         return {"event": name, **payload}
+
+    async def _emit_event(
+        self,
+        result: WebPipelineResult,
+        event: dict[str, Any],
+        event_callback: Callable[[dict[str, Any]], Awaitable[None]] | None,
+    ) -> None:
+        result.events.append(event)
+        if event_callback is None:
+            return
+        try:
+            await event_callback(event)
+        except Exception as exc:
+            logger.debug("Web progress event delivery failed: %s", str(exc)[:180])
 
     @staticmethod
     def _published_on_date(
@@ -166,6 +182,7 @@ class WebIntelligencePipeline:
         explicit_request: bool = False,
         as_of_date: str | None = None,
         timezone_name: str = "UTC",
+        event_callback: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     ) -> WebPipelineResult:
         pipeline_started = time.perf_counter()
         decision = decide_web(query, tenant_config, explicit_request=explicit_request)
@@ -179,15 +196,21 @@ class WebIntelligencePipeline:
                 telemetry.set("webTotalMs", 0.0)
             return result
 
-        result.events.append(self._event("status", state="searching", progress=10, reason=decision.reason))
+        await self._emit_event(
+            result,
+            self._event("status", state="searching", progress=10, reason=decision.reason),
+            event_callback,
+        )
         direct_urls = extract_direct_urls(query)
-        result.events.append(
+        await self._emit_event(
+            result,
             self._event(
                 "search_started",
                 progress=20,
                 query=normalize_search_query(query)[:500],
                 directUrlCount=len(direct_urls),
-            )
+            ),
+            event_callback,
         )
         started = time.perf_counter()
         search_query = normalize_search_query(query)
@@ -209,18 +232,77 @@ class WebIntelligencePipeline:
         )
         search_results = self._cache_get(self._search_cache, search_key, settings.web_search_cache_ttl_seconds)
         search_cache_hit = search_results is not None
+
+        wikipedia_fallback_allowed = (
+            decision.category == "general"
+            and not same_day_requested
+            and "time_sensitive_information" not in decision.signals
+            and not direct_urls
+        )
+
+        async def search_wikipedia_fallback() -> list[SearchResult]:
+            search_method = getattr(self.search_client, "search_wikipedia", None)
+            if not wikipedia_fallback_allowed or not callable(search_method):
+                return []
+            wikipedia_query = normalize_wikipedia_query(query)
+            if not wikipedia_query:
+                return []
+            await self._emit_event(
+                result,
+                self._event(
+                    "search_started",
+                    progress=22,
+                    query=wikipedia_query[:500],
+                    provider="wikipedia",
+                    directUrlCount=0,
+                ),
+                event_callback,
+            )
+            try:
+                candidates = await search_method(
+                    wikipedia_query,
+                    language=language,
+                    max_results=max_results or settings.web_max_results,
+                    category=decision.category,
+                )
+                relevant = filter_and_score_results(wikipedia_query, candidates)
+                if relevant and telemetry is not None:
+                    telemetry.set("webSearchFallbackProvider", "wikipedia")
+                return relevant
+            except Exception as exc:
+                logger.warning("Wikipedia search fallback failed: %s", str(exc)[:240])
+                await self._emit_event(
+                    result,
+                    self._event(
+                        "error",
+                        stage="wikipedia_search",
+                        message="Stable-fact fallback search failed",
+                    ),
+                    event_callback,
+                )
+                return []
+
         try:
             if search_results is None:
                 if search_query:
-                    search_results = await self.search_client.search(
-                        search_query,
-                        language=language,
-                        region=region,
-                        max_results=max_results or settings.web_max_results,
-                        category=decision.category,
-                        time_range=time_range,
-                    )
+                    search_error = None
+                    try:
+                        search_results = await self.search_client.search(
+                            search_query,
+                            language=language,
+                            region=region,
+                            max_results=max_results or settings.web_max_results,
+                            category=decision.category,
+                            time_range=time_range,
+                        )
+                    except Exception as exc:
+                        search_error = exc
+                        search_results = []
                     search_results = filter_and_score_results(search_query, search_results)
+                    if not search_results:
+                        search_results = await search_wikipedia_fallback()
+                    if search_error is not None and not search_results and not direct_urls:
+                        raise search_error
                     if same_day_requested:
                         search_results = [
                             item
@@ -242,11 +324,13 @@ class WebIntelligencePipeline:
                             item.published_at, target_date, timezone_name
                         )
                     ]
-            result.events.extend(
-                self._event(
+            for item in search_results:
+                await self._emit_event(
+                    result,
+                    self._event(
                     "source_found",
-                     progress=min(45, 25 + item.rank * 3),
-                     source={
+                    progress=min(45, 25 + item.rank * 3),
+                    source={
                         "title": item.title,
                         "url": item.url,
                         "rank": item.rank,
@@ -254,16 +338,17 @@ class WebIntelligencePipeline:
                         "engines": list(item.engines),
                         "category": item.category,
                     },
+                    ),
+                    event_callback,
                 )
-                for item in search_results
-            )
             if telemetry is not None:
                 telemetry.add_ms("webSearchMs", started)
                 telemetry.set("webSearchCacheHit", search_cache_hit)
                 telemetry.set("webSearchResultCount", len(search_results))
         except Exception as exc:
             logger.warning("Web search failed: %s", str(exc)[:240])
-            result.events.append(
+            await self._emit_event(
+                result,
                 self._event(
                     "error",
                     stage="search",
@@ -272,7 +357,8 @@ class WebIntelligencePipeline:
                         if direct_urls
                         else "SearXNG search failed"
                     ),
-                )
+                ),
+                event_callback,
             )
             if telemetry is not None:
                 telemetry.add_ms("webSearchMs", started)
@@ -296,8 +382,10 @@ class WebIntelligencePipeline:
             )
             for index, url in enumerate(direct_urls, start=1)
         ]
-        result.events.extend(
-            self._event(
+        for item in direct_results:
+            await self._emit_event(
+                result,
+                self._event(
                 "source_found",
                 progress=25,
                 source={
@@ -308,16 +396,20 @@ class WebIntelligencePipeline:
                     "engines": [],
                     "category": item.category,
                 },
+                ),
+                event_callback,
             )
-            for item in direct_results
-        )
         if telemetry is not None:
             telemetry.set("webDirectUrlCount", len(direct_results))
 
         if not search_results and not direct_results:
             result.error = "No verified web search results"
             result.context = self._unavailable_context(language=language)
-            result.events.append(self._event("error", stage="search", message=result.error))
+            await self._emit_event(
+                result,
+                self._event("error", stage="search", message=result.error),
+                event_callback,
+            )
             if telemetry is not None:
                 telemetry.set("webSearchCacheHit", search_cache_hit)
                 telemetry.set("webSearchResultCount", 0)
@@ -365,7 +457,11 @@ class WebIntelligencePipeline:
         extraction_durations: list[float] = []
 
         async def fetch_one(item: SearchResult) -> tuple[SearchResult, Any, ExtractedPage | None]:
-            result.events.append(self._event("fetch_started", url=item.url))
+            await self._emit_event(
+                result,
+                self._event("fetch_started", url=item.url),
+                event_callback,
+            )
             fetch_key = self._cache_key(item.url)
             fetched = self._cache_get(self._fetch_cache, fetch_key, settings.web_fetch_cache_ttl_seconds)
             fetch_cache_hit = fetched is not None
@@ -386,10 +482,18 @@ class WebIntelligencePipeline:
                     extracted = extract_html(fetched.content, fetched.url, content_type=fetched.content_type)
                     extraction_durations.append((time.perf_counter() - extraction_started) * 1000)
                     self._extraction_cache[extraction_key] = (time.monotonic(), extracted)
-                result.events.append(self._event("fetch_completed", url=item.url, contentChars=len(extracted.content)))
+                await self._emit_event(
+                    result,
+                    self._event("fetch_completed", url=item.url, contentChars=len(extracted.content)),
+                    event_callback,
+                )
                 return item, fetched, extracted
             except (FetchError, ValueError) as exc:
-                result.events.append(self._event("error", stage="fetch", url=item.url, message=str(exc)[:180]))
+                await self._emit_event(
+                    result,
+                    self._event("error", stage="fetch", url=item.url, message=str(exc)[:180]),
+                    event_callback,
+                )
                 return item, None, None
 
         pages = await asyncio.gather(*(fetch_one(item) for item in selected))
@@ -439,7 +543,11 @@ class WebIntelligencePipeline:
                 direct_url_provided=bool(direct_urls),
                 language=language,
             )
-            result.events.append(self._event("error", stage="fetch", message=result.error))
+            await self._emit_event(
+                result,
+                self._event("error", stage="fetch", message=result.error),
+                event_callback,
+            )
             if telemetry is not None:
                 telemetry.add_ms("webTotalMs", pipeline_started)
             return result
@@ -465,8 +573,10 @@ class WebIntelligencePipeline:
             remaining -= len(clipped)
         result.context = "\n".join(context_parts)
         result.sources = [item["source"] for item in candidates]
-        result.events.append(
-            self._event("status", state="generating", progress=85, sourceCount=len(result.sources))
+        await self._emit_event(
+            result,
+            self._event("status", state="generating", progress=85, sourceCount=len(result.sources)),
+            event_callback,
         )
         if telemetry is not None:
             telemetry.add_ms("webTotalMs", pipeline_started)

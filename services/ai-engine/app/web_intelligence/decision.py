@@ -52,11 +52,21 @@ _CURRENT_TERMS = (
     "اخبار",
     "سعر",
     "طقس",
+    "حالة الطقس",
+    "توقعات الطقس",
+    "درجة الحرارة",
+    "درجه الحراره",
+    "درجة حرارة",
+    "درجه حراره",
+    "درجات الحرارة",
+    "درجات الحراره",
     "latest",
     "current",
     "news",
     "price",
     "weather",
+    "temperature",
+    "forecast",
 )
 _EXTERNAL_LOOKUP_TERMS = (
     "أفضل مكتبة",
@@ -68,6 +78,51 @@ _EXTERNAL_LOOKUP_TERMS = (
     "best library",
     "best tool",
 )
+_COMPARISON_QUERY_TERMS = (
+    "الفرق بين",
+    "الاختلاف بين",
+    "مقارنة بين",
+    "قارن بين",
+    " مقابل ",
+    " vs ",
+    "versus",
+    "difference between",
+)
+_CAR_BRAND_TERMS = (
+    "مرسيدس",
+    "مارسيدس",
+    "بي ام دبليو",
+    "بي إم دبليو",
+    "bmw",
+    "mercedes",
+    "تويوتا",
+    "toyota",
+    "هوندا",
+    "honda",
+    "هيونداي",
+    "hyundai",
+    "نيسان",
+    "nissan",
+    "تسلا",
+    "tesla",
+)
+_UNIVERSITY_RANKING_TERMS = (
+    "افضل جامعة",
+    "أفضل جامعة",
+    "احسن جامعة",
+    "أحسن جامعة",
+    "افضل جامعات",
+    "أفضل جامعات",
+    "احسن جامعات",
+    "أحسن جامعات",
+    "ترتيب الجامعات",
+    "تصنيف الجامعات",
+    "best university",
+    "best universities",
+    "top universities",
+    "university ranking",
+    "university rankings",
+)
 _ORGANIZATION_LOOKUP_QUERY = re.compile(
     r"(?:من\s+(?:هي|هيا|هو|هوا)\s+(?:شركة|مؤسسة|استوديو)|"
     r"(?:who|what)\s+(?:is|are)\s+(?:the\s+)?(?:company|studio|organization))",
@@ -75,10 +130,12 @@ _ORGANIZATION_LOOKUP_QUERY = re.compile(
 )
 _EVENT_QUERY_TERMS = (
     "ما حصل",
+    "ما اللي حصل",
     "ماذا حصل",
     "وش حصل",
     "ايش حصل",
     "ما حدث",
+    "ما اللي حدث",
     "ماذا حدث",
     "وش صار",
     "ايش صار",
@@ -153,9 +210,13 @@ def classify_search_category(query: str) -> SearchCategory:
     intentionally fall back to the broad general category.
     """
     text = " ".join((query or "").casefold().split())
-    if any(term.casefold() in text for term in _NEWS_TERMS) or any(
+    has_current_signal = requires_same_day_results(query) or any(
+        term.casefold() in text for term in _CURRENT_TERMS
+    )
+    is_current_event = has_current_signal and any(
         term.casefold() in text for term in _EVENT_QUERY_TERMS
-    ):
+    )
+    if any(term.casefold() in text for term in _NEWS_TERMS) or is_current_event:
         return "news"
     if any(term.casefold() in text for term in _DOCUMENTATION_TERMS):
         return "documentation"
@@ -199,7 +260,16 @@ def decide_web(
         signals.append("explicit_search_request")
     if category == "news" or any(term.casefold() in text for term in _CURRENT_TERMS):
         signals.append("time_sensitive_information")
-    if any(term.casefold() in text for term in _EXTERNAL_LOOKUP_TERMS):
+    is_car_comparison = (
+        any(term in text for term in _COMPARISON_QUERY_TERMS)
+        and any(term.casefold() in text for term in _CAR_BRAND_TERMS)
+    )
+    if (
+        any(term.casefold() in text for term in _EXTERNAL_LOOKUP_TERMS)
+        or any(term.casefold() in text for term in _EVENT_QUERY_TERMS)
+        or is_car_comparison
+        or any(term.casefold() in text for term in _UNIVERSITY_RANKING_TERMS)
+    ):
         signals.append("external_factual_lookup")
     if _ORGANIZATION_LOOKUP_QUERY.search(text):
         signals.append("external_factual_lookup")

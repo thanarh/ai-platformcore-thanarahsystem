@@ -40,7 +40,7 @@ class _Registry:
 
 
 class _FakeRouter:
-    async def stream_route(self, request):
+    async def stream_route(self, request, event_callback=None):
         async def tokens():
             yield "أول"
             yield " رد"
@@ -66,7 +66,10 @@ class _FakeRouter:
 
 
 class _FakeRequest:
-    app = SimpleNamespace(state=SimpleNamespace(intelligence_router=_FakeRouter()))
+    def __init__(self, router=None):
+        self.app = SimpleNamespace(
+            state=SimpleNamespace(intelligence_router=router or _FakeRouter())
+        )
 
     async def is_disconnected(self):
         return False
@@ -313,3 +316,76 @@ class AIEngineRegressionTests(unittest.IsolatedAsyncioTestCase):
             payload.index(r'data: {"delta": "\u0623\u0648\u0644"}'),
             payload.index("data: [DONE]"),
         )
+
+    async def test_stream_endpoint_forwards_search_progress_before_routing_finishes(self):
+        class GatedRouter:
+            def __init__(self):
+                self.release = asyncio.Event()
+                self.finished = asyncio.Event()
+
+            async def stream_route(self, _request, event_callback=None):
+                await event_callback(
+                    {"event": "search_started", "query": "معلومات عامة", "progress": 20}
+                )
+                await event_callback(
+                    {
+                        "event": "source_found",
+                        "source": {
+                            "title": "Fixture page",
+                            "url": "https://public.example/page",
+                            "domain": "public.example",
+                        },
+                    }
+                )
+                await event_callback(
+                    {"event": "fetch_started", "url": "https://public.example/page"}
+                )
+                await self.release.wait()
+                self.finished.set()
+
+                async def tokens():
+                    yield "تم"
+
+                telemetry = SimpleNamespace(
+                    request_id="live-progress",
+                    started_at=time.perf_counter(),
+                    values={},
+                    add_ms=lambda *_args, **_kwargs: None,
+                    set_ms=lambda *_args, **_kwargs: None,
+                    finish=lambda **_kwargs: {},
+                )
+                return (
+                    tokens(),
+                    RouteDecision(backend_id="fake-local", reason="test", fallback_order=[]),
+                    [],
+                    telemetry,
+                    [],
+                )
+
+        request = ChatRequest(
+            messages=[ChatMessage(role="user", content="ابحث عن معلومات عامة")],
+            tenantId="tenant-a",
+            userId="user-a",
+            stream=True,
+        )
+        gated_router = GatedRouter()
+
+        with patch("app.routers.chat.memory_service.remember", return_value=None):
+            response = await chat_stream(_FakeRequest(gated_router), request)
+            iterator = response.body_iterator.__aiter__()
+            chunks = [await iterator.__anext__()]
+
+            for expected_event in ("search_started", "source_found", "fetch_started"):
+                chunk = await asyncio.wait_for(iterator.__anext__(), timeout=2)
+                chunks.append(chunk)
+                self.assertIn(f"event: {expected_event}", str(chunk))
+                self.assertFalse(gated_router.finished.is_set())
+
+            gated_router.release.set()
+            chunks.extend([chunk async for chunk in iterator])
+
+        payload = "".join(chunk.decode() if isinstance(chunk, bytes) else chunk for chunk in chunks)
+        self.assertIn("event: search_started", payload)
+        self.assertIn("event: source_found", payload)
+        self.assertIn("event: fetch_started", payload)
+        self.assertIn("data: [DONE]", payload)

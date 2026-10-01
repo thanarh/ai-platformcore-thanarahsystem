@@ -63,16 +63,53 @@ async def chat_stream(request: Request, chat_request: ChatRequest):
     async def event_generator():
         try:
             yield event_frame(StreamEventType.STATUS, {"state": "routing"})
-            stream_result = await tir.stream_route(chat_request)
+            web_event_queue: asyncio.Queue[dict] = asyncio.Queue()
+
+            async def publish_web_event(event: dict):
+                await web_event_queue.put(event)
+
+            route_task = asyncio.create_task(
+                tir.stream_route(chat_request, event_callback=publish_web_event)
+            )
+            live_web_event_count = 0
+            try:
+                while True:
+                    if route_task.done():
+                        if web_event_queue.empty():
+                            break
+                        event = web_event_queue.get_nowait()
+                    else:
+                        event_task = asyncio.create_task(web_event_queue.get())
+                        done, _ = await asyncio.wait(
+                            {route_task, event_task},
+                            return_when=asyncio.FIRST_COMPLETED,
+                        )
+                        if event_task in done:
+                            event = event_task.result()
+                        else:
+                            event_task.cancel()
+                            await asyncio.gather(event_task, return_exceptions=True)
+                            continue
+                    event_name = event.get("event", "status")
+                    payload = {key: value for key, value in event.items() if key != "event"}
+                    yield event_frame(event_name, payload)
+                    live_web_event_count += 1
+                stream_result = await route_task
+            except BaseException:
+                route_task.cancel()
+                await asyncio.gather(route_task, return_exceptions=True)
+                raise
+
             if len(stream_result) == 4:
                 stream_gen, route, rag_sources, telemetry = stream_result
                 web_events = []
             else:
                 stream_gen, route, rag_sources, telemetry, web_events = stream_result
-            for event in web_events:
-                event_name = event.get("event", "status")
-                payload = {key: value for key, value in event.items() if key != "event"}
-                yield event_frame(event_name, payload)
+            if live_web_event_count == 0:
+                for event in web_events:
+                    event_name = event.get("event", "status")
+                    payload = {key: value for key, value in event.items() if key != "event"}
+                    yield event_frame(event_name, payload)
             yield event_frame(StreamEventType.STATUS, {"state": "generating"})
             full_content = []
             first_delta = False

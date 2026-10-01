@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
+import time
 import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from html import unescape
 from typing import Any, Optional
-from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
 
 import httpx
 
@@ -14,6 +17,7 @@ from app.config import settings
 from app.web_intelligence.decision import SearchCategory
 
 logger = logging.getLogger(__name__)
+_WIKIPEDIA_MIN_REQUEST_INTERVAL_SECONDS = 1.0
 
 _SEARCH_COMMAND_PREFIX = re.compile(
     r"^\s*(?:"
@@ -78,6 +82,7 @@ _SEARCH_STOPWORDS = {
     "هذه", "ذلك", "مع", "كيف", "ماذا", "هل", "أريد", "اريد", "ابحث",
     "أبحث", "بحث", "الإنترنت", "الانترنت", "الويب", "لي", "أحدث",
     "احدث", "آخر", "اخر", "اليوم", "الآن", "الان",
+    "بين", "الفرق", "مقارنة", "مقارنه",
 }
 _ARABIC_MARKS = re.compile(r"[\u0640\u064b-\u065f\u0670]")
 _ARABIC_LETTER_NORMALIZATION = str.maketrans({
@@ -92,11 +97,30 @@ _ARABIC_LETTER_NORMALIZATION = str.maketrans({
 
 def _normalize_lexical_text(value: str) -> str:
     normalized = unicodedata.normalize("NFKC", value or "").casefold()
-    return _ARABIC_MARKS.sub("", normalized).translate(_ARABIC_LETTER_NORMALIZATION)
+    normalized = _ARABIC_MARKS.sub("", normalized).translate(_ARABIC_LETTER_NORMALIZATION)
+    normalized = re.sub(
+        r"(?<!\w)(?:ال)?(?:مارسيدس|مرسيدس)(?:[\s-]*بنز)?(?!\w)",
+        " mercedes ",
+        normalized,
+    )
+    normalized = re.sub(
+        r"(?<!\w)(?:ال)?بي\s+ام\s+دبليو(?!\w)",
+        " bmw ",
+        normalized,
+    )
+    return normalized
 
 
 _NORMALIZED_SEARCH_STOPWORDS = {
     _normalize_lexical_text(term) for term in _SEARCH_STOPWORDS
+}
+
+_WIKIPEDIA_QUERY_FRAMING = {
+    "ما", "ماذا", "وش", "ايش", "اللي", "الذي", "التي", "حصل", "حدث", "صار", "و",
+    "في", "عن", "من", "بين", "الفرق", "الاختلاف", "مقارنة", "قارن",
+    "افضل", "الافضل", "احسن", "الاحسن", "اعلى", "ترتيب", "الترتيب", "تصنيف", "التصنيف",
+    "what", "happened", "occurred", "is", "are", "the", "in", "during",
+    "of", "between", "difference", "compare", "comparison", "best", "top", "ranking", "rankings",
 }
 
 
@@ -122,6 +146,31 @@ def normalize_search_query(query: str) -> str:
         brand_terms = " ".join(labels[:-1]) if len(labels) > 1 else host
         normalized = " ".join(part for part in (normalized, brand_terms) if part)
     return normalized or original
+
+
+def normalize_wikipedia_query(query: str) -> str:
+    """Remove question framing from stable-topic searches sent to Wikipedia."""
+    normalized = normalize_search_query(query)
+    normalized = re.sub(
+        r"(?<!\w)(?:ال)?بي\s+ام\s+دبليو(?!\w)",
+        "بي إم دبليو",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    words = re.findall(r"[\w\u0600-\u06ff]+", normalized)
+    topic_words = [
+        word
+        for word in words
+        if _normalize_lexical_text(word) not in _WIKIPEDIA_QUERY_FRAMING
+    ]
+    topic = " ".join(topic_words).strip()
+    topic = re.sub(
+        r"(?<!\w)(?:ال)?(?:مارسيدس|مرسيدس)(?!\w)",
+        "مرسيدس",
+        topic,
+        flags=re.IGNORECASE,
+    )
+    return topic or normalized
 
 
 def extract_direct_urls(query: str) -> list[str]:
@@ -207,6 +256,9 @@ class SearXNGClient:
         self._client = client
         self.timeout_seconds = timeout_seconds or settings.searxng_timeout_seconds
         self._capabilities_cache: tuple[float, dict[str, Any]] | None = None
+        self._wikipedia_request_lock = asyncio.Lock()
+        self._wikipedia_last_request_at = 0.0
+        self._wikipedia_min_request_interval_seconds = _WIKIPEDIA_MIN_REQUEST_INTERVAL_SECONDS
 
     async def _request(self, path: str, params: dict[str, Any]) -> httpx.Response:
         headers = {"User-Agent": settings.web_fetch_user_agent}
@@ -222,6 +274,21 @@ class SearXNGClient:
             follow_redirects=False,
         ) as client:
             return await client.get(f"{self.base_url}{path}", params=params, headers=headers)
+
+    async def _request_url(self, url: str, params: dict[str, Any]) -> httpx.Response:
+        headers = {"User-Agent": settings.web_fetch_user_agent}
+        if self._client is not None:
+            return await self._client.get(
+                url,
+                params=params,
+                timeout=self.timeout_seconds,
+                headers=headers,
+            )
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(self.timeout_seconds),
+            follow_redirects=False,
+        ) as client:
+            return await client.get(url, params=params, headers=headers)
 
     async def _json_request(self, path: str, params: dict[str, Any] | None = None) -> tuple[httpx.Response, Any]:
         response = await self._request(path, params or {})
@@ -266,7 +333,11 @@ class SearXNGClient:
         for item in payload["engines"]:
             if isinstance(item, str):
                 engines.append({"name": item, "categories": []})
-            elif isinstance(item, dict) and item.get("name"):
+            elif (
+                isinstance(item, dict)
+                and item.get("name")
+                and item.get("enabled") is not False
+            ):
                 engines.append({
                     "name": str(item["name"]),
                     "categories": [str(category) for category in item.get("categories", []) if category],
@@ -467,6 +538,71 @@ class SearXNGClient:
             )
         return results
 
+    async def search_wikipedia(
+        self,
+        query: str,
+        *,
+        language: str = "auto",
+        max_results: int | None = None,
+        category: SearchCategory = "general",
+    ) -> list[SearchResult]:
+        """Use MediaWiki's public search API as a stable-fact fallback."""
+        search_query = normalize_wikipedia_query(query)
+        if not search_query:
+            return []
+        wiki_language = (
+            "ar"
+            if _effective_language(search_query, language or "auto").casefold().startswith("ar")
+            else "en"
+        )
+        async with self._wikipedia_request_lock:
+            elapsed = time.monotonic() - self._wikipedia_last_request_at
+            wait_seconds = self._wikipedia_min_request_interval_seconds - elapsed
+            if wait_seconds > 0:
+                await asyncio.sleep(wait_seconds)
+            self._wikipedia_last_request_at = time.monotonic()
+            response = await self._request_url(
+                f"https://{wiki_language}.wikipedia.org/w/api.php",
+                {
+                    "action": "query",
+                    "list": "search",
+                    "srsearch": search_query,
+                    "srnamespace": 0,
+                    "srlimit": max(1, min(max_results or settings.web_max_results, 10)),
+                    "srprop": "snippet",
+                    "format": "json",
+                    "utf8": 1,
+                },
+            )
+        response.raise_for_status()
+        payload = response.json()
+        hits = payload.get("query", {}).get("search", []) if isinstance(payload, dict) else []
+        if not isinstance(hits, list):
+            raise ValueError("Wikipedia returned a malformed search response")
+
+        results: list[SearchResult] = []
+        for index, item in enumerate(hits, start=1):
+            if not isinstance(item, dict):
+                continue
+            title = str(item.get("title") or "").strip()
+            if not title:
+                continue
+            snippet = unescape(re.sub(r"<[^>]+>", " ", str(item.get("snippet") or "")))
+            snippet = re.sub(r"\s+", " ", snippet).strip()
+            article_path = quote(title.replace(" ", "_"), safe="()_,")
+            results.append(
+                SearchResult(
+                    title=title[:500],
+                    url=f"https://{wiki_language}.wikipedia.org/wiki/{article_path}",
+                    snippet=snippet[:1200],
+                    source="wikipedia",
+                    rank=index,
+                    engines=("wikipedia_api",),
+                    category=category,
+                )
+            )
+        return results
+
 
 def canonicalize_url(url: str) -> str:
     parsed = urlparse(url.strip())
@@ -489,6 +625,25 @@ def blocked_search_domains() -> set[str]:
         for domain in settings.web_search_blocked_domains.split(",")
         if domain.strip()
     }
+
+
+def _relevance_variants(term: str) -> set[str]:
+    """Match common Arabic article/plural forms without weakening result filters."""
+    variants = {term}
+    if not re.search(r"[\u0600-\u06ff]", term):
+        return variants
+
+    base = term[2:] if term.startswith("ال") and len(term) > 3 else term
+    variants.add(base)
+    if len(base) > 4 and base.endswith("ات"):
+        variants.add(f"{base[:-2]}ه")
+    if base == "احسن":
+        variants.add("افضل")
+    elif base == "افضل":
+        variants.add("احسن")
+    elif base in {"مارسيدس", "مرسيدس"}:
+        variants.update({"مارسيدس", "مرسيدس"})
+    return variants
 
 
 def filter_and_score_results(query: str, results: list[SearchResult]) -> list[SearchResult]:
@@ -518,7 +673,11 @@ def filter_and_score_results(query: str, results: list[SearchResult]) -> list[Se
             continue
         seen.add(canonical)
         haystack = _normalize_lexical_text(f"{result.title} {result.snippet}")
-        overlap = sum(1 for term in terms if term in haystack)
+        overlap = sum(
+            1
+            for term in terms
+            if any(variant in haystack for variant in _relevance_variants(term))
+        )
         if terms and overlap < minimum_overlap:
             continue
         score = overlap / max(1, len(terms)) + max(0.0, 1.0 - (result.rank - 1) * 0.03)

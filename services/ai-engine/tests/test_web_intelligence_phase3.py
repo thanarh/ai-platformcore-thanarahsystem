@@ -43,6 +43,10 @@ class WebIntelligencePhase3Tests(unittest.IsolatedAsyncioTestCase):
             enabled = decide_web("ابحث عن آخر أخبار التقنية اليوم")
             supplied_url = decide_web("هذا هو موقعهم الاكتروني qiroxstudio.online")
             current_events = decide_web("ما حصل اليوم في السعودية")
+            historical_events = decide_web("ما اللي حصل في الحرب العالمية الثانية")
+            current_weather = decide_web("كم درجة حرارة اليوم في السعودية")
+            university_ranking = decide_web("احسن جامعات مصر")
+            car_comparison = decide_web("الفرق بين المارسيدس و البي ام دبليو")
             health_question = decide_web(
                 "انا تعبان جدا في معدتي الجانب الايمن عند الكلى وعندي جلطة عميقة، ماذا افعل الان"
             )
@@ -52,6 +56,16 @@ class WebIntelligencePhase3Tests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("user_provided_url", supplied_url.signals)
         self.assertTrue(current_events.use_web)
         self.assertEqual(current_events.category, "news")
+        self.assertTrue(historical_events.use_web)
+        self.assertEqual(historical_events.category, "general")
+        self.assertIn("external_factual_lookup", historical_events.signals)
+        self.assertNotIn("time_sensitive_information", historical_events.signals)
+        self.assertTrue(university_ranking.use_web)
+        self.assertIn("external_factual_lookup", university_ranking.signals)
+        self.assertTrue(car_comparison.use_web)
+        self.assertIn("external_factual_lookup", car_comparison.signals)
+        self.assertTrue(current_weather.use_web)
+        self.assertIn("time_sensitive_information", current_weather.signals)
         self.assertFalse(health_question.use_web)
 
     def test_selected_search_tool_forces_search_but_respects_both_gates(self):
@@ -71,6 +85,7 @@ class WebIntelligencePhase3Tests(unittest.IsolatedAsyncioTestCase):
     def test_category_selection_is_deterministic(self):
         self.assertEqual(classify_search_category("آخر أخبار التقنية اليوم"), "news")
         self.assertEqual(classify_search_category("ما حصل اليوم في السعوديه"), "news")
+        self.assertEqual(classify_search_category("ما اللي حصل في الحرب العالمية الثانية"), "general")
         self.assertEqual(classify_search_category("weather in Saudi Arabia today"), "general")
         self.assertEqual(classify_search_category("ابحث عن توثيق FastAPI"), "documentation")
         self.assertEqual(classify_search_category("ابحث عن مقارنة REST و GraphQL"), "technical")
@@ -146,6 +161,32 @@ class WebIntelligencePhase3Tests(unittest.IsolatedAsyncioTestCase):
         filtered = filter_and_score_results(query, [result])
 
         self.assertEqual(filtered, [result])
+
+    def test_arabic_relevance_filter_handles_brand_typos_and_definite_articles(self):
+        from app.web_intelligence.search import SearchResult
+
+        car_query = "ابحث عن الفرق بين المارسيدس و البي ام دبليو"
+        car_result = SearchResult(
+            title="مقارنة مرسيدس بنز وبي إم دبليو",
+            url="https://cars.example/compare",
+            snippet="الفرق بين مرسيدس وبي ام دبليو في التصميم والقيادة",
+            source="fixture",
+            rank=1,
+        )
+        university_query = "ابحث عن احسن جامعات مصر"
+        university_result = SearchResult(
+            title="أفضل الجامعات في مصر",
+            url="https://education.example/egypt",
+            snippet="قائمة الجامعات المصرية والبرامج الأكاديمية",
+            source="fixture",
+            rank=1,
+        )
+
+        self.assertEqual(filter_and_score_results(car_query, [car_result]), [car_result])
+        self.assertEqual(
+            filter_and_score_results(university_query, [university_result]),
+            [university_result],
+        )
 
     def test_extractor_removes_noise_and_keeps_metadata(self):
         html = b"""
@@ -239,6 +280,82 @@ class WebIntelligencePhase3Tests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0].url, "https://public.example/page")
         self.assertEqual(results[0].rank, 1)
+
+    async def test_wikipedia_search_cleans_query_and_returns_real_article_urls(self):
+        from app.web_intelligence.search import normalize_wikipedia_query
+
+        self.assertEqual(
+            normalize_wikipedia_query("ما اللي حصل في الحرب العالمية الثانية"),
+            "الحرب العالمية الثانية",
+        )
+        self.assertEqual(
+            normalize_wikipedia_query("احسن جامعات مصر"),
+            "جامعات مصر",
+        )
+        self.assertEqual(
+            normalize_wikipedia_query("الفرق بين المارسيدس و البي ام دبليو"),
+            "مرسيدس بي إم دبليو",
+        )
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            self.assertEqual(request.url.host, "ar.wikipedia.org")
+            self.assertEqual(request.url.path, "/w/api.php")
+            self.assertEqual(request.url.params["srsearch"], "الحرب العالمية الثانية")
+            self.assertEqual(request.headers.get("user-agent"), settings.web_fetch_user_agent)
+            return httpx.Response(
+                200,
+                json={
+                    "query": {
+                        "search": [{
+                            "title": "الحرب العالمية الثانية",
+                            "snippet": "تاريخ <span class=\"searchmatch\">الحرب</span>",
+                        }]
+                    }
+                },
+            )
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            results = await SearXNGClient(
+                "http://searxng.test",
+                client=client,
+            ).search_wikipedia(
+                "ما اللي حصل في الحرب العالمية الثانية",
+                language="ar",
+            )
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].source, "wikipedia")
+        self.assertEqual(results[0].engines, ("wikipedia_api",))
+        self.assertEqual(results[0].snippet, "تاريخ الحرب")
+        self.assertIn("ar.wikipedia.org/wiki/", results[0].url)
+
+    async def test_wikipedia_api_requests_are_serialized_and_rate_limited(self):
+        request_times = []
+
+        def handler(_request: httpx.Request) -> httpx.Response:
+            request_times.append(asyncio.get_running_loop().time())
+            return httpx.Response(200, json={"query": {"search": []}})
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            search_client = SearXNGClient("http://searxng.test", client=client)
+            search_client._wikipedia_min_request_interval_seconds = 0.03
+            await asyncio.gather(
+                search_client.search_wikipedia("الحرب", language="ar"),
+                search_client.search_wikipedia("الجامعات", language="ar"),
+            )
+
+        self.assertEqual(len(request_times), 2)
+        self.assertGreaterEqual(request_times[1] - request_times[0], 0.025)
+
+    async def test_configured_engine_discovery_ignores_disabled_engines(self):
+        engines = SearXNGClient._configured_engine_names({
+            "engines": [
+                {"name": "wikipedia", "enabled": True, "categories": ["general"]},
+                {"name": "bing", "enabled": False, "categories": ["general"]},
+            ]
+        })
+
+        self.assertEqual([engine["name"] for engine in engines], ["wikipedia"])
 
     async def test_arabic_search_retries_all_languages_when_locale_returns_no_results(self):
         request_languages = []
@@ -358,6 +475,131 @@ class WebIntelligencePhase3Tests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.sources[0]["tenantId"], "tenant-a")
         self.assertIn("search_started", [event["event"] for event in result.events])
         self.assertIn("fetch_completed", [event["event"] for event in result.events])
+
+    async def test_pipeline_uses_wikipedia_for_stable_empty_searches_only(self):
+        from app.web_intelligence.search import SearchResult
+
+        wikipedia_queries = []
+
+        class EmptySearch:
+            base_url = "http://searxng.test"
+
+            async def search(self, *_args, **_kwargs):
+                return []
+
+            async def search_wikipedia(self, query, **_kwargs):
+                wikipedia_queries.append(query)
+                return [
+                    SearchResult(
+                        title="الحرب العالمية الثانية",
+                        url="https://ar.wikipedia.org/wiki/الحرب_العالمية_الثانية",
+                        snippet="ملخص تاريخ الحرب العالمية الثانية.",
+                        source="wikipedia",
+                        rank=1,
+                        engines=("wikipedia_api",),
+                    )
+                ]
+
+        class FakeFetcher:
+            async def fetch(self, url):
+                return FetchedPage(
+                    url=url,
+                    content_type="text/html",
+                    content=(
+                        "<html><title>الحرب العالمية الثانية</title><main>"
+                        "<p>بدأت الحرب العالمية الثانية عام 1939.</p></main></html>"
+                    ).encode("utf-8"),
+                    retrieved_at="2026-10-01T00:00:00+00:00",
+                )
+
+        with patch.object(settings, "web_search_enabled", True):
+            pipeline = WebIntelligencePipeline(search_client=EmptySearch(), fetcher=FakeFetcher())
+            history_result = await pipeline.run(
+                "ما اللي حصل في الحرب العالمية الثانية",
+                tenant_id="tenant-a",
+            )
+            weather_result = await pipeline.run(
+                "ما طقس اليوم في الرياض",
+                tenant_id="tenant-a",
+            )
+
+        self.assertEqual(wikipedia_queries, ["الحرب العالمية الثانية"])
+        self.assertTrue(history_result.sources)
+        self.assertIn("الحرب العالمية الثانية", history_result.context)
+        self.assertFalse(weather_result.sources)
+
+    async def test_pipeline_publishes_source_and_fetch_progress_before_fetch_finishes(self):
+        from app.web_intelligence.search import SearchResult
+
+        search_release = asyncio.Event()
+        fetch_release = asyncio.Event()
+        fetch_started = asyncio.Event()
+        event_queue: asyncio.Queue[dict] = asyncio.Queue()
+        published_events = []
+
+        class GatedSearch:
+            base_url = "http://searxng.test"
+
+            async def search(self, *_args, **_kwargs):
+                await search_release.wait()
+                return [
+                    SearchResult(
+                        title="Fixture source",
+                        url="https://public.example/article",
+                        snippet="معلومات عامة موثقة",
+                        source="fixture",
+                        rank=1,
+                    )
+                ]
+
+        class GatedFetcher:
+            async def fetch(self, url):
+                fetch_started.set()
+                await fetch_release.wait()
+                return FetchedPage(
+                    url=url,
+                    content_type="text/html",
+                    content=(
+                        "<html><title>Fixture source</title><main>"
+                        "<p>معلومات عامة موثقة</p></main></html>"
+                    ).encode("utf-8"),
+                    retrieved_at="2026-09-21T00:00:00+00:00",
+                )
+
+        async def publish(event):
+            published_events.append(event)
+            await event_queue.put(event)
+
+        with patch.object(settings, "web_search_enabled", True):
+            pipeline = WebIntelligencePipeline(
+                search_client=GatedSearch(),
+                fetcher=GatedFetcher(),
+            )
+            run_task = asyncio.create_task(
+                pipeline.run(
+                    "ابحث عن معلومات",
+                    tenant_id="tenant-a",
+                    event_callback=publish,
+                )
+            )
+            self.assertEqual((await asyncio.wait_for(event_queue.get(), 2))["event"], "status")
+            search_event = await asyncio.wait_for(event_queue.get(), 2)
+            self.assertEqual(search_event["event"], "search_started")
+            self.assertFalse(search_release.is_set())
+
+            search_release.set()
+            source_event = await asyncio.wait_for(event_queue.get(), 2)
+            fetch_event = await asyncio.wait_for(event_queue.get(), 2)
+            self.assertEqual(source_event["event"], "source_found")
+            self.assertEqual(fetch_event["event"], "fetch_started")
+            await asyncio.wait_for(fetch_started.wait(), 2)
+            self.assertFalse(run_task.done())
+
+            fetch_release.set()
+            result = await asyncio.wait_for(run_task, 2)
+
+        self.assertEqual(published_events, result.events)
+        self.assertIn("fetch_completed", [event["event"] for event in published_events])
 
     async def test_pipeline_fetches_user_url_even_when_search_returns_no_results(self):
         class EmptySearch:

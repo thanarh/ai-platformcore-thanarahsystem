@@ -256,15 +256,18 @@ export default function ChatPage() {
         finishRequest();
       },
        (event) => {
-         setExecutionEvents((current) => [...current, event].slice(-12));
-         if (event.event === 'status' && event.state === 'searching') {
+         const displayEvent = event.event === 'done'
+           ? { ...event, event: 'status', state: 'completed', progress: 100 }
+           : event;
+         setExecutionEvents((current) => [...current, displayEvent].slice(-32));
+         if (displayEvent.event === 'status' && displayEvent.state === 'searching') {
            updateStreamingMessage(convId, assistantClientId, accumulated, false, 'searching');
          } else if (
-           event.event === 'task_started'
-           || event.event === 'artifact_created'
-           || event.event === 'task_progress'
+            displayEvent.event === 'task_started'
+            || displayEvent.event === 'artifact_created'
+            || displayEvent.event === 'task_progress'
          ) {
-           const taskType = String(event.type || event.skillId || '').toLowerCase();
+           const taskType = String(displayEvent.type || displayEvent.skillId || '').toLowerCase();
            const status = taskType.includes('pdf') || taskType.includes('spreadsheet') || taskType.includes('table')
              ? 'creating'
              : 'processing';
@@ -530,14 +533,52 @@ export default function ChatPage() {
              {(() => {
                const latest = executionEvents[executionEvents.length - 1] || {};
                const taskType = String(latest.type || latest.skillId || '').toLowerCase();
+                const searchEvent = [...executionEvents].reverse().find((event) => (
+                  event.event === 'search_started' && typeof event.query === 'string'
+                ));
+                const sources = [...new Map(
+                  executionEvents
+                    .filter((event) => event.event === 'source_found' && event.source?.url)
+                    .map((event) => [String(event.source.url), event.source]),
+                ).values()].slice(0, 5);
+                const completedUrls = new Set(
+                  executionEvents
+                    .filter((event) => event.event === 'fetch_completed')
+                    .map((event) => String(event.url)),
+                );
+                const startedUrls = new Set(
+                  executionEvents
+                    .filter((event) => event.event === 'fetch_started')
+                    .map((event) => String(event.url)),
+                );
+                const safeUrl = (value: unknown) => {
+                  try {
+                    const url = new URL(String(value));
+                    return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : '';
+                  } catch {
+                    return '';
+                  }
+                };
+                const domainForUrl = (value: unknown) => {
+                  try {
+                    return new URL(String(value)).hostname;
+                  } catch {
+                    return '';
+                  }
+                };
+                const activeDomain = domainForUrl(latest.url);
                const label = latest.event === 'status' && latest.state === 'searching'
                  ? 'جاري البحث في الإنترنت'
                  : latest.event === 'search_started'
-                   ? 'تم بدء البحث في الإنترنت'
+                    ? 'أبحث في مصادر الويب'
+                    : latest.event === 'source_found'
+                      ? 'عُثر على صفحات، أتحقق من محتواها'
                    : latest.event === 'fetch_started'
-                     ? 'جاري جلب المصادر'
+                      ? `جاري فتح ${activeDomain || 'صفحة مصدر'}`
                      : latest.event === 'fetch_completed'
-                       ? 'اكتمل جلب مصدر'
+                        ? `اكتمل فتح ${activeDomain || 'مصدر'}`
+                        : latest.event === 'status' && latest.state === 'generating'
+                          ? 'أحلل المصادر وأعد الإجابة'
                        : latest.event === 'task_started' && taskType.includes('pdf')
                          ? 'جاري إنشاء ملف PDF'
                          : latest.event === 'task_started' && (taskType.includes('spreadsheet') || taskType.includes('table'))
@@ -553,19 +594,66 @@ export default function ChatPage() {
                                    : 'جاري تجهيز الطلب';
                const progress = Number.isFinite(Number(latest.progress))
                  ? Math.max(0, Math.min(100, Number(latest.progress)))
-                 : latest.event === 'status' && latest.state === 'completed' ? 100 : 15;
+                  : latest.event === 'status' && latest.state === 'completed'
+                    ? 100
+                    : latest.event === 'search_started'
+                      ? 20
+                      : latest.event === 'fetch_started'
+                        ? 55
+                        : latest.event === 'fetch_completed'
+                          ? 70
+                          : latest.event === 'status' && latest.state === 'generating'
+                            ? 85
+                            : 15;
                return (
-                 <div className="flex w-full items-center gap-2 text-[11px] text-gray-600 font-arabic">
-                   <span className={cn(
-                     'h-1.5 w-1.5 rounded-full',
-                     progress >= 100 ? 'bg-green-500' : 'bg-thanarah-500 animate-pulse',
-                   )} />
-                   <span className="min-w-0 flex-1 truncate">{label}</span>
-                   <span className="tabular-nums text-[10px] text-gray-400">{progress}%</span>
-                   <div className="h-1.5 w-20 overflow-hidden rounded-full bg-gray-200" aria-label={`التقدم ${progress}%`}>
-                     <div className="h-full rounded-full bg-thanarah-500 transition-all" style={{ width: `${progress}%` }} />
+                  <>
+                    <div className="flex w-full items-center gap-2 text-[11px] text-gray-600 font-arabic">
+                      <span className={cn(
+                        'h-1.5 w-1.5 rounded-full',
+                        progress >= 100 ? 'bg-green-500' : 'bg-thanarah-500 animate-pulse',
+                      )} />
+                      <span className="min-w-0 flex-1 truncate">{label}</span>
+                      <span className="tabular-nums text-[10px] text-gray-400">{progress}%</span>
+                      <div className="h-1.5 w-20 overflow-hidden rounded-full bg-gray-200" aria-label={`التقدم ${progress}%`}>
+                        <div className="h-full rounded-full bg-thanarah-500 transition-all" style={{ width: `${progress}%` }} />
+                      </div>
                    </div>
-                 </div>
+                    {searchEvent?.query && (
+                      <div className="w-full pr-5 text-[11px] text-gray-500 font-arabic">
+                        أبحث عن: <bdi className="font-medium text-gray-700">{searchEvent.query}</bdi>
+                      </div>
+                    )}
+                    {sources.length > 0 && (
+                      <div className="flex w-full flex-wrap gap-1.5 pr-5">
+                        {sources.map((source) => {
+                          const url = safeUrl(source.url);
+                          const domain = String(source.domain || domainForUrl(source.url) || 'مصدر ويب');
+                          const isComplete = completedUrls.has(String(source.url));
+                          const isFetching = startedUrls.has(String(source.url)) && !isComplete;
+                          const sourceLabel = String(source.title || domain);
+                          return (
+                            <a
+                              key={String(source.url)}
+                              href={url || undefined}
+                              target={url ? '_blank' : undefined}
+                              rel={url ? 'noopener noreferrer' : undefined}
+                              className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-gray-200 bg-white px-2 py-1 text-[10px] text-gray-600 hover:border-thanarah-300 hover:text-thanarah-700"
+                              title={`${sourceLabel} — ${domain}`}
+                            >
+                              <span className="max-w-36 truncate font-medium">{sourceLabel}</span>
+                              <span className="text-gray-400">{domain}</span>
+                              <span className={cn(
+                                'whitespace-nowrap',
+                                isComplete ? 'text-green-600' : isFetching ? 'text-thanarah-600' : 'text-gray-400',
+                              )}>
+                                {isComplete ? 'تم التحقق' : isFetching ? 'يفتح الآن' : 'من النتائج'}
+                              </span>
+                            </a>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </>
                );
              })()}
           </div>
