@@ -134,11 +134,14 @@ retain the normal relevance filter and verified-page requirements.
 
 **Why:** Live Bing searches for common Arabic questions returned zero results
 under `ar`, while the same queries returned relevant Arabic pages with
-`language=all`.
+`language=all`. A successful engine probe also did not guarantee relevance for
+every topic phrase; some relevant publishers denied the safe fetcher.
 
-**How to apply:** Exercise the exact Arabic query through the full pipeline,
-including locale retry, lexical relevance, page fetching, extraction, and
-citations. Do not count raw results as success or weaken the relevance filter.
+**How to apply:** Exercise the exact Arabic query and any local English expansion
+through locale retry, lexical relevance, page fetching, extraction, and
+citations. Treat the engine probe as reachability only. Do not weaken relevance
+or fetch safeguards to make a search appear successful; disclose partial
+evidence when sources are unavailable.
 
 When SearXNG has no relevant evidence for a stable general question, the direct
 MediaWiki search API can be used as a secondary source. Send a concise topic

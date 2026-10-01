@@ -20,8 +20,10 @@ logger = logging.getLogger(__name__)
 _WIKIPEDIA_MIN_REQUEST_INTERVAL_SECONDS = 1.0
 
 _SEARCH_COMMAND_PREFIX = re.compile(
-    r"^\s*(?:"
-    r"(?:ابحث|أبحث|فتش|فتّش)\s+(?:(?:في|على|عبر)\s+(?:ال)?"
+    r"^\s*(?:(?:و|and)\s*)?(?:(?:ثم|بعدها|كذلك|أيضًا|ايضا|also|then)\s*)?(?:"
+    r"(?:ابحث|أبحث|فتش|فتّش)\s+"
+    r"(?:(?:أيضًا|ايضا|كذلك|ثم|بعدها)\s+)?"
+    r"(?:(?:في|على|عبر)\s+(?:ال)?"
     r"(?:إنترنت|انترنت|ويب|جوجل|غوغل|قوقل|بينغ|google|bing|duckduckgo)\s+عن|عن)"
     r"|(?:search|research)\s+(?:(?:the\s+)?(?:web|internet)|online|"
     r"(?:(?:on|in)\s+(?:google|bing|duckduckgo)))\s+(?:for|about)"
@@ -145,7 +147,9 @@ def normalize_search_query(query: str) -> str:
     original = (query or "").strip()
     if _SEARCH_REQUEST_WITHOUT_TOPIC.fullmatch(original):
         return ""
-    normalized = _SEARCH_COMMAND_PREFIX.sub("", original, count=1).strip(" \t:：–—-")
+    normalized = _SEARCH_COMMAND_PREFIX.sub("", original, count=1).strip(
+        " \t:：–—-،,;؛"
+    )
     normalized = _ARABIC_COMPANY_QUESTION_PREFIX.sub("", normalized, count=1)
     normalized = _ARABIC_ORGANIZATION_PREFIX.sub("", normalized, count=1)
     normalized = _ARABIC_NEWS_PREFIX.sub("", normalized, count=1)
@@ -252,6 +256,7 @@ class SearchResult:
     published_at: Optional[str] = None
     engines: tuple[str, ...] = ()
     category: SearchCategory = "general"
+    search_topics: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -445,7 +450,25 @@ class SearXNGClient:
             config_error = str(exc)[:240]
 
         configured_by_name = {item["name"]: item for item in configured}
-        candidates = configured or self._configured_fallback()
+        configured_names = {name.casefold() for name in configured_by_name}
+        candidates = list(configured)
+        if candidates:
+            # Some SearXNG builds omit an explicitly allowlisted general engine
+            # from /config even though its per-engine JSON search endpoint works.
+            # Re-add only the known Bing general adapter from our local allowlist;
+            # it still has to pass the same live probe before becoming active.
+            for fallback in self._configured_fallback():
+                name = str(fallback.get("name") or "")
+                if name.casefold() != "bing" or name.casefold() in configured_names:
+                    continue
+                candidate = dict(fallback)
+                candidate["categories"] = ["general"]
+                candidates.append(candidate)
+                configured_by_name[name] = candidate
+                configured_names.add(name.casefold())
+        else:
+            candidates = self._configured_fallback()
+            configured_by_name = {item["name"]: item for item in candidates}
         checks: list[dict[str, Any]] = []
         for candidate in candidates:
             name = candidate["name"]
@@ -715,6 +738,151 @@ def _relevance_variants(term: str) -> set[str]:
     elif base in {"مارسيدس", "مرسيدس"}:
         variants.update({"مارسيدس", "مرسيدس"})
     return variants
+
+
+_COMPARISON_QUERY_MARKERS = (
+    "الفرق بين",
+    "فرق بين",
+    "قارن",
+    "مقارنة",
+    "ايهما افضل",
+    "ايهما احسن",
+    "compare",
+    "difference between",
+    "differences",
+    "versus",
+    "which is better",
+)
+_SHARED_TOPIC_PREFIX = re.compile(
+    r"^\s*(?P<prefix>أضرار|اضرار|مخاطر|فوائد|أعراض|اعراض|تأثيرات?|"
+    r"مميزات|عيوب|أسعار|اسعار|سعر|مواصفات|risks|benefits|side effects|"
+    r"prices|features|specifications)\s+(?P<left>.+?)\s+"
+    r"(?:و\s*|and\s+)(?P<right>.+?)\s*[.?!؟،،]*\s*$",
+    re.IGNORECASE,
+)
+_REPEATED_SEARCH_DIRECTIVE = re.compile(
+    r"(?i)(?:^|[\s،,;؛])(?:(?:و|and)\s*)?(?:ثم|بعدها|كذلك|أيضًا|ايضا|also|then)?\s*"
+    r"(?:ابحث|أبحث|فتش|فتّش|search|research|look\s+up)\b"
+)
+
+
+def split_search_queries(
+    query: str,
+    *,
+    max_queries: int = 3,
+) -> tuple[list[str], bool]:
+    """Split explicit, clearly separate search topics without breaking comparisons."""
+    raw = (query or "").strip()
+    if not raw:
+        return [], False
+
+    normalized = normalize_search_query(raw)
+    if not normalized or re.search(r"https?://", raw, re.IGNORECASE):
+        return ([normalized] if normalized else []), False
+
+    lexical = _normalize_lexical_text(normalized)
+    if any(marker in lexical for marker in _COMPARISON_QUERY_MARKERS):
+        return [normalized], False
+
+    parts: list[str] = []
+    bullet_lines = [
+        re.sub(r"^\s*(?:[-*•]|\d+[.)])\s*", "", line).strip()
+        for line in raw.splitlines()
+        if re.match(r"^\s*(?:[-*•]|\d+[.)])\s*\S", line)
+    ]
+    if len(bullet_lines) > 1:
+        parts = bullet_lines
+    else:
+        parts = [part.strip() for part in re.split(r"[;؛]+", raw) if part.strip()]
+
+    if len(parts) <= 1:
+        directives = list(_REPEATED_SEARCH_DIRECTIVE.finditer(raw))
+        if len(directives) > 1:
+            starts = [match.start() for match in directives]
+            parts = [
+                raw[starts[index] : starts[index + 1]].strip()
+                for index in range(len(starts) - 1)
+            ]
+            parts.append(raw[starts[-1] :].strip())
+
+    if len(parts) <= 1:
+        shared_topic = _SHARED_TOPIC_PREFIX.match(normalized)
+        if shared_topic:
+            prefix = shared_topic.group("prefix")
+            parts = [
+                f"{prefix} {shared_topic.group('left')}",
+                f"{prefix} {shared_topic.group('right')}",
+            ]
+
+    normalized_parts: list[str] = []
+    seen: set[str] = set()
+    for part in parts:
+        candidate = normalize_search_query(part)
+        key = _normalize_lexical_text(candidate)
+        if candidate and key not in seen:
+            seen.add(key)
+            normalized_parts.append(candidate)
+
+    if not normalized_parts:
+        return [normalized], False
+
+    limit = max(1, min(max_queries, 5))
+    return normalized_parts[:limit], len(normalized_parts) > limit
+
+
+_ARABIC_SEARCH_TRANSLATIONS = (
+    ("أضرار الشيشة الالكترونية", "vaping risks"),
+    ("أضرار التدخين الالكتروني", "vaping risks"),
+    ("أضرار الفيب", "vaping risks"),
+    ("التدخين الالكتروني", "vaping"),
+    ("الشيشة الالكترونية", "vaping"),
+    ("البي ام دبليو", "BMW"),
+    ("بي ام دبليو", "BMW"),
+    ("ايهما افضل", "which is better"),
+    ("ايهما احسن", "which is better"),
+    ("المرسيدس", "Mercedes-Benz"),
+    ("الفرق بين", "difference between"),
+    ("أضرار", "risks"),
+    ("اضرار", "risks"),
+    ("مخاطر", "risks"),
+    ("فوائد", "benefits"),
+    ("تدخين", ""),
+    ("ومتور", "and engine"),
+    ("والمرسيدس", "and Mercedes-Benz"),
+    ("موتور", "engine"),
+    ("الموتور", "engine"),
+    ("المتور", "engine"),
+    ("الموتر", "engine"),
+    ("المحركات", "engines"),
+    ("المحرك", "engine"),
+    ("محركات", "engines"),
+    ("محرك", "engine"),
+    ("ولا", "or"),
+    ("او", "or"),
+    ("ام", "or"),
+    ("الفيب", "vaping"),
+    ("متور", "engine"),
+    ("موتر", "engine"),
+    ("مرسيدس", "Mercedes-Benz"),
+)
+
+
+def english_search_query(query: str) -> str | None:
+    """Translate a small, explicit set of common Arabic search terms locally."""
+    normalized = _normalize_lexical_text(normalize_search_query(query))
+    normalized = re.sub(r"[^\w]+", " ", normalized, flags=re.UNICODE)
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    if not re.search(r"[\u0600-\u06ff]", normalized):
+        return None
+
+    translated = normalized
+    for arabic, english in sorted(_ARABIC_SEARCH_TRANSLATIONS, key=lambda pair: len(pair[0]), reverse=True):
+        translated = translated.replace(_normalize_lexical_text(arabic), english)
+    translated = re.sub(r"\s+و\s+", " and ", translated)
+    translated = re.sub(r"\s+", " ", translated).strip()
+    if re.search(r"[\u0600-\u06ff]", translated):
+        return None
+    return translated or None
 
 
 def filter_and_score_results(query: str, results: list[SearchResult]) -> list[SearchResult]:

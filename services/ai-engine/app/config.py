@@ -25,8 +25,8 @@ class Settings(BaseSettings):
     local_ai_max_queue: int = 32
     local_ai_queue_timeout_seconds: float = 5.0
     local_ai_max_tokens_fast: int = 96
-    local_ai_max_tokens_balanced: int = 256
-    local_ai_max_tokens_deep: int = 512
+    local_ai_max_tokens_balanced: int = 384
+    local_ai_max_tokens_deep: int = 640
 
     # Lightweight continual memory: retrieval only, never retrains per request.
     memory_enabled: bool = True
@@ -91,7 +91,7 @@ class Settings(BaseSettings):
     searxng_timeout_seconds: float = 4.0
     web_max_results: int = 5
     web_max_fetch_results: int = 3
-    web_max_context_chars: int = 6000
+    web_max_context_chars: int = 2200
     web_search_cache_ttl_seconds: int = 300
     web_fetch_cache_ttl_seconds: int = 900
     web_extraction_cache_ttl_seconds: int = 900

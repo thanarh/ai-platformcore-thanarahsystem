@@ -89,6 +89,102 @@ class ExplicitWebSearchTests(unittest.IsolatedAsyncioTestCase):
             ),
         )
 
+    async def test_underspecified_car_comparison_asks_for_details_in_both_routes(self):
+        query = "أيهما أفضل، محرك مرسيدس أم BMW؟"
+        router = IntelligenceRouter(registry=None)
+        normal_request = ChatRequest(
+            messages=[ChatMessage(role="user", content=query)],
+            tenantId="tenant-a",
+            runtimeContext={"language": "ar"},
+        )
+        streaming_request = ChatRequest(
+            messages=[ChatMessage(role="user", content=query)],
+            tenantId="tenant-a",
+            runtimeContext={"language": "ar"},
+            stream=True,
+        )
+
+        with (
+            patch(
+                "app.router.intelligence_router.response_cache_service.get",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "app.router.intelligence_router.daily_learning_service.profile",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch.object(
+                router,
+                "_decide_route",
+                return_value=RouteDecision(backend_id="fixture", reason="test"),
+            ),
+            patch.object(
+                router,
+                "_load_context_sources",
+                new_callable=AsyncMock,
+                return_value=([], [], {}),
+            ),
+            patch.object(
+                router,
+                "_load_web_context",
+                new_callable=AsyncMock,
+            ) as web_loader,
+        ):
+            response = await router.route(normal_request)
+            stream, stream_route, _sources, _telemetry, _events = await router.stream_route(
+                streaming_request
+            )
+            streamed_content = "".join([part async for part in stream])
+
+        self.assertEqual(response.backend, "clarification")
+        self.assertIn("طرازَي السيارتين", response.content)
+        self.assertEqual(stream_route.backend_id, "clarification")
+        self.assertIn("طرازَي السيارتين", streamed_content)
+        web_loader.assert_not_awaited()
+
+    def test_specific_car_models_and_years_are_allowed_to_search(self):
+        query = "ما الفرق بين محرك مرسيدس C200 2022 ومحرك BMW 320i 2022؟"
+        self.assertIsNone(IntelligenceRouter._car_comparison_clarification(query))
+        broad_current_year = "أيهما أفضل، مرسيدس أم BMW في 2026؟"
+        clarification = IntelligenceRouter._car_comparison_clarification(
+            broad_current_year
+        )
+        self.assertIsNotNone(clarification)
+        self.assertIn("طرازَي السيارتين", clarification)
+
+    def test_uncited_web_draft_is_not_presented_as_a_verified_answer(self):
+        sources = [{"id": "source-1"}, {"id": "source-2"}]
+        self.assertIsNone(
+            IntelligenceRouter._source_linked_web_content(
+                "يسبب ذلك التهاب البنكرياس.",
+                sources,
+            )
+        )
+        self.assertIsNone(
+            IntelligenceRouter._source_linked_web_content(
+                "The source says this. [source-99]",
+                sources,
+            )
+        )
+        self.assertEqual(
+            IntelligenceRouter._source_linked_web_content(
+                "تذكر الصفحة وجود مخاطر تنفسية. [source-1]",
+                sources,
+            ),
+            "تذكر الصفحة وجود مخاطر تنفسية. [source-1]",
+        )
+        self.assertEqual(
+            IntelligenceRouter._source_linked_web_content(
+                "ملخص من المصادر:\n"
+                "قد تكون هناك أضرار. [source-99]\n"
+                "تذكر الصفحة وجود مخاطر تنفسية. [source-1]",
+                sources,
+            ),
+            "تذكر الصفحة وجود مخاطر تنفسية. [source-1]",
+        )
+
     async def test_selected_chat_skill_reaches_the_search_pipeline_as_explicit(self):
         result = WebPipelineResult(
             decision=WebDecision(True, "web_signal_detected", ("explicit_tool_selection",), "general"),
@@ -594,6 +690,92 @@ class ExplicitWebSearchTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("إجابة عامة", generated_requests[0].system_prompt)
         self.assertIn("غير مستندة إلى نتائج بحث مباشرة", generated_requests[0].system_prompt)
         self.assertNotIn("لم أتمكن من العثور على مصادر موثوقة لهذا البحث الآن", answer)
+
+    async def test_stream_drops_uncited_drafts_and_keeps_validly_cited_lines(self):
+        source = {
+            "id": "source-1",
+            "title": "Verified source",
+            "url": "https://health.example/article",
+            "domain": "health.example",
+        }
+        web_result = WebPipelineResult(
+            decision=WebDecision(True, "web_signal_detected", ("explicit_search_request",), "general"),
+            context=(
+                "## Web evidence\n"
+                "[source-1] Verified source\n"
+                "URL: https://health.example/article\n"
+                "Content: The page describes respiratory risks."
+            ),
+            sources=[source],
+        )
+        generated_requests = []
+
+        class FakeBackend:
+            default_model = "fixture"
+
+            async def stream_chat(self, ai_request):
+                generated_requests.append(ai_request)
+                yield "ادعاء غير موثق يجب ألا يظهر.\n"
+                yield "تذكر الصفحة مخاطر تنفسية. [source-1]\n"
+                yield "تفصيل آخر بلا إحالة.\n"
+
+        backend = FakeBackend()
+
+        class FakeRegistry:
+            def get(self, _backend_id):
+                return backend
+
+        router = IntelligenceRouter(registry=FakeRegistry())
+        request = ChatRequest(
+            messages=[ChatMessage(role="user", content="ابحث عن مخاطر التنفس")],
+            tenantId="tenant-a",
+            runtimeContext={"language": "ar"},
+            skillId="web_search",
+            stream=True,
+        )
+
+        with (
+            patch(
+                "app.router.intelligence_router.response_cache_service.get",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "app.router.intelligence_router.response_cache_service.store",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "app.router.intelligence_router.daily_learning_service.profile",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch.object(
+                router,
+                "_decide_route",
+                return_value=RouteDecision(backend_id="fixture", reason="test"),
+            ),
+            patch.object(
+                router,
+                "_load_context_sources",
+                new_callable=AsyncMock,
+                return_value=([], [], {}),
+            ),
+            patch.object(
+                router,
+                "_load_web_context",
+                new_callable=AsyncMock,
+                return_value=web_result,
+            ),
+        ):
+            stream, route, _sources, _telemetry, _events = await router.stream_route(request)
+            answer = "".join([part async for part in stream])
+
+        self.assertEqual(route.backend_id, "fixture")
+        self.assertEqual(len(generated_requests), 1)
+        self.assertIn("تذكر الصفحة مخاطر تنفسية. [source-1]", answer)
+        self.assertIn("https://health.example/article", answer)
+        self.assertNotIn("ادعاء غير موثق", answer)
+        self.assertNotIn("تفصيل آخر بلا إحالة", answer)
 
     async def test_same_day_news_returns_verified_headlines_without_model(self):
         source = {

@@ -44,7 +44,7 @@ export default function AiSettingsPage() {
   const [form, setForm] = useState({
     systemPrompt: '',
     communicationStyle: 'professional',
-    responseProfile: 'fast',
+    responseProfile: 'balanced',
     memoryEnabled: true,
   });
 
@@ -61,7 +61,7 @@ export default function AiSettingsPage() {
       setForm({
         systemPrompt: t?.aiConfig?.systemPrompt || '',
         communicationStyle: t?.aiConfig?.communicationStyle || 'professional',
-        responseProfile: t?.aiConfig?.responseProfile || 'fast',
+        responseProfile: t?.aiConfig?.responseProfile || 'balanced',
         memoryEnabled: t?.aiConfig?.memoryEnabled !== false,
       });
     } catch {}

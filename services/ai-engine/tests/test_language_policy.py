@@ -3,6 +3,7 @@ import unittest
 from app.language_policy import detect_language, response_language_instruction
 from app.models.chat import ChatMessage, ChatRequest, RouteDecision
 from app.router.intelligence_router import IntelligenceRouter
+from app.config import settings
 
 
 class LanguagePolicyTests(unittest.TestCase):
@@ -58,6 +59,37 @@ class LanguagePolicyTests(unittest.TestCase):
         self.assertIn("أجب بجملتين مكتملتين كحد أقصى", arabic_prompt)
         self.assertIn("Answer general questions from your general knowledge", english_prompt)
         self.assertIn("at most two complete sentences", english_prompt)
+
+    def test_default_profile_is_more_detailed_and_comparisons_override_fast(self):
+        router = IntelligenceRouter(registry=None)
+        route = RouteDecision(backend_id="thanarah-local", reason="response profile test")
+        ordinary_request = ChatRequest(
+            messages=[ChatMessage(role="user", content="ما أضرار التدخين الإلكتروني؟")],
+            runtimeContext={"language": "ar"},
+        )
+        explicit_search_request = ChatRequest(
+            messages=[ChatMessage(role="user", content="ابحث في جوجل عن أضرار الفيب")],
+            tenantConfig={"responseProfile": "fast"},
+            runtimeContext={"language": "ar"},
+        )
+        comparison_request = ChatRequest(
+            messages=[ChatMessage(role="user", content="ما الفرق بين محركات مرسيدس وBMW؟")],
+            tenantConfig={"responseProfile": "fast"},
+            runtimeContext={"language": "ar"},
+        )
+
+        self.assertEqual(router._profile(ordinary_request), "balanced")
+        self.assertEqual(router._profile(explicit_search_request), "balanced")
+        self.assertEqual(router._profile(comparison_request), "deep")
+        preferred_car_request = ChatRequest(
+            messages=[ChatMessage(role="user", content="أيهما أفضل، متور مرسيدس أم BMW؟")],
+            tenantConfig={"responseProfile": "fast"},
+            runtimeContext={"language": "ar"},
+        )
+        self.assertEqual(router._profile(preferred_car_request), "deep")
+        comparison_ai_request = router._build_ai_request(comparison_request, route)
+        self.assertEqual(comparison_ai_request.max_tokens, settings.local_ai_max_tokens_deep)
+        self.assertIn("اطلب التفاصيل اللازمة", comparison_ai_request.system_prompt)
 
 
 if __name__ == "__main__":

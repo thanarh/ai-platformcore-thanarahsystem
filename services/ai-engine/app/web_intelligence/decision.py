@@ -85,6 +85,14 @@ _COMPARISON_QUERY_TERMS = (
     "الاختلاف بين",
     "مقارنة بين",
     "قارن بين",
+    "ايهما افضل",
+    "أيهما أفضل",
+    "أيهم أفضل",
+    "ايهما احسن",
+    "أيهما أحسن",
+    "مين الأفضل",
+    "من الأفضل",
+    "which is better",
     " مقابل ",
     " vs ",
     "versus",
@@ -260,6 +268,13 @@ def is_recent_vehicle_model_query(query: str) -> bool:
     )
 
 
+def is_car_comparison_query(query: str) -> bool:
+    text = " ".join((query or "").casefold().split())
+    has_comparison_term = any(term in text for term in _COMPARISON_QUERY_TERMS)
+    has_car_brand = any(term.casefold() in text for term in _CAR_BRAND_TERMS)
+    return has_comparison_term and has_car_brand
+
+
 def classify_search_category(query: str) -> SearchCategory:
     """Choose a search category using auditable lexical signals.
 
@@ -327,10 +342,7 @@ def decide_web(
         signals.append("university_ranking_request")
     if recent_vehicle_query:
         signals.append("current_vehicle_model_query")
-    is_car_comparison = (
-        any(term in text for term in _COMPARISON_QUERY_TERMS)
-        and any(term.casefold() in text for term in _CAR_BRAND_TERMS)
-    )
+    is_car_comparison = is_car_comparison_query(query)
     if (
         any(term.casefold() in text for term in _EXTERNAL_LOOKUP_TERMS)
         or any(term.casefold() in text for term in _EVENT_QUERY_TERMS)

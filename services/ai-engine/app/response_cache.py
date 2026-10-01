@@ -21,8 +21,8 @@ class ResponseCacheService:
 
     @staticmethod
     def _profile(request: ChatRequest) -> str:
-        configured = (request.tenantConfig or {}).get("responseProfile", "fast")
-        return configured if configured in {"fast", "balanced", "deep"} else "fast"
+        configured = (request.tenantConfig or {}).get("responseProfile", "balanced")
+        return configured if configured in {"fast", "balanced", "deep"} else "balanced"
 
     @staticmethod
     def _last_user_text(request: ChatRequest) -> str:
