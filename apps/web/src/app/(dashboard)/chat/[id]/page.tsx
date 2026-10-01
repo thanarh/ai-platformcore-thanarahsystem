@@ -253,6 +253,7 @@ export default function ChatPage() {
       (err) => {
         const errorContent = err || 'تعذر إكمال الطلب حاليًا. حاول مرة أخرى.';
         finalizeMessage(convId, assistantClientId, errorContent);
+        setExecutionEvents([]);
         finishRequest();
       },
        (event) => {
@@ -262,6 +263,11 @@ export default function ChatPage() {
          setExecutionEvents((current) => [...current, displayEvent].slice(-32));
          if (displayEvent.event === 'status' && displayEvent.state === 'searching') {
            updateStreamingMessage(convId, assistantClientId, accumulated, false, 'searching');
+         } else if (
+           displayEvent.event === 'status'
+           && (displayEvent.state === 'routing' || displayEvent.state === 'generating')
+         ) {
+           updateStreamingMessage(convId, assistantClientId, accumulated, false, 'generating');
          } else if (
             displayEvent.event === 'task_started'
             || displayEvent.event === 'artifact_created'

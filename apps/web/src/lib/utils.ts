@@ -44,6 +44,10 @@ export interface StreamChatOptions {
   skillId?: string;
 }
 
+const STREAM_REQUEST_TIMEOUT_MS = 180_000;
+const STREAM_TIMEOUT_MESSAGE = 'انتهت مهلة انتظار الرد قبل اكتماله. أعد إرسال رسالتك.';
+const STREAM_INTERRUPTED_MESSAGE = 'انقطع الاتصال قبل اكتمال الرد. أعد إرسال رسالتك.';
+
 export async function streamChat(
   conversationId: string,
   content: string,
@@ -55,6 +59,20 @@ export async function streamChat(
   signal?: AbortSignal,
   options?: StreamChatOptions,
 ) {
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+  let timedOut = false;
+  const requestController = new AbortController();
+  const relayCallerAbort = () => requestController.abort();
+  if (signal?.aborted) {
+    relayCallerAbort();
+  } else {
+    signal?.addEventListener('abort', relayCallerAbort, { once: true });
+  }
+  const timeoutHandle = setTimeout(() => {
+    timedOut = true;
+    requestController.abort();
+  }, STREAM_REQUEST_TIMEOUT_MS);
+
   try {
     const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
     const res = await fetch(`${baseUrl}/api/ai/chat/stream`, {
@@ -64,7 +82,7 @@ export async function streamChat(
         Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({ conversationId, content, ...options }),
-      signal,
+      signal: requestController.signal,
     });
 
     if (!res.ok || !res.body) {
@@ -78,7 +96,7 @@ export async function streamChat(
       return;
     }
 
-    const reader = res.body.getReader();
+    reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
     let meta: any = null;
@@ -131,16 +149,38 @@ export async function streamChat(
       }
     }
 
+    if (timedOut) {
+      onError(STREAM_TIMEOUT_MESSAGE);
+      return;
+    }
+    if (signal?.aborted) {
+      onDone({ stopped: true });
+      return;
+    }
+
     buffer += decoder.decode();
     if (!completed && buffer.trim()) processEvent(buffer);
-    if (!completed) onDone(meta);
-    await reader.cancel().catch(() => {});
+    if (!completed) {
+      onError(STREAM_INTERRUPTED_MESSAGE);
+    }
   } catch (error) {
+    if (timedOut) {
+      onError(STREAM_TIMEOUT_MESSAGE);
+      return;
+    }
+    if (signal?.aborted) {
+      onDone({ stopped: true });
+      return;
+    }
     if (error instanceof DOMException && error.name === 'AbortError') {
       onDone({ stopped: true });
       return;
     }
     const message = error instanceof Error ? error.message : 'تعذر الاتصال بخدمة ثنارة الذكية.';
     onError(message);
+  } finally {
+    clearTimeout(timeoutHandle);
+    signal?.removeEventListener('abort', relayCallerAbort);
+    if (reader) await reader.cancel().catch(() => {});
   }
 }

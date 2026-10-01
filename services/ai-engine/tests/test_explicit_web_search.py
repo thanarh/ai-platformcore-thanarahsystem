@@ -121,6 +121,126 @@ class ExplicitWebSearchTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(run.await_args.args[0], "What is new in Python?")
         self.assertRegex(run.await_args.kwargs["as_of_date"], r"^\d{4}-\d{2}-\d{2}$")
 
+    async def test_topic_reply_after_search_clarification_inherits_search_intent(self):
+        topic = "عن احسن سيارة لي 2026"
+        request = ChatRequest(
+            messages=[
+                ChatMessage(role="user", content="ابحث في جوجل"),
+                ChatMessage(role="assistant", content="ما الموضوع الذي تريد البحث عنه؟"),
+                ChatMessage(role="user", content=topic),
+            ],
+            tenantId="tenant-a",
+            runtimeContext={"language": "ar"},
+        )
+        result = WebPipelineResult(
+            decision=WebDecision(True, "web_signal_detected", ("explicit_tool_selection",), "general"),
+        )
+
+        with patch(
+            "app.router.intelligence_router.web_intelligence_pipeline.run",
+            new_callable=AsyncMock,
+            return_value=result,
+        ) as run:
+            loaded = await IntelligenceRouter(registry=None)._load_web_context(request)
+
+        self.assertIs(loaded, result)
+        self.assertTrue(run.await_args.kwargs["explicit_request"])
+        self.assertEqual(run.await_args.args[0], topic)
+
+    async def test_search_topic_followup_bypasses_cache_in_both_routes(self):
+        topic = "عن احسن سيارة لي 2026"
+        messages = [
+            ChatMessage(role="user", content="ابحث في جوجل"),
+            ChatMessage(role="assistant", content="ما الموضوع الذي تريد البحث عنه؟"),
+            ChatMessage(role="user", content=topic),
+        ]
+        web_result = WebPipelineResult(
+            decision=WebDecision(
+                True,
+                "web_signal_detected",
+                ("explicit_tool_selection", "time_sensitive_information", "current_vehicle_model_query"),
+                "general",
+            ),
+        )
+        route_decision = RouteDecision(
+            backend_id="thanarah-local",
+            reason="Test route",
+            rag_enabled=False,
+            fallback_order=[],
+        )
+
+        for streaming in (False, True):
+            request = ChatRequest(
+                messages=messages,
+                tenantId="tenant-a",
+                userId="user-a",
+                conversationId="conversation-a",
+                runtimeContext={"language": "ar"},
+            )
+            router = IntelligenceRouter(registry=None)
+            with (
+                patch.object(
+                    router,
+                    "_load_context_sources",
+                    new_callable=AsyncMock,
+                    return_value=([], [], None),
+                ),
+                patch.object(router, "_decide_route", return_value=route_decision),
+                patch(
+                    "app.router.intelligence_router.daily_learning_service.profile",
+                    new_callable=AsyncMock,
+                    return_value=None,
+                ),
+                patch(
+                    "app.router.intelligence_router.web_intelligence_pipeline.run",
+                    new_callable=AsyncMock,
+                    return_value=web_result,
+                ) as run,
+                patch(
+                    "app.router.intelligence_router.response_cache_service.get",
+                    new_callable=AsyncMock,
+                    return_value=None,
+                ) as cache_get,
+                patch(
+                    "app.router.intelligence_router.response_cache_service.store",
+                    new_callable=AsyncMock,
+                ) as cache_store,
+            ):
+                if streaming:
+                    stream, *_ = await router.stream_route(request)
+                    "".join([part async for part in stream])
+                else:
+                    await router.route(request)
+
+            cache_get.assert_not_awaited()
+            cache_store.assert_not_awaited()
+            run.assert_awaited_once()
+            self.assertTrue(run.await_args.kwargs["explicit_request"])
+            self.assertEqual(run.await_args.args[0], topic)
+
+    def test_search_topic_followup_requires_the_immediate_search_clarification(self):
+        router = IntelligenceRouter(registry=None)
+        valid_followup = ChatRequest(
+            messages=[
+                ChatMessage(role="user", content="Search Google"),
+                ChatMessage(role="assistant", content="What topic would you like me to search for?"),
+                ChatMessage(role="user", content="2026 electric cars"),
+            ],
+        )
+        unrelated_followup = ChatRequest(
+            messages=[
+                ChatMessage(role="user", content="Search Google"),
+                ChatMessage(role="assistant", content="What topic would you like me to search for?"),
+                ChatMessage(role="assistant", content="I can also help with other questions."),
+                ChatMessage(role="user", content="2026 electric cars"),
+            ],
+        )
+
+        self.assertTrue(router._is_search_topic_followup(valid_followup))
+        self.assertTrue(router._has_explicit_search_intent(valid_followup))
+        self.assertFalse(router._is_search_topic_followup(unrelated_followup))
+        self.assertFalse(router._has_explicit_search_intent(unrelated_followup))
+
     async def test_other_selected_skills_do_not_force_web_search(self):
         result = WebPipelineResult(
             decision=WebDecision(False, "no_web_signal", (), "general"),
@@ -342,10 +462,11 @@ class ExplicitWebSearchTests(unittest.IsolatedAsyncioTestCase):
                 return_value=web_result,
             ),
         ):
-            stream, _route, sources, _telemetry, _events = await router.stream_route(request)
+            stream, route, sources, _telemetry, _events = await router.stream_route(request)
             answer = "".join([part async for part in stream])
 
         self.assertEqual(sources, [])
+        self.assertEqual(route.backend_id, "web-search-unavailable")
         self.assertIn("لم يصلني مصدر حديث يمكن التحقق منه الآن", answer)
         self.assertNotIn("الكويت", answer)
         self.assertNotIn("لم أتمكن من العثور على مصادر موثوقة لهذا البحث الآن", answer)

@@ -395,7 +395,7 @@ class IntelligenceRouter:
             as_of_date=runtime_snapshot["currentDate"],
             timezone_name=runtime_snapshot["timezone"],
             telemetry=telemetry,
-            explicit_request=chat_request.skillId == "web_search",
+            explicit_request=self._has_explicit_search_intent(chat_request),
             event_callback=event_callback,
         )
         if telemetry is not None:
@@ -550,6 +550,52 @@ class IntelligenceRouter:
         if detect_language(query, fallback="ar") == "ar":
             return "ما الموضوع الذي تريد البحث عنه؟"
         return "What topic would you like me to search for?"
+
+    @classmethod
+    def _has_explicit_search_intent(cls, chat_request: ChatRequest) -> bool:
+        return (
+            chat_request.skillId == "web_search"
+            or cls._is_search_topic_followup(chat_request)
+        )
+
+    @classmethod
+    def _is_search_topic_followup(cls, chat_request: ChatRequest) -> bool:
+        messages = chat_request.messages
+        last_user_index = next(
+            (
+                index
+                for index in range(len(messages) - 1, -1, -1)
+                if messages[index].role == "user"
+            ),
+            None,
+        )
+        if last_user_index is None or last_user_index == 0:
+            return False
+
+        previous_message = messages[last_user_index - 1]
+        if previous_message.role != "assistant":
+            return False
+
+        clarification_text = " ".join(previous_message.content.split()).casefold()
+        expected_clarifications = {
+            " ".join("ما الموضوع الذي تريد البحث عنه؟".split()).casefold(),
+            " ".join("What topic would you like me to search for?".split()).casefold(),
+        }
+        if clarification_text not in expected_clarifications:
+            return False
+
+        previous_user_message = next(
+            (
+                message
+                for message in reversed(messages[: last_user_index - 1])
+                if message.role == "user"
+            ),
+            None,
+        )
+        return bool(
+            previous_user_message
+            and cls._search_topic_clarification(previous_user_message.content)
+        )
 
     @staticmethod
     def _is_entity_question(query: str) -> bool:
@@ -945,12 +991,17 @@ class IntelligenceRouter:
                 requestId=telemetry.request_id,
             )
 
+        bypass_response_cache = self._has_explicit_search_intent(chat_request)
         cache_started = time.perf_counter()
-        cache_task = asyncio.create_task(response_cache_service.get(chat_request))
+        cache_task = (
+            asyncio.create_task(response_cache_service.get(chat_request))
+            if not bypass_response_cache
+            else None
+        )
         profile_task = asyncio.create_task(
             daily_learning_service.profile(chat_request.tenantId, chat_request.userId)
         )
-        cached = await cache_task
+        cached = await cache_task if cache_task is not None else None
         telemetry.add_ms("cacheLookupMs", cache_started)
         if cached is not None:
             profile_task.cancel()
@@ -1109,7 +1160,8 @@ class IntelligenceRouter:
                     ragSources=[*rag_sources, *web_result.sources],
                     requestId=telemetry.request_id,
                 )
-                asyncio.create_task(response_cache_service.store(chat_request, result))
+                if not bypass_response_cache:
+                    asyncio.create_task(response_cache_service.store(chat_request, result))
                 return result
             except Exception as e:
                 logger.warning(f"[TIR] Backend {backend_id} failed: {e}, trying next...")
@@ -1219,12 +1271,17 @@ class IntelligenceRouter:
 
             return _quick_social_stream(), route, [], telemetry, []
 
+        bypass_response_cache = self._has_explicit_search_intent(chat_request)
         cache_started = time.perf_counter()
-        cache_task = asyncio.create_task(response_cache_service.get(chat_request))
+        cache_task = (
+            asyncio.create_task(response_cache_service.get(chat_request))
+            if not bypass_response_cache
+            else None
+        )
         profile_task = asyncio.create_task(
             daily_learning_service.profile(chat_request.tenantId, chat_request.userId)
         )
-        cached = await cache_task
+        cached = await cache_task if cache_task is not None else None
         telemetry.add_ms("cacheLookupMs", cache_started)
         if cached is not None:
             profile_task.cancel()
@@ -1272,10 +1329,16 @@ class IntelligenceRouter:
             web_result,
         )
         if web_result.decision.use_web and not web_result.sources and not web_search_fallback:
+            unavailable_route = RouteDecision(
+                backend_id="web-search-unavailable",
+                reason=web_result.error or "No verified web search results",
+                rag_enabled=route.rag_enabled,
+                fallback_order=[],
+            )
 
             async def _unavailable_web_stream() -> AsyncGenerator[str, None]:
                 telemetry.finish(
-                    route="web-search-unavailable",
+                    route=unavailable_route.backend_id,
                     model="none",
                     cache_hit=False,
                     input_tokens=0,
@@ -1289,7 +1352,13 @@ class IntelligenceRouter:
                     ),
                 )
 
-            return _unavailable_web_stream(), route, rag_sources, telemetry, web_result.events
+            return (
+                _unavailable_web_stream(),
+                unavailable_route,
+                rag_sources,
+                telemetry,
+                web_result.events,
+            )
         today_news_headlines = self._today_news_headlines(
             last_user_message,
             web_result.decision,
@@ -1411,19 +1480,20 @@ class IntelligenceRouter:
                             yield citation_suffix
                             content_parts.append(citation_suffix)
                             final_content += citation_suffix
-                        asyncio.create_task(
-                            response_cache_service.store(
-                                chat_request,
-                                ChatResponse(
-                                    content=final_content,
-                                    model=getattr(backend, "default_model", None) or backend_id,
-                                    backend=backend_id,
-                                    routeDecision=route.reason,
-                                    ragSources=[*rag_sources, *web_result.sources],
-                                    requestId=chat_request.requestId,
+                        if not bypass_response_cache:
+                            asyncio.create_task(
+                                response_cache_service.store(
+                                    chat_request,
+                                    ChatResponse(
+                                        content=final_content,
+                                        model=getattr(backend, "default_model", None) or backend_id,
+                                        backend=backend_id,
+                                        routeDecision=route.reason,
+                                        ragSources=[*rag_sources, *web_result.sources],
+                                        requestId=chat_request.requestId,
+                                    ),
                                 ),
                             )
-                        )
                     return  # stream completed successfully
                 except Exception as e:
                     if emitted:

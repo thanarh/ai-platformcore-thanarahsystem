@@ -1,7 +1,7 @@
 import asyncio
 import time
 import unittest
-from datetime import date
+from datetime import date, datetime, timezone
 from unittest.mock import patch
 
 import httpx
@@ -75,17 +75,24 @@ class WebIntelligencePhase3Tests(unittest.IsolatedAsyncioTestCase):
 
     def test_ranking_and_recent_vehicle_queries_fail_closed_without_current_evidence(self):
         ranking_query = "ابحث عن احسن الجامعات في العالم"
-        vehicle_query = "الفرق بين الأكسنت ٢٠٢٦ والكرولا ٢٠٢٦"
+        current_year = datetime.now(timezone.utc).year
+        vehicle_query = f"الفرق بين الأكسنت {current_year} والكرولا {current_year}"
+        generic_vehicle_query = f"عن احسن سيارة لي {current_year}"
 
         self.assertTrue(is_university_ranking_query(ranking_query))
         self.assertTrue(is_recent_vehicle_model_query(vehicle_query))
+        self.assertTrue(is_recent_vehicle_model_query(generic_vehicle_query))
         with patch.object(settings, "web_search_enabled", True):
             ranking_decision = decide_web(ranking_query)
             vehicle_decision = decide_web(vehicle_query)
+            generic_vehicle_decision = decide_web(generic_vehicle_query)
 
         self.assertIn("university_ranking_request", ranking_decision.signals)
         self.assertIn("time_sensitive_information", vehicle_decision.signals)
         self.assertIn("current_vehicle_model_query", vehicle_decision.signals)
+        self.assertTrue(generic_vehicle_decision.use_web)
+        self.assertIn("time_sensitive_information", generic_vehicle_decision.signals)
+        self.assertIn("current_vehicle_model_query", generic_vehicle_decision.signals)
 
     def test_search_provider_without_topic_is_clarified_and_search_prefix_is_removed(self):
         for query in ("ابحث في جوجل", "Search Google", "search on Google", "ابحث في جوجل عن"):
@@ -670,6 +677,11 @@ class WebIntelligencePhase3Tests(unittest.IsolatedAsyncioTestCase):
 
     async def test_pipeline_does_not_use_stable_fallback_for_recent_vehicle_years(self):
         wikipedia_queries = []
+        current_year = datetime.now(timezone.utc).year
+        queries = (
+            f"ابحث عن الفرق بين الأكسنت {current_year} والكرولا {current_year}",
+            f"عن احسن سيارة لي {current_year}",
+        )
 
         class Search:
             base_url = "http://searxng.test"
@@ -682,20 +694,28 @@ class WebIntelligencePhase3Tests(unittest.IsolatedAsyncioTestCase):
                 return []
 
         with patch.object(settings, "web_search_enabled", True):
-            result = await WebIntelligencePipeline(search_client=Search()).run(
-                "ابحث عن الفرق بين الأكسنت ٢٠٢٦ والكرولا ٢٠٢٦",
-                tenant_id="tenant-a",
-            )
+            for query in queries:
+                with self.subTest(query=query):
+                    result = await WebIntelligencePipeline(search_client=Search()).run(
+                        query,
+                        tenant_id="tenant-a",
+                        explicit_request="عن احسن سيارة" in query,
+                    )
 
-        self.assertIn("current_vehicle_model_query", result.decision.signals)
-        self.assertIn("time_sensitive_information", result.decision.signals)
-        self.assertFalse(result.sources)
+                    self.assertIn("current_vehicle_model_query", result.decision.signals)
+                    self.assertIn("time_sensitive_information", result.decision.signals)
+                    self.assertFalse(result.sources)
         self.assertFalse(wikipedia_queries)
 
     async def test_pipeline_rejects_wikipedia_for_recent_vehicle_year_queries(self):
         from app.web_intelligence.search import SearchResult
 
         fetched_urls = []
+        current_year = datetime.now(timezone.utc).year
+        queries = (
+            f"ابحث عن الفرق بين الأكسنت {current_year} والكرولا {current_year}",
+            f"عن احسن سيارة لي {current_year}",
+        )
 
         class Search:
             base_url = "http://searxng.test"
@@ -703,9 +723,9 @@ class WebIntelligencePhase3Tests(unittest.IsolatedAsyncioTestCase):
             async def search(self, *_args, **_kwargs):
                 return [
                     SearchResult(
-                        title="2026 Hyundai Accent and Toyota Corolla comparison",
+                        title=f"{current_year} Hyundai Accent and Toyota Corolla comparison",
                         url="https://en.wikipedia.org/wiki/Hyundai_Accent",
-                        snippet="Comparison of the Accent and Corolla for 2026.",
+                        snippet=f"Comparison of the Accent and Corolla for {current_year}.",
                         source="wikipedia",
                         rank=1,
                     )
@@ -720,15 +740,19 @@ class WebIntelligencePhase3Tests(unittest.IsolatedAsyncioTestCase):
                 raise AssertionError("Wikipedia model pages must not be fetched as current evidence")
 
         with patch.object(settings, "web_search_enabled", True):
-            result = await WebIntelligencePipeline(
-                search_client=Search(),
-                fetcher=Fetcher(),
-            ).run(
-                "ابحث عن الفرق بين الأكسنت ٢٠٢٦ والكرولا ٢٠٢٦",
-                tenant_id="tenant-a",
-            )
+            for query in queries:
+                with self.subTest(query=query):
+                    result = await WebIntelligencePipeline(
+                        search_client=Search(),
+                        fetcher=Fetcher(),
+                    ).run(
+                        query,
+                        tenant_id="tenant-a",
+                        explicit_request="عن احسن سيارة" in query,
+                    )
 
-        self.assertFalse(result.sources)
+                    self.assertIn("current_vehicle_model_query", result.decision.signals)
+                    self.assertFalse(result.sources)
         self.assertFalse(fetched_urls)
 
     async def test_pipeline_publishes_source_and_fetch_progress_before_fetch_finishes(self):

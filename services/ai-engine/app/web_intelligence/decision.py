@@ -114,6 +114,17 @@ _CAR_BRAND_TERMS = (
     "كورولا",
     "corolla",
 )
+_GENERIC_VEHICLE_TERMS = (
+    "سيارة",
+    "سياره",
+    "سيارات",
+    "مركبة",
+    "مركبه",
+    "مركبات",
+)
+_ENGLISH_VEHICLE_QUERY = re.compile(
+    r"(?<![a-z0-9])(?:cars?|vehicles?|suvs?|sedans?)(?![a-z0-9])"
+)
 _UNIVERSITY_ENTITY_TERMS = (
     "جامع",
     "university",
@@ -232,7 +243,11 @@ def is_university_ranking_query(query: str) -> bool:
 
 def is_recent_vehicle_model_query(query: str) -> bool:
     text = (query or "").casefold()
-    if not any(term.casefold() in text for term in _CAR_BRAND_TERMS):
+    has_vehicle_term = any(
+        term.casefold() in text
+        for term in (*_CAR_BRAND_TERMS, *_GENERIC_VEHICLE_TERMS)
+    ) or bool(_ENGLISH_VEHICLE_QUERY.search(text))
+    if not has_vehicle_term:
         return False
     ascii_digits = "".join(
         str(unicodedata.decimal(char)) if char.isdecimal() else char
