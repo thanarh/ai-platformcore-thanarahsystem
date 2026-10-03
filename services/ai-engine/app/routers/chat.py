@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from app.streaming.events import event_frame, legacy_delta_frame, StreamEventType
 
 logger = logging.getLogger(__name__)
+STREAM_HEARTBEAT_SECONDS = 15.0
 router = APIRouter()
 
 
@@ -113,14 +114,40 @@ async def chat_stream(request: Request, chat_request: ChatRequest):
             yield event_frame(StreamEventType.STATUS, {"state": "generating"})
             full_content = []
             first_delta = False
-            async for token in stream_gen:
-                if await request.is_disconnected():
-                    return
-                full_content.append(token)
-                if not first_delta:
-                    first_delta = True
-                    telemetry.add_ms("sseFirstDeltaMs", telemetry.started_at)
-                yield legacy_delta_frame(token)
+            token_iterator = stream_gen.__aiter__()
+            next_token_task = asyncio.create_task(token_iterator.__anext__())
+            try:
+                while True:
+                    done, _ = await asyncio.wait(
+                        {next_token_task},
+                        timeout=STREAM_HEARTBEAT_SECONDS,
+                    )
+                    if not done:
+                        if await request.is_disconnected():
+                            next_token_task.cancel()
+                            await asyncio.gather(next_token_task, return_exceptions=True)
+                            return
+                        yield event_frame(
+                            StreamEventType.STATUS,
+                            {"state": "generating", "keepalive": True},
+                        )
+                        continue
+                    try:
+                        token = next_token_task.result()
+                    except StopAsyncIteration:
+                        break
+                    if await request.is_disconnected():
+                        return
+                    full_content.append(token)
+                    if not first_delta:
+                        first_delta = True
+                        telemetry.add_ms("sseFirstDeltaMs", telemetry.started_at)
+                    yield legacy_delta_frame(token)
+                    next_token_task = asyncio.create_task(token_iterator.__anext__())
+            finally:
+                if not next_token_task.done():
+                    next_token_task.cancel()
+                    await asyncio.gather(next_token_task, return_exceptions=True)
 
             # Learn from the completed exchange after delivery preparation.
             if (chat_request.tenantConfig or {}).get("memoryEnabled", True) is not False:

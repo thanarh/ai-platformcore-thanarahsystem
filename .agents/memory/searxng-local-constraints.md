@@ -161,3 +161,17 @@ universities did not establish a ranking.
 **How to apply:** Preserve relevance scoring, SSRF-safe page fetching, and
 source verification after fallback results. Keep current weather, news, and
 prices evidence-gated; do not infer rankings from page order or model knowledge.
+
+For known business comparisons, search each brand independently and prefer
+fetched first-party pages for both sides. If one side has no verified official
+page, disclose the evidence gap rather than relaxing relevance to accept
+unrelated encyclopedia or third-party SEO pages.
+
+**Why:** A live Zid/Salla comparison surfaced unrelated Wikipedia content and
+stale third-party comparison articles, while separate first-party searches
+produced useful pages from both companies. One company homepage returned 403,
+but its official partner site was fetchable.
+
+**How to apply:** Use bounded, brand-specific queries and first-party host
+checks for known entities; verify that every selected page fetches and extracts
+cleanly. Keep any comparison limited to what the fetched pages actually support.

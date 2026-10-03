@@ -26,6 +26,8 @@ from app.web_intelligence.fetcher import FetchError, SafeHTTPFetcher
 from app.web_intelligence.search import (
     SearchResult,
     SearXNGClient,
+    business_comparison_search_queries,
+    business_comparison_official_domains,
     canonicalize_url,
     extract_direct_urls,
     english_search_query,
@@ -251,7 +253,11 @@ class WebIntelligencePipeline:
         search_query_for_reranking = " | ".join(
             value
             for topic, _ in categorized_queries
-            for value in (topic, english_search_query(topic))
+            for value in (
+                topic,
+                english_search_query(topic),
+                *business_comparison_search_queries(topic),
+            )
             if value
         )
         same_day_requested = requires_same_day_results(query)
@@ -262,7 +268,8 @@ class WebIntelligencePipeline:
         time_range = "day" if same_day_requested else None
         search_key = self._cache_key(
             "\n".join(
-                f"{category}:{topic.casefold()}:{(english_search_query(topic) or '').casefold()}"
+                f"{category}:{topic.casefold()}:{(english_search_query(topic) or '').casefold()}:"
+                f"{'|'.join(business_comparison_search_queries(topic)).casefold()}"
                 for topic, category in categorized_queries
             ),
             language,
@@ -336,6 +343,11 @@ class WebIntelligencePipeline:
             translated = english_search_query(topic)
             if translated and translated.casefold() != topic.casefold():
                 variants.append((translated, "en"))
+            variants.extend(
+                (business_query, "en")
+                for business_query in business_comparison_search_queries(topic)
+            )
+            variants = list(dict.fromkeys(variants))
             overall_result_limit = max_results or settings.web_max_results
             # Each variant needs enough candidates to survive relevance filtering
             # and safe-fetch failures; the combined list is capped later.
@@ -373,8 +385,22 @@ class WebIntelligencePipeline:
                     if canonical and canonical not in seen_urls:
                         seen_urls.add(canonical)
                         relevant.append(item)
+            official_domains = business_comparison_official_domains(topic)
+            if official_domains:
+                relevant = [
+                    item
+                    for item in relevant
+                    if any(
+                        (urlparse(item.url).hostname or "").casefold() == domain
+                        or (urlparse(item.url).hostname or "").casefold().endswith(
+                            f".{domain}"
+                        )
+                        for domain in official_domains
+                    )
+                ]
             if not relevant:
-                relevant = await search_wikipedia_fallback(topic, topic_category)
+                if not business_comparison_search_queries(topic):
+                    relevant = await search_wikipedia_fallback(topic, topic_category)
             if same_day_requested:
                 relevant = [
                     item

@@ -20,6 +20,8 @@ from app.web_intelligence.pipeline import WebIntelligencePipeline
 from app.web_intelligence.search import (
     SearXNGClient,
     _effective_language,
+    business_comparison_official_domains,
+    business_comparison_search_queries,
     english_search_query,
     extract_direct_urls,
     filter_and_score_results,
@@ -128,6 +130,10 @@ class WebIntelligencePhase3Tests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             normalize_search_query("ابحث في جوجل عن احسن الجامعات في العالم"),
             "احسن الجامعات في العالم",
+        )
+        self.assertEqual(
+            normalize_search_query("ابحث في جوجل ما الفرق بين شركة شركة زد و شركة سلة"),
+            "ما الفرق بين شركة زد و شركة سلة",
         )
         self.assertEqual(
             normalize_search_query("Search on Google for best universities"),
@@ -275,6 +281,71 @@ class WebIntelligencePhase3Tests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             filter_and_score_results(university_query, [university_result]),
             [university_result],
+        )
+
+    def test_zid_salla_comparison_expands_to_brand_queries_and_rejects_unrelated_pages(self):
+        from app.web_intelligence.search import SearchResult
+
+        query = "ابحث في جوجل ما الفرق بين شركة شركة زد و شركة سلة"
+        self.assertEqual(
+            english_search_query(query),
+            "difference between Zid and Salla",
+        )
+        self.assertEqual(
+            business_comparison_search_queries(query),
+            [
+                "site:zid.sa Zid ecommerce platform Saudi Arabia",
+                "site:salla.com Salla ecommerce platform Saudi Arabia",
+            ],
+        )
+        self.assertEqual(
+            business_comparison_official_domains(query),
+            ["zid.sa", "salla.com"],
+        )
+
+        unrelated = SearchResult(
+            title="قائمة ألعاب الهاتف الذكي الأكثر ربحًا",
+            url="https://ar.wikipedia.org/wiki/قائمة_ألعاب_الهاتف",
+            snippet="قائمة بألعاب الهاتف الذكي الأكثر ربحًا.",
+            source="wikipedia",
+            rank=1,
+        )
+        zid = SearchResult(
+            title="Zid | Create Your Online Store Easily",
+            url="https://zid.sa/en/",
+            snippet="Zid is an integrated platform for creating an online store.",
+            source="bing",
+            rank=5,
+        )
+        salla = SearchResult(
+            title="سلة | منصة التجارة الإلكترونية الشاملة في السعودية",
+            url="https://salla.com/",
+            snippet="أنشئ متجرك الإلكتروني في دقائق.",
+            source="bing",
+            rank=1,
+        )
+        zid_movie = SearchResult(
+            title="Zid (2014 film) - Wikipedia",
+            url="https://en.m.wikipedia.org/wiki/Zid_(2014_film)",
+            snippet="A Hindi-language thriller film directed by Vivek Agnihotri.",
+            source="bing",
+            rank=1,
+        )
+
+        self.assertEqual(filter_and_score_results(query, [unrelated]), [])
+        self.assertEqual(
+            filter_and_score_results(
+                "site:zid.sa Zid ecommerce platform Saudi Arabia",
+                [zid, zid_movie],
+            ),
+            [zid],
+        )
+        self.assertEqual(
+            filter_and_score_results(
+                "site:salla.com Salla ecommerce platform Saudi Arabia",
+                [salla],
+            ),
+            [salla],
         )
 
     def test_ranking_sources_require_a_ranking_publisher_and_explicit_ranking_result(self):

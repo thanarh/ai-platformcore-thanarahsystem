@@ -41,6 +41,30 @@ class ExplicitWebSearchTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(events, [])
         load_web.assert_not_awaited()
 
+    async def test_verified_web_evidence_prompt_does_not_claim_search_is_unavailable(self):
+        router = IntelligenceRouter(registry=None)
+        request = ChatRequest(
+            messages=[
+                ChatMessage(
+                    role="user",
+                    content="ابحث في جوجل ما الفرق بين شركة زد وشركة سلة",
+                )
+            ],
+            tenantId="tenant-a",
+            runtimeContext={"language": "ar"},
+        )
+
+        ai_request = router._build_ai_request(
+            request,
+            RouteDecision(backend_id="ollama", reason="test"),
+            context="## Web evidence\n[source-1] source text",
+            web_evidence=True,
+        )
+
+        self.assertIn("أُجري البحث في الويب بالفعل", ai_request.system_prompt)
+        self.assertIn("لا تقل إنك لا تستطيع البحث", ai_request.system_prompt)
+        self.assertIn("SearXNG وليس Google", ai_request.system_prompt)
+
     async def test_unverified_rankings_and_recent_car_specs_do_not_use_model_fallback(self):
         router = IntelligenceRouter(registry=None)
         ranking_query = "ابحث عن احسن الجامعات في العالم"
@@ -88,6 +112,12 @@ class ExplicitWebSearchTests(unittest.IsolatedAsyncioTestCase):
                 requires_current_source=True,
             ),
         )
+        general_search_failure = router._web_unavailable_message(
+            "ما الفرق بين شركة زد وشركة سلة",
+            "No verified web search results",
+        )
+        self.assertIn("أرسل رابطًا لمصدر مناسب", general_search_failure)
+        self.assertNotIn("المدينة", general_search_failure)
 
     async def test_underspecified_car_comparison_asks_for_details_in_both_routes(self):
         query = "أيهما أفضل، محرك مرسيدس أم BMW؟"
@@ -182,6 +212,18 @@ class ExplicitWebSearchTests(unittest.IsolatedAsyncioTestCase):
             ),
             "تذكر الصفحة وجود مخاطر تنفسية. [source-1]",
         )
+        self.assertIsNone(
+            IntelligenceRouter._source_linked_web_content(
+                "أنا آسف، لا يمكنني البحث في جوجل. [source-1] [source-2]",
+                sources,
+            )
+        )
+        self.assertIsNone(
+            IntelligenceRouter._source_linked_web_content(
+                "Sorry, I can't search Google. [source-1]",
+                sources,
+            )
+        )
         self.assertEqual(
             IntelligenceRouter._source_linked_web_content(
                 "ملخص من المصادر:\n"
@@ -191,6 +233,50 @@ class ExplicitWebSearchTests(unittest.IsolatedAsyncioTestCase):
             ),
             "تذكر الصفحة وجود مخاطر تنفسية. [source-1]",
         )
+
+    def test_known_business_comparison_falls_back_to_official_source_excerpts(self):
+        query = "ابحث في جوجل ما الفرق بين شركة زد وشركة سلة"
+        sources = [
+            {
+                "id": "source-1",
+                "title": "Salla Partners",
+                "url": "https://partners.salla.com/en",
+            },
+            {
+                "id": "source-2",
+                "title": "Zid",
+                "url": "https://zid.sa/en/",
+            },
+        ]
+        context = (
+            "## Web evidence\n"
+            "[source-1] Salla Partners\n"
+            "Search topics: مقارنة زد وسلة\n"
+            "URL: https://partners.salla.com/en\n"
+            "Retrieved: 2026-10-03T00:00:00+00:00\n"
+            "Content: Join Salla Partners and offer your apps, themes, and services to "
+            "68,000+ active online stores across Saudi Arabia and the Gulf. More text.\n"
+            "[source-2] Zid\n"
+            "Search topics: مقارنة زد وسلة\n"
+            "URL: https://zid.sa/en/\n"
+            "Retrieved: 2026-10-03T00:00:00+00:00\n"
+            "Content: Zid is your integrated platform for creating an online store, "
+            "with solutions for payment, shipping, and inventory. More text."
+        )
+
+        answer = IntelligenceRouter._unlinked_web_answer_message(
+            query,
+            context,
+            sources,
+        )
+
+        self.assertIn("SearXNG، وليس Google", answer)
+        self.assertIn("زد:", answer)
+        self.assertIn("سلة:", answer)
+        self.assertIn("Join Salla Partners", answer)
+        self.assertIn("Zid is your integrated platform", answer)
+        self.assertIn("[source-1]", answer)
+        self.assertIn("[source-2]", answer)
 
     async def test_selected_chat_skill_reaches_the_search_pipeline_as_explicit(self):
         result = WebPipelineResult(

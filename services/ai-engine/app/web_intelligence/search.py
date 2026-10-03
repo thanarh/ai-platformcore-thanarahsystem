@@ -24,7 +24,7 @@ _SEARCH_COMMAND_PREFIX = re.compile(
     r"(?:ابحث|أبحث|فتش|فتّش)\s+"
     r"(?:(?:أيضًا|ايضا|كذلك|ثم|بعدها|فقط|بس)\s+)?"
     r"(?:(?:في|على|عبر)\s+(?:ال)?"
-    r"(?:إنترنت|انترنت|ويب|جوجل|غوغل|قوقل|بينغ|google|bing|duckduckgo)\s+عن|عن)"
+    r"(?:إنترنت|انترنت|ويب|جوجل|غوغل|قوقل|بينغ|google|bing|duckduckgo)(?:\s+عن)?|عن)"
     r"|(?:search|research)\s+(?:(?:the\s+)?(?:web|internet)|online|"
     r"(?:(?:on|in)\s+(?:google|bing|duckduckgo)))(?:\s+(?:for|about))?"
     r"|(?:search|research)\s+(?:only\s+)?(?:for|about)"
@@ -101,7 +101,7 @@ _SEARCH_STOPWORDS = {
     "هذه", "ذلك", "مع", "كيف", "ماذا", "هل", "أريد", "اريد", "ابحث",
     "أبحث", "بحث", "الإنترنت", "الانترنت", "الويب", "لي", "أحدث",
     "احدث", "آخر", "اخر", "اليوم", "الآن", "الان",
-    "بين", "الفرق", "مقارنة", "مقارنه",
+    "بين", "الفرق", "مقارنة", "مقارنه", "شركة", "مؤسسة",
 }
 _ARABIC_MARKS = re.compile(r"[\u0640\u064b-\u065f\u0670]")
 _ARABIC_LETTER_NORMALIZATION = str.maketrans({
@@ -157,6 +157,13 @@ def normalize_search_query(query: str) -> str:
     )
     normalized = _ARABIC_COMPANY_QUESTION_PREFIX.sub("", normalized, count=1)
     normalized = _ARABIC_ORGANIZATION_PREFIX.sub("", normalized, count=1)
+    normalized = re.sub(
+        r"(?<!\w)(شركة|مؤسسة)(?:\s+\1)+(?!\w)",
+        r"\1",
+        normalized,
+        count=1,
+        flags=re.IGNORECASE,
+    )
     normalized = _ARABIC_NEWS_PREFIX.sub("", normalized, count=1)
     normalized = _ARABIC_CURRENT_TIME_SUFFIX.sub("", normalized, count=1).strip()
     if (
@@ -775,6 +782,32 @@ _COMPARISON_QUERY_MARKERS = (
     "versus",
     "which is better",
 )
+_NORMALIZED_COMPARISON_QUERY_MARKERS = tuple(
+    _normalize_lexical_text(marker) for marker in _COMPARISON_QUERY_MARKERS
+)
+_BUSINESS_ENTITY_CONTEXT_MARKERS = tuple(
+    _normalize_lexical_text(marker)
+    for marker in (
+        *_COMPARISON_QUERY_MARKERS,
+        "شركة",
+        "مؤسسة",
+        "منصة",
+        "متجر",
+        "تجارة",
+        "ecommerce",
+        "e-commerce",
+        "commerce",
+        "online store",
+        "platform",
+        "company",
+    )
+)
+_BUSINESS_ENTITY_ALIASES = (
+    ("زد", "Zid", "zid.sa"),
+    ("سله", "Salla", "salla.com"),
+    ("zid", "Zid", "zid.sa"),
+    ("salla", "Salla", "salla.com"),
+)
 _SHARED_TOPIC_PREFIX = re.compile(
     r"^\s*(?P<prefix>أضرار|اضرار|مخاطر|فوائد|أعراض|اعراض|تأثيرات?|"
     r"مميزات|عيوب|أسعار|اسعار|سعر|مواصفات|risks|benefits|side effects|"
@@ -786,6 +819,11 @@ _REPEATED_SEARCH_DIRECTIVE = re.compile(
     r"(?i)(?:^|[\s،,;؛])(?:(?:و|and)\s*)?(?:ثم|بعدها|كذلك|أيضًا|ايضا|also|then)?\s*"
     r"(?:ابحث|أبحث|فتش|فتّش|search|research|look\s+up)\b"
 )
+
+
+def _contains_comparison_marker(value: str) -> bool:
+    normalized = _normalize_lexical_text(value)
+    return any(marker in normalized for marker in _NORMALIZED_COMPARISON_QUERY_MARKERS)
 
 
 def split_search_queries(
@@ -803,7 +841,7 @@ def split_search_queries(
         return ([normalized] if normalized else []), False
 
     lexical = _normalize_lexical_text(normalized)
-    if any(marker in lexical for marker in _COMPARISON_QUERY_MARKERS):
+    if _contains_comparison_marker(lexical):
         return [normalized], False
 
     parts: list[str] = []
@@ -850,6 +888,65 @@ def split_search_queries(
 
     limit = max(1, min(max_queries, 5))
     return normalized_parts[:limit], len(normalized_parts) > limit
+
+
+def _business_entity_names(query: str) -> list[str]:
+    normalized = _normalize_lexical_text(normalize_search_query(query))
+    terms = set(re.findall(r"[\w\u0600-\u06ff]{2,}", normalized))
+    names: list[str] = []
+    for alias, display_name, _domain in _BUSINESS_ENTITY_ALIASES:
+        if alias in terms and display_name not in names:
+            names.append(display_name)
+    return names
+
+
+def _is_business_entity_query(query: str, entity_names: list[str] | None = None) -> bool:
+    normalized = _normalize_lexical_text(normalize_search_query(query))
+    if not (entity_names if entity_names is not None else _business_entity_names(query)):
+        return False
+    return any(marker in normalized for marker in _BUSINESS_ENTITY_CONTEXT_MARKERS)
+
+
+def _normalize_business_text(value: str, *, enabled: bool) -> str:
+    normalized = _normalize_lexical_text(value)
+    if not enabled:
+        return normalized
+    for alias, display_name, _domain in _BUSINESS_ENTITY_ALIASES[:2]:
+        normalized = re.sub(
+            rf"(?<!\w){re.escape(alias)}(?!\w)",
+            f" {display_name.casefold()} ",
+            normalized,
+        )
+    return re.sub(r"\s+", " ", normalized).strip()
+
+
+def business_comparison_search_queries(query: str) -> list[str]:
+    """Create bounded English lookup queries for known Arabic business-brand comparisons."""
+    normalized = _normalize_lexical_text(normalize_search_query(query))
+    entity_names = _business_entity_names(query)
+    if len(entity_names) < 2 or not _contains_comparison_marker(normalized):
+        return []
+    domains = {
+        display_name: domain
+        for _alias, display_name, domain in _BUSINESS_ENTITY_ALIASES
+    }
+    return [
+        f"site:{domains[name]} {name} ecommerce platform Saudi Arabia"
+        for name in entity_names
+    ]
+
+
+def business_comparison_official_domains(query: str) -> list[str]:
+    """Return verified first-party domains for a known two-brand comparison."""
+    normalized = _normalize_lexical_text(normalize_search_query(query))
+    entity_names = _business_entity_names(query)
+    if len(entity_names) < 2 or not _contains_comparison_marker(normalized):
+        return []
+    domains = {
+        display_name: domain
+        for _alias, display_name, domain in _BUSINESS_ENTITY_ALIASES
+    }
+    return list(dict.fromkeys(domains[name] for name in entity_names))
 
 
 _ARABIC_SEARCH_TRANSLATIONS = (
@@ -907,9 +1004,25 @@ def english_search_query(query: str) -> str | None:
     if not re.search(r"[\u0600-\u06ff]", normalized):
         return None
 
+    entity_names = _business_entity_names(normalized)
+    business_query = _is_business_entity_query(normalized, entity_names)
     translated = normalized
     for arabic, english in sorted(_ARABIC_SEARCH_TRANSLATIONS, key=lambda pair: len(pair[0]), reverse=True):
         translated = translated.replace(_normalize_lexical_text(arabic), english)
+    if business_query:
+        for alias, display_name, _domain in _BUSINESS_ENTITY_ALIASES[:2]:
+            translated = re.sub(
+                rf"(?<!\w){re.escape(alias)}(?!\w)",
+                f" {display_name} ",
+                translated,
+            )
+        for generic_term in ("شركة", "مؤسسة", "ما"):
+            normalized_generic_term = _normalize_lexical_text(generic_term)
+            translated = re.sub(
+                rf"(?<!\w){re.escape(normalized_generic_term)}(?!\w)",
+                " ",
+                translated,
+            )
     translated = re.sub(r"(?:\s+و)+\s+", " and ", translated)
     translated = re.sub(r"(?<!\w)ار\s*([0-9]+)(?!\w)", r"R\1", translated)
     translated = re.sub(r"\s+", " ", translated).strip()
@@ -921,12 +1034,26 @@ def english_search_query(query: str) -> str | None:
 def filter_and_score_results(query: str, results: list[SearchResult]) -> list[SearchResult]:
     """Deduplicate by canonical URL, remove blocked domains, then score lexically."""
     search_query = normalize_search_query(query)
+    entity_names = _business_entity_names(search_query)
+    business_query = _is_business_entity_query(search_query, entity_names)
+    business_comparison = len(entity_names) >= 2 and _contains_comparison_marker(search_query)
+    scoring_query = re.sub(
+        r"(?i)(?<!\w)site:\S+",
+        " ",
+        search_query,
+    )
     terms = {
         term
-        for term in re.findall(r"[\w\u0600-\u06ff]{2,}", _normalize_lexical_text(search_query))
+        for term in re.findall(
+            r"[\w\u0600-\u06ff]{2,}",
+            _normalize_business_text(scoring_query, enabled=business_query),
+        )
         if term not in _NORMALIZED_SEARCH_STOPWORDS
     }
     minimum_overlap = 2 if len(terms) >= 3 else 1
+    if business_comparison:
+        minimum_overlap = max(minimum_overlap, 2)
+    entity_terms = {name.casefold() for name in entity_names}
     seen: set[str] = set()
     scored: list[tuple[float, SearchResult]] = []
     blocked = blocked_search_domains()
@@ -944,13 +1071,25 @@ def filter_and_score_results(query: str, results: list[SearchResult]) -> list[Se
         ) or search_homepage:
             continue
         seen.add(canonical)
-        haystack = _normalize_lexical_text(f"{result.title} {result.snippet}")
+        haystack = _normalize_business_text(
+            f"{result.title} {result.snippet} {hostname}",
+            enabled=business_query,
+        )
         overlap = sum(
             1
             for term in terms
             if any(variant in haystack for variant in _relevance_variants(term))
         )
-        if terms and overlap < minimum_overlap:
+        host_terms = set(
+            re.findall(r"[\w\u0600-\u06ff]{2,}", _normalize_lexical_text(hostname))
+        )
+        domain_entity_match = bool(entity_terms & host_terms)
+        required_overlap = (
+            1
+            if domain_entity_match and not business_comparison
+            else minimum_overlap
+        )
+        if terms and overlap < required_overlap:
             continue
         score = overlap / max(1, len(terms)) + max(0.0, 1.0 - (result.rank - 1) * 0.03)
         scored.append((score, result))

@@ -21,6 +21,12 @@ For web-grounded answers, validate inline citation IDs against fetched sources a
 
 **How to apply:** Keep the same safeguards for normal and streaming responses. Citation-ID validation is structural only; it does not prove that a source entails a claim.
 
+When verified web evidence is attached, reject model claims that web access is unavailable even if they carry valid citation IDs. For known comparisons, if the model cannot produce a supported summary, provide clearly attributed excerpts from the fetched first-party pages rather than inventing a comparison or discarding usable evidence.
+
+**Why:** The local model returned a false “cannot search” response despite fetched pages; citation IDs alone allowed that unrelated statement through the structural check.
+
+**How to apply:** Tell the model that search has already run, filter explicit access-denial claims, and use a narrow extractive fallback only when both sides have verified first-party evidence.
+
 For brand-level vehicle-engine comparisons, ask for at least two identifiable models and their model years before generating a comparison. Preserve direct user-provided URLs and sufficiently specified model comparisons for source lookup.
 
 **Why:** A brand covers many engine generations and regional variants; generic pages are not enough evidence for specific engine claims.
