@@ -7,24 +7,27 @@ The local SearXNG setup must bind to IPv4 (`0.0.0.0`) because this environment
 does not support the container's default IPv6 bind. The Replit Docker bridge
 also fails public DNS resolution for the SearXNG container, so the compose
 service must use host networking here. Candidate engines may be listed in
-local settings, but they must not be treated as available until `/config`
-discovery and a live per-engine JSON probe succeed. The verified allowlist is
-Wikipedia, arXiv, Bing, Bing News, DuckDuckGo News, GitHub, and Stack Overflow.
+local settings, but they must not be treated as available until the current
+runtime `/config` and live target-query probes succeed. The historical candidate
+list is Wikipedia, arXiv, Bing, Bing News, DuckDuckGo News, GitHub, and Stack
+Overflow. On 2026-10-03, the local runtime reported Bing disabled; forced Bing
+searches for Yamaha and iPhone comparisons returned irrelevant pages.
 The fetcher must send an explicit descriptive User-Agent because Wikipedia can
 return 403 to the HTTP client's default identity.
 
 **Why:** Initial probes failed on IPv6 and Docker-bridge DNS, while direct
 Wikipedia retrieval failed with 403 until the request identified the local
 retrieval client. DuckDuckGo general, Wikidata, and Brave were not reliable in
-live probes. Claiming multi-engine availability from configuration alone would
+live probes. Later runtime status also differed from the historical allowlist.
+Claiming multi-engine availability from configuration or old probes alone would
 make the benchmark misleading.
 
 **How to apply:** Keep the local SearXNG engine allowlist intentionally small
-and verified before benchmarking. Treat a live JSON probe as dependency
-reachability only; verify search, fetch, extraction, citations, and SSE
-end-to-end before changing any production flag. Keep production disabled when
-the healthy-engine list is empty, and fail closed when relevance filtering or
-page fetching leaves no verified evidence.
+and re-verify it before benchmarking. Treat a live JSON probe as dependency
+reachability only; inspect exact-query relevance, then verify fetch, extraction,
+citations, and SSE end-to-end before changing any production flag. Keep
+production disabled when the healthy-engine list is empty, and fail closed when
+relevance filtering or page fetching leaves no verified evidence.
 
 Strip leading Arabic or English search commands before sending the query or
 scoring results. Bing treated literal phrases such as "Search online for..."

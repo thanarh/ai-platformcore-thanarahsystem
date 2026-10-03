@@ -44,7 +44,7 @@ export interface StreamChatOptions {
   skillId?: string;
 }
 
-const STREAM_REQUEST_TIMEOUT_MS = 180_000;
+const STREAM_IDLE_TIMEOUT_MS = 180_000;
 const STREAM_TIMEOUT_MESSAGE = 'انتهت مهلة انتظار الرد قبل اكتماله. أعد إرسال رسالتك.';
 const STREAM_INTERRUPTED_MESSAGE = 'انقطع الاتصال قبل اكتمال الرد. أعد إرسال رسالتك.';
 
@@ -68,10 +68,15 @@ export async function streamChat(
   } else {
     signal?.addEventListener('abort', relayCallerAbort, { once: true });
   }
-  const timeoutHandle = setTimeout(() => {
-    timedOut = true;
-    requestController.abort();
-  }, STREAM_REQUEST_TIMEOUT_MS);
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  const armIdleTimeout = () => {
+    clearTimeout(timeoutHandle);
+    timeoutHandle = setTimeout(() => {
+      timedOut = true;
+      requestController.abort();
+    }, STREAM_IDLE_TIMEOUT_MS);
+  };
+  armIdleTimeout();
 
   try {
     const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
@@ -84,6 +89,7 @@ export async function streamChat(
       body: JSON.stringify({ conversationId, content, ...options }),
       signal: requestController.signal,
     });
+    armIdleTimeout();
 
     if (!res.ok || !res.body) {
       const detail = await res.text().catch(() => '');
@@ -138,6 +144,7 @@ export async function streamChat(
 
     while (!completed) {
       const { done, value } = await reader.read();
+      armIdleTimeout();
       if (done) break;
 
       buffer += decoder.decode(value, { stream: true });

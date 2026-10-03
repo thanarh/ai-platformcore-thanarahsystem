@@ -337,6 +337,83 @@ class ExplicitWebSearchTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(router._is_search_topic_followup(unrelated_followup))
         self.assertFalse(router._has_explicit_search_intent(unrelated_followup))
 
+    async def test_explicit_text_search_without_sources_fails_closed_when_web_is_disabled(self):
+        web_result = WebPipelineResult(
+            decision=WebDecision(
+                False,
+                "disabled_by_environment",
+                ("explicit_search_request",),
+                "general",
+            ),
+        )
+        generated_requests = []
+
+        class FakeBackend:
+            default_model = "fixture"
+
+            async def stream_chat(self, ai_request):
+                generated_requests.append(ai_request)
+                yield "An unverified fallback answer."
+
+        class FakeRegistry:
+            def get(self, _backend_id):
+                return FakeBackend()
+
+        router = IntelligenceRouter(registry=FakeRegistry())
+        query = "Search in Google what is the difference between Yamaha R3 and Yamaha R6"
+
+        def make_request(stream=False):
+            return ChatRequest(
+                messages=[ChatMessage(role="user", content=query)],
+                tenantId="tenant-a",
+                runtimeContext={"language": "en"},
+                stream=stream,
+            )
+
+        self.assertTrue(router._has_explicit_search_intent(make_request()))
+
+        with (
+            patch(
+                "app.router.intelligence_router.response_cache_service.get",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "app.router.intelligence_router.response_cache_service.store",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "app.router.intelligence_router.daily_learning_service.profile",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch.object(
+                router,
+                "_decide_route",
+                return_value=RouteDecision(backend_id="fixture", reason="test"),
+            ),
+            patch.object(
+                router,
+                "_load_context_sources",
+                new_callable=AsyncMock,
+                return_value=([], [], {}),
+            ),
+            patch.object(
+                router,
+                "_load_web_context",
+                new_callable=AsyncMock,
+                return_value=web_result,
+            ),
+        ):
+            normal_response = await router.route(make_request())
+            stream, stream_route, *_ = await router.stream_route(make_request(stream=True))
+            streamed_content = "".join([part async for part in stream])
+
+        self.assertEqual(normal_response.backend, "web-search-unavailable")
+        self.assertEqual(stream_route.backend_id, "web-search-unavailable")
+        self.assertTrue(streamed_content)
+        self.assertEqual(generated_requests, [])
+
     async def test_other_selected_skills_do_not_force_web_search(self):
         result = WebPipelineResult(
             decision=WebDecision(False, "no_web_signal", (), "general"),
@@ -644,7 +721,6 @@ class ExplicitWebSearchTests(unittest.IsolatedAsyncioTestCase):
             messages=[ChatMessage(role="user", content="ما اللي حصل في الحرب العالمية الثانية")],
             tenantId="tenant-a",
             runtimeContext={"language": "ar"},
-            skillId="web_search",
             stream=True,
         )
 
@@ -688,7 +764,7 @@ class ExplicitWebSearchTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(route.backend_id, "fixture")
         self.assertEqual(len(generated_requests), 1)
         self.assertIn("إجابة عامة", generated_requests[0].system_prompt)
-        self.assertIn("غير مستندة إلى نتائج بحث مباشرة", generated_requests[0].system_prompt)
+        self.assertIn("ليست مبنية على نتائج ويب مباشرة", generated_requests[0].system_prompt)
         self.assertNotIn("لم أتمكن من العثور على مصادر موثوقة لهذا البحث الآن", answer)
 
     async def test_stream_drops_uncited_drafts_and_keeps_validly_cited_lines(self):

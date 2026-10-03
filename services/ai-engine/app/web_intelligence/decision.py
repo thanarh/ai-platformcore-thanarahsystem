@@ -43,6 +43,13 @@ _EXPLICIT_TERMS = (
     "find online",
     "online sources",
 )
+
+
+def has_explicit_search_request(query: str) -> bool:
+    text = " ".join((query or "").casefold().split())
+    return any(term.casefold() in text for term in _EXPLICIT_TERMS)
+
+
 _CURRENT_TERMS = (
     "آخر",
     "اخر",
@@ -328,7 +335,7 @@ def decide_web(
         signals.append("user_provided_url")
     if explicit_request:
         signals.append("explicit_tool_selection")
-    if any(term.casefold() in text for term in _EXPLICIT_TERMS):
+    if has_explicit_search_request(text):
         signals.append("explicit_search_request")
     university_ranking_query = is_university_ranking_query(query)
     recent_vehicle_query = is_recent_vehicle_model_query(query)

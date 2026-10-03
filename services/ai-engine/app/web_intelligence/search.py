@@ -22,12 +22,12 @@ _WIKIPEDIA_MIN_REQUEST_INTERVAL_SECONDS = 1.0
 _SEARCH_COMMAND_PREFIX = re.compile(
     r"^\s*(?:(?:و|and)\s*)?(?:(?:ثم|بعدها|كذلك|أيضًا|ايضا|also|then)\s*)?(?:"
     r"(?:ابحث|أبحث|فتش|فتّش)\s+"
-    r"(?:(?:أيضًا|ايضا|كذلك|ثم|بعدها)\s+)?"
+    r"(?:(?:أيضًا|ايضا|كذلك|ثم|بعدها|فقط|بس)\s+)?"
     r"(?:(?:في|على|عبر)\s+(?:ال)?"
     r"(?:إنترنت|انترنت|ويب|جوجل|غوغل|قوقل|بينغ|google|bing|duckduckgo)\s+عن|عن)"
     r"|(?:search|research)\s+(?:(?:the\s+)?(?:web|internet)|online|"
-    r"(?:(?:on|in)\s+(?:google|bing|duckduckgo)))\s+(?:for|about)"
-    r"|(?:search|research)\s+(?:for|about)"
+    r"(?:(?:on|in)\s+(?:google|bing|duckduckgo)))(?:\s+(?:for|about))?"
+    r"|(?:search|research)\s+(?:only\s+)?(?:for|about)"
     r"|look\s+up"
     r"|find\s+online(?:\s+for)?"
     r")\s*[:：–—-]?\s*",
@@ -38,11 +38,12 @@ _SEARCH_REQUEST_WITHOUT_TOPIC = re.compile(
     r"(?:ابحث|أبحث|فتش|فتّش)"
     r"(?:\s+(?:(?:في|على|عبر)\s+(?:ال)?"
     r"(?:إنترنت|انترنت|ويب|جوجل|غوغل|قوقل|بينغ|google|bing|duckduckgo)))?"
+    r"(?:\s+(?:فقط|بس))?"
     r"(?:\s+عن)?"
     r"|(?:search|research)"
     r"(?:\s+(?:(?:the\s+)?web|internet|online|google|bing|duckduckgo|"
     r"(?:on|in)\s+(?:google|bing|duckduckgo)))?"
-    r"(?:\s+(?:for|about))?"
+    r"(?:\s+(?:for|about|only))?"
     r"|look\s+up|find\s+online"
     r")\s*[.!?؟،]*$",
     re.IGNORECASE,
@@ -115,6 +116,10 @@ _ARABIC_LETTER_NORMALIZATION = str.maketrans({
 
 def _normalize_lexical_text(value: str) -> str:
     normalized = unicodedata.normalize("NFKC", value or "").casefold()
+    normalized = "".join(
+        str(unicodedata.decimal(char)) if char.isdecimal() else char
+        for char in normalized
+    )
     normalized = _ARABIC_MARKS.sub("", normalized).translate(_ARABIC_LETTER_NORMALIZATION)
     normalized = re.sub(
         r"(?<!\w)(?:ال)?(?:مارسيدس|مرسيدس)(?:[\s-]*بنز)?(?!\w)",
@@ -154,6 +159,23 @@ def normalize_search_query(query: str) -> str:
     normalized = _ARABIC_ORGANIZATION_PREFIX.sub("", normalized, count=1)
     normalized = _ARABIC_NEWS_PREFIX.sub("", normalized, count=1)
     normalized = _ARABIC_CURRENT_TIME_SUFFIX.sub("", normalized, count=1).strip()
+    if (
+        re.search(r"(?<!\w)الرفق(?=\s+بين(?!\w))", normalized)
+        and re.search(r"(?<!\w)(?:آيفون|ايفون|أيفون|iphone)(?!\w)", normalized, re.IGNORECASE)
+    ):
+        normalized = re.sub(
+            r"(?<!\w)الرفق(?=\s+بين(?!\w))",
+            "الفرق",
+            normalized,
+            count=1,
+        )
+    normalized = re.sub(
+        r"(?<!\w)deffrent(?=\s+between(?!\w))",
+        "difference",
+        normalized,
+        count=1,
+        flags=re.IGNORECASE,
+    )
     if "مصر" in normalized and re.search(r"(?<!\w)احبار(?!\w)", normalized):
         normalized = re.sub(r"(?<!\w)احبار(?!\w)", "أخبار", normalized, count=1)
     direct_urls = extract_direct_urls(normalized)
@@ -842,6 +864,16 @@ _ARABIC_SEARCH_TRANSLATIONS = (
     ("ايهما احسن", "which is better"),
     ("المرسيدس", "Mercedes-Benz"),
     ("الفرق بين", "difference between"),
+    ("دراجات نارية", "motorcycles"),
+    ("دراجة نارية", "motorcycle"),
+    ("الدبابات", "motorcycles"),
+    ("دبابات", "motorcycles"),
+    ("الدباب", "motorcycle"),
+    ("دباب", "motorcycle"),
+    ("ياماها", "Yamaha"),
+    ("يماها", "Yamaha"),
+    ("ايفون", "iPhone"),
+    ("الفرق", "difference"),
     ("أضرار", "risks"),
     ("اضرار", "risks"),
     ("مخاطر", "risks"),
@@ -878,7 +910,8 @@ def english_search_query(query: str) -> str | None:
     translated = normalized
     for arabic, english in sorted(_ARABIC_SEARCH_TRANSLATIONS, key=lambda pair: len(pair[0]), reverse=True):
         translated = translated.replace(_normalize_lexical_text(arabic), english)
-    translated = re.sub(r"\s+و\s+", " and ", translated)
+    translated = re.sub(r"(?:\s+و)+\s+", " and ", translated)
+    translated = re.sub(r"(?<!\w)ار\s*([0-9]+)(?!\w)", r"R\1", translated)
     translated = re.sub(r"\s+", " ", translated).strip()
     if re.search(r"[\u0600-\u06ff]", translated):
         return None

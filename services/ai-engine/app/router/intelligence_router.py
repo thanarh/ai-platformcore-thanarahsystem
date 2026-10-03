@@ -22,6 +22,7 @@ from app.web_intelligence import web_intelligence_pipeline
 from app.language_policy import detect_language, response_language_instruction
 from app.web_intelligence.decision import (
     WebDecision,
+    has_explicit_search_request,
     is_car_comparison_query,
     is_recent_vehicle_model_query,
     is_university_ranking_query,
@@ -506,6 +507,14 @@ class IntelligenceRouter:
             term in query_lower
             for term in ("طقس", "درجة حرارة", "درجات الحرارة", "الحرارة", "weather", "temperature", "forecast")
         )
+        if error == "disabled_by_environment":
+            if language == "ar":
+                return "البحث المباشر غير مفعّل على الخادم حاليًا، لذلك لن أقدّم إجابة على أنها نتيجة بحث."
+            return "Live web search is disabled on this server right now, so I won't present an answer as search-verified."
+        if error == "disabled_by_tenant_config":
+            if language == "ar":
+                return "البحث المباشر غير مفعّل لهذه المحادثة، لذلك لن أقدّم إجابة على أنها نتيجة بحث."
+            return "Live web search is disabled for this workspace, so I won't present an answer as search-verified."
         if language == "ar":
             if extract_direct_urls(query):
                 return (
@@ -587,10 +596,19 @@ class IntelligenceRouter:
         return (
             web_result.decision.use_web
             and not web_result.sources
+            and "explicit_tool_selection" not in web_result.decision.signals
+            and "explicit_search_request" not in web_result.decision.signals
             and "time_sensitive_information" not in web_result.decision.signals
             and "university_ranking_request" not in web_result.decision.signals
             and not is_car_comparison_query(query)
             and not extract_direct_urls(query)
+        )
+
+    @staticmethod
+    def _requires_verified_search_sources(web_result) -> bool:
+        return any(
+            signal in {"explicit_tool_selection", "explicit_search_request"}
+            for signal in web_result.decision.signals
         )
 
     @staticmethod
@@ -657,9 +675,14 @@ class IntelligenceRouter:
 
     @classmethod
     def _has_explicit_search_intent(cls, chat_request: ChatRequest) -> bool:
+        last_user_message = next(
+            (message.content for message in reversed(chat_request.messages) if message.role == "user"),
+            "",
+        )
         return (
             chat_request.skillId == "web_search"
             or cls._is_search_topic_followup(chat_request)
+            or has_explicit_search_request(last_user_message)
         )
 
     @classmethod
@@ -1153,7 +1176,13 @@ class IntelligenceRouter:
             last_user_message,
             web_result,
         )
-        if web_result.decision.use_web and not web_result.sources and not web_search_fallback:
+        if (
+            not web_result.sources
+            and (
+                self._requires_verified_search_sources(web_result)
+                or (web_result.decision.use_web and not web_search_fallback)
+            )
+        ):
             telemetry.finish(
                 route="web-search-unavailable",
                 model="none",
@@ -1164,7 +1193,7 @@ class IntelligenceRouter:
             return ChatResponse(
                 content=self._web_unavailable_message(
                     last_user_message,
-                    web_result.error,
+                    web_result.error or web_result.decision.reason,
                     requires_current_source=(
                         "time_sensitive_information" in web_result.decision.signals
                     ),
@@ -1475,7 +1504,13 @@ class IntelligenceRouter:
             last_user_message,
             web_result,
         )
-        if web_result.decision.use_web and not web_result.sources and not web_search_fallback:
+        if (
+            not web_result.sources
+            and (
+                self._requires_verified_search_sources(web_result)
+                or (web_result.decision.use_web and not web_search_fallback)
+            )
+        ):
             unavailable_route = RouteDecision(
                 backend_id="web-search-unavailable",
                 reason=web_result.error or "No verified web search results",
@@ -1493,7 +1528,7 @@ class IntelligenceRouter:
                 )
                 yield self._web_unavailable_message(
                     last_user_message,
-                    web_result.error,
+                    web_result.error or web_result.decision.reason,
                     requires_current_source=(
                         "time_sensitive_information" in web_result.decision.signals
                     ),

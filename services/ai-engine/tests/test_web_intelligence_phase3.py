@@ -20,6 +20,7 @@ from app.web_intelligence.pipeline import WebIntelligencePipeline
 from app.web_intelligence.search import (
     SearXNGClient,
     _effective_language,
+    english_search_query,
     extract_direct_urls,
     filter_and_score_results,
     is_current_model_year_source_candidate,
@@ -95,7 +96,14 @@ class WebIntelligencePhase3Tests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("current_vehicle_model_query", generic_vehicle_decision.signals)
 
     def test_search_provider_without_topic_is_clarified_and_search_prefix_is_removed(self):
-        for query in ("ابحث في جوجل", "Search Google", "search on Google", "ابحث في جوجل عن"):
+        for query in (
+            "ابحث في جوجل",
+            "ابحث فقط",
+            "Search Google",
+            "Search only",
+            "search on Google",
+            "ابحث في جوجل عن",
+        ):
             with self.subTest(query=query):
                 self.assertTrue(is_search_request_missing_topic(query))
                 self.assertEqual(normalize_search_query(query), "")
@@ -110,6 +118,29 @@ class WebIntelligencePhase3Tests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             normalize_search_query("Search on Google for best universities"),
             "best universities",
+        )
+        self.assertEqual(
+            normalize_search_query("Search only for Yamaha R3 vs Yamaha R6"),
+            "Yamaha R3 vs Yamaha R6",
+        )
+        self.assertEqual(
+            normalize_search_query(
+                "Search in Google what is the deffrent between Yamaha R3 and Yamaha R6"
+            ),
+            "what is the difference between Yamaha R3 and Yamaha R6",
+        )
+        arabic_iphone_query = "ابحث عن الرفق بين ايفون ١١ و و ايفون ١٢"
+        self.assertEqual(
+            normalize_search_query(arabic_iphone_query),
+            "الفرق بين ايفون ١١ و و ايفون ١٢",
+        )
+        self.assertEqual(
+            english_search_query(arabic_iphone_query),
+            "difference between iPhone 11 and iPhone 12",
+        )
+        self.assertEqual(
+            english_search_query("الفرق بين دباب يماها ار ٣ و و يماها ار ٦"),
+            "difference between motorcycle Yamaha R3 and Yamaha R6",
         )
 
     def test_selected_search_tool_forces_search_but_respects_both_gates(self):
