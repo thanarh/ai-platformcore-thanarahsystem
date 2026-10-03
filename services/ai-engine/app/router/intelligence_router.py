@@ -1289,6 +1289,37 @@ class IntelligenceRouter:
                 ragSources=[*rag_sources, *web_result.sources],
                 requestId=telemetry.request_id,
             )
+        official_excerpt_answer = None
+        if "time_sensitive_information" not in web_result.decision.signals:
+            official_excerpt_answer = self._business_comparison_official_excerpt_answer(
+                last_user_message,
+                web_result.context,
+                web_result.sources,
+            )
+        if official_excerpt_answer:
+            excerpt_route = RouteDecision(
+                backend_id="web-official-excerpts",
+                reason="Answered from verified first-party pages without model generation",
+                rag_enabled=route.rag_enabled,
+                fallback_order=[],
+            )
+            telemetry.finish(
+                route=excerpt_route.backend_id,
+                model="none",
+                cache_hit=False,
+                input_tokens=0,
+                output_tokens=0,
+            )
+            return ChatResponse(
+                content=self._with_web_citations(
+                    official_excerpt_answer,
+                    web_result.sources,
+                ),
+                backend=excerpt_route.backend_id,
+                routeDecision=excerpt_route.reason,
+                ragSources=[*rag_sources, *web_result.sources],
+                requestId=telemetry.request_id,
+            )
         prompt_started = time.perf_counter()
         context = self._build_context(
             chat_request,
@@ -1390,13 +1421,7 @@ class IntelligenceRouter:
             )
 
             async def _clarification_stream() -> AsyncGenerator[str, None]:
-                telemetry.finish(
-                    route=route.backend_id,
-                    model="none",
-                    cache_hit=False,
-                    input_tokens=0,
-                    output_tokens=0,
-                )
+                telemetry.set("model", "none")
                 yield clarification
 
             return _clarification_stream(), route, [], telemetry, []
@@ -1415,13 +1440,7 @@ class IntelligenceRouter:
             )
 
             async def _urgent_medical_stream() -> AsyncGenerator[str, None]:
-                telemetry.finish(
-                    route=route.backend_id,
-                    model="none",
-                    cache_hit=False,
-                    input_tokens=0,
-                    output_tokens=0,
-                )
+                telemetry.set("model", "none")
                 yield urgent_message
 
             return _urgent_medical_stream(), route, [], telemetry, []
@@ -1436,13 +1455,7 @@ class IntelligenceRouter:
             )
 
             async def _car_comparison_clarification_stream() -> AsyncGenerator[str, None]:
-                telemetry.finish(
-                    route=route.backend_id,
-                    model="none",
-                    cache_hit=False,
-                    input_tokens=0,
-                    output_tokens=0,
-                )
+                telemetry.set("model", "none")
                 yield car_clarification
 
             return _car_comparison_clarification_stream(), route, [], telemetry, []
@@ -1457,13 +1470,7 @@ class IntelligenceRouter:
             )
 
             async def _search_topic_clarification_stream() -> AsyncGenerator[str, None]:
-                telemetry.finish(
-                    route=route.backend_id,
-                    model="none",
-                    cache_hit=False,
-                    input_tokens=0,
-                    output_tokens=0,
-                )
+                telemetry.set("model", "none")
                 yield search_topic_clarification
 
             return _search_topic_clarification_stream(), route, [], telemetry, []
@@ -1478,13 +1485,7 @@ class IntelligenceRouter:
             )
 
             async def _quick_social_stream() -> AsyncGenerator[str, None]:
-                telemetry.finish(
-                    route=route.backend_id,
-                    model="none",
-                    cache_hit=False,
-                    input_tokens=0,
-                    output_tokens=0,
-                )
+                telemetry.set("model", "none")
                 yield quick_social_reply
 
             return _quick_social_stream(), route, [], telemetry, []
@@ -1514,13 +1515,9 @@ class IntelligenceRouter:
                 telemetry.set_ms("routerMs", (time.perf_counter() - telemetry.started_at) * 1000)
                 telemetry.set_ms("timeToFirstTokenMs", (time.perf_counter() - telemetry.started_at) * 1000)
                 telemetry.set_ms("generationMs", 0)
-                telemetry.finish(
-                    route="thanarah-cache",
-                    model=cached.model,
-                    cache_hit=True,
-                    input_tokens=cached.inputTokens,
-                    output_tokens=cached.outputTokens,
-                )
+                telemetry.set("model", cached.model)
+                telemetry.set("inputTokens", cached.inputTokens)
+                telemetry.set("outputTokens", cached.outputTokens)
                 yield cached.content
 
             return _cached_stream(), cache_route, [], telemetry
@@ -1561,13 +1558,7 @@ class IntelligenceRouter:
             )
 
             async def _unavailable_web_stream() -> AsyncGenerator[str, None]:
-                telemetry.finish(
-                    route=unavailable_route.backend_id,
-                    model="none",
-                    cache_hit=False,
-                    input_tokens=0,
-                    output_tokens=0,
-                )
+                telemetry.set("model", "none")
                 yield self._web_unavailable_message(
                     last_user_message,
                     web_result.error or web_result.decision.reason,
@@ -1598,13 +1589,7 @@ class IntelligenceRouter:
             answer = self._with_web_citations(today_news_headlines, web_result.sources)
 
             async def _today_news_headlines_stream() -> AsyncGenerator[str, None]:
-                telemetry.finish(
-                    route=news_route.backend_id,
-                    model="none",
-                    cache_hit=False,
-                    input_tokens=0,
-                    output_tokens=0,
-                )
+                telemetry.set("model", "none")
                 yield answer
 
             return (
@@ -1625,18 +1610,42 @@ class IntelligenceRouter:
             answer = self._with_web_citations(direct_link_summary, web_result.sources)
 
             async def _direct_link_summary_stream() -> AsyncGenerator[str, None]:
-                telemetry.finish(
-                    route=summary_route.backend_id,
-                    model="none",
-                    cache_hit=False,
-                    input_tokens=0,
-                    output_tokens=0,
-                )
+                telemetry.set("model", "none")
                 yield answer
 
             return (
                 _direct_link_summary_stream(),
                 summary_route,
+                [*rag_sources, *web_result.sources],
+                telemetry,
+                web_result.events,
+            )
+        official_excerpt_answer = None
+        if "time_sensitive_information" not in web_result.decision.signals:
+            official_excerpt_answer = self._business_comparison_official_excerpt_answer(
+                last_user_message,
+                web_result.context,
+                web_result.sources,
+            )
+        if official_excerpt_answer:
+            excerpt_route = RouteDecision(
+                backend_id="web-official-excerpts",
+                reason="Answered from verified first-party pages without model generation",
+                rag_enabled=route.rag_enabled,
+                fallback_order=[],
+            )
+            answer = self._with_web_citations(
+                official_excerpt_answer,
+                web_result.sources,
+            )
+
+            async def _official_excerpt_stream() -> AsyncGenerator[str, None]:
+                telemetry.set("model", "none")
+                yield answer
+
+            return (
+                _official_excerpt_stream(),
+                excerpt_route,
                 [*rag_sources, *web_result.sources],
                 telemetry,
                 web_result.events,
@@ -1711,9 +1720,9 @@ class IntelligenceRouter:
                     telemetry.add_ms("generationMs", generation_started)
                     if sse_started is not None:
                         telemetry.add_ms("sseTransmissionMs", sse_started)
-                    telemetry.finish(
-                        route=backend_id,
-                        model=getattr(backend, "default_model", None) or backend_id,
+                    telemetry.set(
+                        "model",
+                        getattr(backend, "default_model", None) or backend_id,
                     )
                     if content_parts:
                         if web_result.sources:
@@ -1766,7 +1775,11 @@ class IntelligenceRouter:
                         if web_result.sources:
                             yield self._with_web_citations("", web_result.sources)
                         telemetry.add_ms("generationMs", generation_started)
-                        telemetry.finish(route=backend_id, model=getattr(backend, "default_model", None) or backend_id)
+                        route.backend_id = backend_id
+                        telemetry.set(
+                            "model",
+                            getattr(backend, "default_model", None) or backend_id,
+                        )
                         return
                     logger.warning(
                         f"[TIR Stream] Backend '{backend_id}' failed "
@@ -1775,7 +1788,7 @@ class IntelligenceRouter:
                     continue
 
             # All backends exhausted — should not reach here since fallback always succeeds
-            telemetry.finish(route="none")
+            telemetry.set("model", "none")
             yield "تعذر إكمال الطلب. حاول مرة أخرى."
 
         return _resilient_stream(), route, [*rag_sources, *web_result.sources], telemetry, web_result.events
@@ -1808,89 +1821,121 @@ class IntelligenceRouter:
         return "\n".join(accepted_lines) if accepted_lines else None
 
     @staticmethod
+    def _business_comparison_official_excerpt_answer(
+        query: str,
+        web_context: str | None = None,
+        sources: list[dict] | None = None,
+    ) -> str | None:
+        if (
+            not web_context
+            or not sources
+            or extract_direct_urls(query)
+            or requires_same_day_results(query)
+            or re.search(
+                r"(?:سعر|الأسعار?|رسوم|تكلفة|تكاليف|اشتراك|اشتراكات|"
+                r"\bprices?\b|\bpricing\b|\bcosts?\b|\bfees?\b|\bsubscriptions?\b)",
+                query,
+                re.IGNORECASE,
+            )
+        ):
+            return None
+
+        official_domains = business_comparison_official_domains(query)
+        if not official_domains:
+            return None
+
+        source_by_id = {
+            str(source.get("id")): source
+            for source in sources
+            if source.get("id")
+        }
+        excerpts_by_domain: dict[str, tuple[str, str]] = {}
+        block_pattern = re.compile(
+            r"(?ms)^\[(?P<source_id>source-\d+)\]\s+[^\n]*"
+            r"(?:\nSearch topics:[^\n]*)?\nURL:\s*(?P<url>\S+)\n"
+            r"Retrieved:\s*[^\n]+\nContent:\s*(?P<content>.*?)"
+            r"(?=\n\[source-\d+\]|\Z)"
+        )
+        for match in block_pattern.finditer(web_context):
+            source_id = match.group("source_id")
+            source = source_by_id.get(source_id)
+            if source is None:
+                continue
+            hostname = (urlparse(match.group("url")).hostname or "").casefold()
+            official_domain = next(
+                (
+                    domain
+                    for domain in official_domains
+                    if hostname == domain or hostname.endswith(f".{domain}")
+                ),
+                None,
+            )
+            if official_domain is None or official_domain in excerpts_by_domain:
+                continue
+            passage = " ".join(match.group("content").split())
+            excerpt = re.split(r"(?<=[.!?؟])\s+", passage, maxsplit=1)[0].strip()
+            excerpt = excerpt.strip(" \"'“”‘’«»")
+            if len(excerpt) > 420:
+                excerpt = f"{excerpt[:417].rsplit(' ', 1)[0]}…"
+            if excerpt:
+                excerpts_by_domain[official_domain] = (source_id, excerpt)
+
+        if not all(domain in excerpts_by_domain for domain in official_domains):
+            return None
+
+        requested_google = bool(
+            re.search(r"(?:جوجل|غوغل|قوقل|google)", query, re.IGNORECASE)
+        )
+        if detect_language(query, fallback="ar") == "ar":
+            opening = (
+                "بحثت عبر SearXNG، وليس Google. "
+                if requested_google
+                else ""
+            )
+            lines = [
+                f"{opening}لم أجد مقارنة مباشرة في الصفحات الرسمية المفتوحة؛ "
+                "هذه مقتطفات تصف كل منصة:"
+            ]
+            for domain in official_domains:
+                brand = "زد" if domain == "zid.sa" else "سلة"
+                source_id, excerpt = excerpts_by_domain[domain]
+                lines.append(f"- {brand}: «{excerpt}» [{source_id}]")
+            lines.append(
+                "المقتطفات لا تكفي وحدها للحكم أيهما أفضل أو لمقارنة الأسعار."
+            )
+            return "\n".join(lines)
+
+        opening = (
+            "I searched through SearXNG, not Google. "
+            if requested_google
+            else ""
+        )
+        lines = [
+            f"{opening}I didn't find a direct comparison in the opened official pages; "
+            "these excerpts describe each platform:"
+        ]
+        for domain in official_domains:
+            brand = "Zid" if domain == "zid.sa" else "Salla"
+            source_id, excerpt = excerpts_by_domain[domain]
+            lines.append(f"- {brand}: “{excerpt}” [{source_id}]")
+        lines.append(
+            "The excerpts alone do not establish which platform is better or compare prices."
+        )
+        return "\n".join(lines)
+
+    @staticmethod
     def _unlinked_web_answer_message(
         query: str,
         web_context: str | None = None,
         sources: list[dict] | None = None,
     ) -> str:
-        official_domains = business_comparison_official_domains(query)
-        if official_domains and web_context and sources:
-            source_by_id = {
-                str(source.get("id")): source
-                for source in sources
-                if source.get("id")
-            }
-            excerpts_by_domain: dict[str, tuple[str, str]] = {}
-            block_pattern = re.compile(
-                r"(?ms)^\[(?P<source_id>source-\d+)\]\s+[^\n]*"
-                r"(?:\nSearch topics:[^\n]*)?\nURL:\s*(?P<url>\S+)\n"
-                r"Retrieved:\s*[^\n]+\nContent:\s*(?P<content>.*?)"
-                r"(?=\n\[source-\d+\]|\Z)"
-            )
-            for match in block_pattern.finditer(web_context):
-                source_id = match.group("source_id")
-                source = source_by_id.get(source_id)
-                if source is None:
-                    continue
-                hostname = (urlparse(match.group("url")).hostname or "").casefold()
-                official_domain = next(
-                    (
-                        domain
-                        for domain in official_domains
-                        if hostname == domain or hostname.endswith(f".{domain}")
-                    ),
-                    None,
-                )
-                if official_domain is None or official_domain in excerpts_by_domain:
-                    continue
-                passage = " ".join(match.group("content").split())
-                excerpt = re.split(r"(?<=[.!?؟])\s+", passage, maxsplit=1)[0].strip()
-                excerpt = excerpt.strip(" \"'“”‘’«»")
-                if len(excerpt) > 420:
-                    excerpt = f"{excerpt[:417].rsplit(' ', 1)[0]}…"
-                if excerpt:
-                    excerpts_by_domain[official_domain] = (source_id, excerpt)
-
-            if all(domain in excerpts_by_domain for domain in official_domains):
-                requested_google = bool(
-                    re.search(r"(?:جوجل|غوغل|قوقل|google)", query, re.IGNORECASE)
-                )
-                if detect_language(query, fallback="ar") == "ar":
-                    opening = (
-                        "بحثت عبر SearXNG، وليس Google. "
-                        if requested_google
-                        else ""
-                    )
-                    lines = [
-                        f"{opening}لم أجد مقارنة مباشرة في الصفحات الرسمية المفتوحة؛ "
-                        "هذه مقتطفات تصف كل منصة:"
-                    ]
-                    for domain in official_domains:
-                        brand = "زد" if domain == "zid.sa" else "سلة"
-                        source_id, excerpt = excerpts_by_domain[domain]
-                        lines.append(f"- {brand}: «{excerpt}» [{source_id}]")
-                    lines.append(
-                        "المقتطفات لا تكفي وحدها للحكم أيهما أفضل أو لمقارنة الأسعار."
-                    )
-                    return "\n".join(lines)
-
-                opening = (
-                    "I searched through SearXNG, not Google. "
-                    if requested_google
-                    else ""
-                )
-                lines = [
-                    f"{opening}I didn't find a direct comparison in the opened official pages; "
-                    "these excerpts describe each platform:"
-                ]
-                for domain in official_domains:
-                    brand = "Zid" if domain == "zid.sa" else "Salla"
-                    source_id, excerpt = excerpts_by_domain[domain]
-                    lines.append(f"- {brand}: “{excerpt}” [{source_id}]")
-                lines.append(
-                    "The excerpts alone do not establish which platform is better or compare prices."
-                )
-                return "\n".join(lines)
+        fast_answer = IntelligenceRouter._business_comparison_official_excerpt_answer(
+            query,
+            web_context,
+            sources,
+        )
+        if fast_answer:
+            return fast_answer
 
         if detect_language(query, fallback="ar") == "ar":
             return (

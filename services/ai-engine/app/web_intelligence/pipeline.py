@@ -339,14 +339,16 @@ class WebIntelligencePipeline:
             topic: str,
             topic_category: str,
         ) -> tuple[list[SearchResult], Exception | None]:
-            variants = [(topic, language)]
-            translated = english_search_query(topic)
-            if translated and translated.casefold() != topic.casefold():
-                variants.append((translated, "en"))
-            variants.extend(
-                (business_query, "en")
-                for business_query in business_comparison_search_queries(topic)
-            )
+            business_queries = business_comparison_search_queries(topic)
+            if business_queries:
+                # These known comparisons are filtered to first-party sources
+                # below, so generic Arabic/translated queries only add work.
+                variants = [(business_query, "en") for business_query in business_queries]
+            else:
+                variants = [(topic, language)]
+                translated = english_search_query(topic)
+                if translated and translated.casefold() != topic.casefold():
+                    variants.append((translated, "en"))
             variants = list(dict.fromkeys(variants))
             overall_result_limit = max_results or settings.web_max_results
             # Each variant needs enough candidates to survive relevance filtering

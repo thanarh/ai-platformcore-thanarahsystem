@@ -8,7 +8,7 @@
 - [General answers without RAG](general-answers-without-rag.md) — use model knowledge for general questions; ground organization-specific facts in tenant sources
 - [Urgent chat triage](urgent-chat-triage.md) — handle high-risk personal symptoms before cache or web tools; “now” alone is not web-search intent
 - [Ollama warm readiness](ollama-warm-readiness.md) — `/api/ps` model presence does not guarantee a warm first generation; validate with real generation
-- [SSE measurement](sse-measurement.md) — use a non-buffering client read such as `read1()` when timing incremental SSE delivery
+- [SSE measurement](sse-measurement.md) — use non-buffered reads and finalize telemetry only after the outer stream records first content
 - [Phase 2D foundation boundary](phase2d-foundation.md) — task, skill, artifact, and event layers are contracts first; real tool execution remains explicitly gated
 - [Local SearXNG limits](searxng-local-constraints.md) — verify engines live, send an explicit User-Agent, and retry Arabic searches across languages when `ar` is empty
 - [Phase 5 persistence boundary](phase5-persistence-boundary.md) — bounded task execution and artifact generation are implemented, but metadata remains in-memory until durable storage is approved

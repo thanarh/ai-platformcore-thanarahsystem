@@ -361,6 +361,7 @@ class SearXNGClient:
         self._client = client
         self.timeout_seconds = timeout_seconds or settings.searxng_timeout_seconds
         self._capabilities_cache: tuple[float, dict[str, Any]] | None = None
+        self._capabilities_lock = asyncio.Lock()
         self._wikipedia_request_lock = asyncio.Lock()
         self._wikipedia_last_request_at = 0.0
         self._wikipedia_min_request_interval_seconds = _WIKIPEDIA_MIN_REQUEST_INTERVAL_SECONDS
@@ -458,14 +459,31 @@ class SearXNGClient:
         ]
 
     async def discover_engines(self, *, force: bool = False) -> dict[str, Any]:
+        initial_cache = self._capabilities_cache
         now = datetime.now(timezone.utc).timestamp()
         if (
             not force
-            and self._capabilities_cache
-            and now - self._capabilities_cache[0] <= settings.web_search_capability_cache_seconds
+            and initial_cache
+            and now - initial_cache[0] <= settings.web_search_capability_cache_seconds
         ):
-            return self._capabilities_cache[1]
+            return initial_cache[1]
 
+        async with self._capabilities_lock:
+            current_cache = self._capabilities_cache
+            now = datetime.now(timezone.utc).timestamp()
+            cache_is_fresh = (
+                current_cache
+                and now - current_cache[0] <= settings.web_search_capability_cache_seconds
+            )
+            another_call_refreshed = current_cache is not initial_cache
+            if current_cache and (
+                (not force and cache_is_fresh)
+                or (force and another_call_refreshed)
+            ):
+                return current_cache[1]
+            return await self._discover_engines_uncached()
+
+    async def _discover_engines_uncached(self) -> dict[str, Any]:
         started = datetime.now(timezone.utc)
         configured: list[dict[str, Any]] = []
         config_error: str | None = None
@@ -498,42 +516,49 @@ class SearXNGClient:
         else:
             candidates = self._configured_fallback()
             configured_by_name = {item["name"]: item for item in candidates}
-        checks: list[dict[str, Any]] = []
-        for candidate in candidates:
+
+        probe_semaphore = asyncio.Semaphore(4)
+
+        async def probe_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
             name = candidate["name"]
-            try:
-                response, payload = await self._json_request("/search", {
-                    "q": "Python",
-                    "format": "json",
-                    "language": "en",
-                    "safesearch": settings.web_safe_search,
-                    "categories": "general",
-                    "engines": name,
-                })
-                unresponsive = {
-                    str(item[0] if isinstance(item, list) and item else item)
-                    for item in (payload.get("unresponsive_engines", []) if isinstance(payload, dict) else [])
-                }
-                healthy = response.is_success and isinstance(payload, dict) and isinstance(
-                    payload.get("results"), list
-                ) and name not in unresponsive
-                checks.append({
-                    "name": name,
-                    "healthy": healthy,
-                    "httpStatus": response.status_code,
-                    "resultCount": len(payload.get("results", [])) if isinstance(payload, dict) else 0,
-                    "categories": candidate.get("categories") or configured_by_name.get(name, {}).get("categories", []),
-                    "error": None if healthy else ("engine returned an error or was unresponsive"),
-                })
-            except Exception as exc:
-                checks.append({
-                    "name": name,
-                    "healthy": False,
-                    "httpStatus": None,
-                    "resultCount": 0,
-                    "categories": candidate.get("categories", []),
-                    "error": str(exc)[:180],
-                })
+            async with probe_semaphore:
+                try:
+                    response, payload = await self._json_request("/search", {
+                        "q": "Python",
+                        "format": "json",
+                        "language": "en",
+                        "safesearch": settings.web_safe_search,
+                        "categories": "general",
+                        "engines": name,
+                    })
+                    unresponsive = {
+                        str(item[0] if isinstance(item, list) and item else item)
+                        for item in (payload.get("unresponsive_engines", []) if isinstance(payload, dict) else [])
+                    }
+                    healthy = response.is_success and isinstance(payload, dict) and isinstance(
+                        payload.get("results"), list
+                    ) and name not in unresponsive
+                    return {
+                        "name": name,
+                        "healthy": healthy,
+                        "httpStatus": response.status_code,
+                        "resultCount": len(payload.get("results", [])) if isinstance(payload, dict) else 0,
+                        "categories": candidate.get("categories") or configured_by_name.get(name, {}).get("categories", []),
+                        "error": None if healthy else ("engine returned an error or was unresponsive"),
+                    }
+                except Exception as exc:
+                    return {
+                        "name": name,
+                        "healthy": False,
+                        "httpStatus": None,
+                        "resultCount": 0,
+                        "categories": candidate.get("categories", []),
+                        "error": str(exc)[:180],
+                    }
+
+        checks = await asyncio.gather(
+            *(probe_candidate(candidate) for candidate in candidates)
+        )
 
         healthy_engines = [item for item in checks if item["healthy"]]
         categories = sorted({
@@ -549,7 +574,10 @@ class SearXNGClient:
             "checkedAt": started.isoformat(),
             "configError": config_error,
         }
-        self._capabilities_cache = (now, result)
+        self._capabilities_cache = (
+            datetime.now(timezone.utc).timestamp(),
+            result,
+        )
         return result
 
     @staticmethod

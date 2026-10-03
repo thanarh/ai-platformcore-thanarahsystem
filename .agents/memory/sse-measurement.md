@@ -15,3 +15,16 @@ server collapsed the stream.
 **How to apply:** Use `read1()` or an equivalent low-level streaming read for
 first-byte, first-token, inter-token, and last-token measurements. Keep the
 probe's frame count and `[DONE]` validation separate from transport-read size.
+
+For application telemetry, defer `RequestTelemetry.finish()` until the outer
+HTTP stream has forwarded its first content delta and completed iteration.
+Inner route generators should set route/model/token values but must not finalize
+the request record.
+
+**Why:** `finish()` caches the telemetry payload. If an inner generator
+finalizes before a cited answer or fallback reaches the client, the later
+`sseFirstDeltaMs` update is omitted from the recorded metrics.
+
+**How to apply:** Record the first content delta at the HTTP streaming boundary,
+then finalize once the stream ends; do not treat status or source-found events
+as answer content.

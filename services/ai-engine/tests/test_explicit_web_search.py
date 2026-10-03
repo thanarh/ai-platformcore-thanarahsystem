@@ -277,6 +277,105 @@ class ExplicitWebSearchTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Zid is your integrated platform", answer)
         self.assertIn("[source-1]", answer)
         self.assertIn("[source-2]", answer)
+        self.assertIsNone(
+            IntelligenceRouter._business_comparison_official_excerpt_answer(
+                "ما أسعار الاشتراك في زد وسلة؟",
+                context,
+                sources,
+            )
+        )
+
+    async def test_verified_brand_comparison_streams_without_model_generation(self):
+        query = "ابحث في جوجل ما الفرق بين شركة زد وشركة سلة"
+        sources = [
+            {
+                "id": "source-1",
+                "title": "Salla Partners",
+                "url": "https://partners.salla.com/en",
+            },
+            {
+                "id": "source-2",
+                "title": "Zid",
+                "url": "https://zid.sa/en/",
+            },
+        ]
+        web_result = WebPipelineResult(
+            decision=WebDecision(
+                True,
+                "web_signal_detected",
+                ("explicit_search_request",),
+                "general",
+            ),
+            context=(
+                "## Web evidence\n"
+                "[source-1] Salla Partners\n"
+                "Search topics: مقارنة زد وسلة\n"
+                "URL: https://partners.salla.com/en\n"
+                "Retrieved: 2026-10-03T00:00:00+00:00\n"
+                "Content: Join Salla Partners and offer apps, themes, and services "
+                "to online stores across Saudi Arabia.\n"
+                "[source-2] Zid\n"
+                "Search topics: مقارنة زد وسلة\n"
+                "URL: https://zid.sa/en/\n"
+                "Retrieved: 2026-10-03T00:00:00+00:00\n"
+                "Content: Zid is an integrated platform for creating an online store, "
+                "with solutions for payment, shipping, and inventory."
+            ),
+            sources=sources,
+        )
+        route_decision = RouteDecision(
+            backend_id="thanarah-local",
+            reason="Test route",
+            rag_enabled=False,
+            fallback_order=[],
+        )
+
+        for streaming in (False, True):
+            router = IntelligenceRouter(registry=None)
+            request = ChatRequest(
+                messages=[ChatMessage(role="user", content=query)],
+                tenantId="tenant-a",
+                userId="user-a",
+                conversationId="conversation-a",
+                runtimeContext={"language": "ar"},
+                stream=streaming,
+            )
+            with (
+                patch.object(
+                    router,
+                    "_load_context_sources",
+                    new_callable=AsyncMock,
+                    return_value=([], [], None),
+                ),
+                patch.object(router, "_decide_route", return_value=route_decision),
+                patch(
+                    "app.router.intelligence_router.daily_learning_service.profile",
+                    new_callable=AsyncMock,
+                    return_value=None,
+                ),
+                patch(
+                    "app.router.intelligence_router.web_intelligence_pipeline.run",
+                    new_callable=AsyncMock,
+                    return_value=web_result,
+                ),
+            ):
+                if streaming:
+                    stream, streamed_route, *_ = await router.stream_route(request)
+                    answer = "".join([part async for part in stream])
+                    self.assertEqual(
+                        streamed_route.backend_id,
+                        "web-official-excerpts",
+                    )
+                else:
+                    response = await router.route(request)
+                    answer = response.content
+                    self.assertEqual(response.backend, "web-official-excerpts")
+
+            self.assertIn("SearXNG، وليس Google", answer)
+            self.assertIn("زد:", answer)
+            self.assertIn("سلة:", answer)
+            self.assertIn("[source-1]", answer)
+            self.assertIn("[source-2]", answer)
 
     async def test_selected_chat_skill_reaches_the_search_pipeline_as_explicit(self):
         result = WebPipelineResult(

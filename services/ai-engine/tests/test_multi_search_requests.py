@@ -1,3 +1,4 @@
+import asyncio
 import unittest
 from unittest.mock import patch
 
@@ -93,6 +94,51 @@ class MultiSearchRequestTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("bing", [item["name"] for item in capabilities["engines"]])
         self.assertIn("bing", general_engines)
 
+    async def test_discovery_is_singleflight_with_bounded_parallel_probes(self):
+        engine_names = ["one", "two", "three", "four", "five", "six"]
+        counts = {"config": 0, "probe": 0, "active": 0, "peak": 0}
+
+        class SlowSearchClient(SearXNGClient):
+            async def _json_request(self, path, params):
+                if path == "/config":
+                    counts["config"] += 1
+                    await asyncio.sleep(0.005)
+                    return httpx.Response(
+                        200,
+                        json={
+                            "engines": [
+                                {
+                                    "name": name,
+                                    "enabled": True,
+                                    "categories": ["general"],
+                                }
+                                for name in engine_names
+                            ]
+                        },
+                    ), {}
+
+                counts["probe"] += 1
+                counts["active"] += 1
+                counts["peak"] = max(counts["peak"], counts["active"])
+                await asyncio.sleep(0.01)
+                counts["active"] -= 1
+                return httpx.Response(200, json={"results": []}), {
+                    "results": [],
+                    "unresponsive_engines": [],
+                }
+
+        with patch.object(settings, "web_search_engines", ",".join(engine_names)):
+            client = SlowSearchClient("http://searxng.test")
+            capabilities = await asyncio.gather(
+                *(client.discover_engines() for _ in range(6))
+            )
+
+        self.assertEqual(counts["config"], 1)
+        self.assertEqual(counts["probe"], len(engine_names))
+        self.assertGreater(counts["peak"], 1)
+        self.assertLessEqual(counts["peak"], 4)
+        self.assertTrue(all(item == capabilities[0] for item in capabilities))
+
     async def test_pipeline_searches_multiple_arabic_topics_and_english_variants(self):
         calls: list[tuple[str, str, str]] = []
 
@@ -175,6 +221,70 @@ class MultiSearchRequestTests(unittest.IsolatedAsyncioTestCase):
             {"أضرار الفيب", "أضرار الشيشة الإلكترونية"},
         )
         self.assertIn("Search topics:", result.context)
+
+    async def test_known_business_comparison_searches_only_two_brand_queries(self):
+        calls: list[tuple[str, str]] = []
+
+        class FakeSearch:
+            base_url = "http://searxng.test"
+
+            async def search(self, query, **kwargs):
+                calls.append((query, kwargs["language"]))
+                is_zid = "site:zid.sa" in query
+                brand = "Zid" if is_zid else "Salla"
+                domain = "zid.sa" if is_zid else "salla.com"
+                return [
+                    SearchResult(
+                        title=f"{brand} ecommerce platform Saudi Arabia",
+                        url=f"https://{domain}/en/",
+                        snippet=(
+                            f"{brand} ecommerce platform for online stores in Saudi Arabia"
+                        ),
+                        source="fixture",
+                        rank=1,
+                        category=kwargs["category"],
+                    )
+                ]
+
+        class FakeFetcher:
+            async def fetch(self, url):
+                brand = "Zid" if "zid.sa" in url else "Salla"
+                body = (
+                    f"{brand} provides an ecommerce platform for online stores in Saudi Arabia. "
+                    f"{'The platform supports online stores and business operations. ' * 40}"
+                )
+                return FetchedPage(
+                    url=url,
+                    content_type="text/html",
+                    content=f"<html><title>{brand}</title><main><p>{body}</p></main></html>".encode(),
+                    retrieved_at="2026-10-03T00:00:00+00:00",
+                )
+
+        async def rerank_passthrough(_query, candidates, limit):
+            return candidates[:limit]
+
+        query = "ابحث في جوجل ما الفرق بين شركة زد وشركة سلة"
+        with (
+            patch.object(settings, "web_search_enabled", True),
+            patch.object(pipeline_module.local_reranker, "rerank", new=rerank_passthrough),
+        ):
+            result = await WebIntelligencePipeline(
+                search_client=FakeSearch(),
+                fetcher=FakeFetcher(),
+            ).run(query, tenant_id="tenant-test", language="ar")
+
+        self.assertEqual(
+            set(calls),
+            {
+                ("site:zid.sa Zid ecommerce platform Saudi Arabia", "en"),
+                ("site:salla.com Salla ecommerce platform Saudi Arabia", "en"),
+            },
+        )
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(
+            {source["domain"] for source in result.sources},
+            {"zid.sa", "salla.com"},
+        )
 
 
 if __name__ == "__main__":
