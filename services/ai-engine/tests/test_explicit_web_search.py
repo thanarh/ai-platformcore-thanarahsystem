@@ -139,9 +139,9 @@ class ExplicitWebSearchTests(unittest.IsolatedAsyncioTestCase):
             streamed_content = "".join([part async for part in stream])
 
         self.assertEqual(response.backend, "clarification")
-        self.assertIn("طرازَي السيارتين", response.content)
+        self.assertIn("اسمَي الطرازين", response.content)
         self.assertEqual(stream_route.backend_id, "clarification")
-        self.assertIn("طرازَي السيارتين", streamed_content)
+        self.assertIn("اسمَي الطرازين", streamed_content)
         web_loader.assert_not_awaited()
 
     def test_specific_car_models_and_years_are_allowed_to_search(self):
@@ -152,7 +152,14 @@ class ExplicitWebSearchTests(unittest.IsolatedAsyncioTestCase):
             broad_current_year
         )
         self.assertIsNotNone(clarification)
-        self.assertIn("طرازَي السيارتين", clarification)
+        self.assertIn("اسمَي الطرازين", clarification)
+
+    def test_motorcycle_comparison_without_model_years_asks_before_search(self):
+        query = "ما الفرق بين Yamaha R3 و Yamaha R6؟"
+        clarification = IntelligenceRouter._car_comparison_clarification(query)
+        self.assertIsNotNone(clarification)
+        self.assertIn("اسمَي الطرازين", clarification)
+        self.assertIn("سنة الصنع", clarification)
 
     def test_uncited_web_draft_is_not_presented_as_a_verified_answer(self):
         sources = [{"id": "source-1"}, {"id": "source-2"}]

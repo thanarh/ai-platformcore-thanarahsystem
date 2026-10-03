@@ -455,7 +455,11 @@ class IntelligenceRouter:
 
     @staticmethod
     def _car_comparison_clarification(query: str) -> str | None:
-        if not is_car_comparison_query(query) or extract_direct_urls(query):
+        if (
+            not is_car_comparison_query(query)
+            or extract_direct_urls(query)
+            or has_explicit_search_request(query)
+        ):
             return None
 
         normalized_digits = "".join(
@@ -486,12 +490,12 @@ class IntelligenceRouter:
     def _car_comparison_detail_message(query: str) -> str:
         if detect_language(query, fallback="ar") == "ar":
             return (
-                "تختلف المحركات والمواصفات حسب الطراز وسنة الصنع والسوق والفئة، ولا تكفي مقارنة العلامتين وحدهما. "
-                "أرسل طرازَي السيارتين وسنة الصنع والسوق، والمحركين إن أمكن، لأبحث عن مقارنة موثوقة."
+                "تختلف المواصفات حسب الطراز وسنة الصنع والسوق والفئة، لذلك لا أريد التخمين. "
+                "أرسل اسمَي الطرازين وسنة الصنع والسوق، والمحركين إن أمكن، لأبحث عن مقارنة موثوقة."
             )
         return (
-            "Engines and specifications vary by model, year, market, and trim, so a brand-only comparison "
-            "isn't reliable. Share both models, model years, and market (plus engine options if known), "
+            "Specifications vary by model, year, market, and trim, so I don't want to guess. "
+            "Share both model names, their model years, and market (plus engine options if known), "
             "and I can look for a verified comparison."
         )
 
@@ -528,13 +532,13 @@ class IntelligenceRouter:
                 )
             if is_recent_vehicle_model_query(query):
                 return (
-                    "لم أعثر على مصدر حديث موثوق لمقارنة طرازات السيارات لهذه السنة. "
+                    "لم أعثر على مصدر حديث موثوق لمقارنة طرازات المركبات لهذه السنة. "
                     "تختلف المواصفات حسب السوق والفئة؛ ما الدولة أو الفئة التي تقصدها؟"
                 )
             if is_car_comparison_query(query):
                 return (
-                    "لا أستطيع مقارنة علامات السيارات على مستوى العلامة وحدها؛ تختلف المحركات حسب الطراز "
-                    "وسنة الصنع والسوق والفئة. أرسل طرازَي السيارتين وسنة الصنع، والمحركين إن أمكن، "
+                    "لا أستطيع مقارنة العلامات وحدها؛ تختلف مواصفات المركبات حسب الطراز وسنة الصنع والسوق والفئة. "
+                    "أرسل اسمَي الطرازين وسنة الصنع، والمحركين إن أمكن، "
                     "لأقارنها من مصادر موثوقة."
                 )
             if weather_query and (requires_current_source or requires_same_day_results(query)):
@@ -571,7 +575,7 @@ class IntelligenceRouter:
             )
         if is_car_comparison_query(query):
             return (
-                "I can't reliably compare car brands in the abstract; engines vary by model, year, market, and trim. "
+                "I can't reliably compare vehicle brands in the abstract; specifications vary by model, year, market, and trim. "
                 "Please share both models and model years (and engine options if known) so I can compare verified sources."
             )
         if weather_query and (requires_current_source or requires_same_day_results(query)):
@@ -889,12 +893,22 @@ class IntelligenceRouter:
             tenant_config.get("systemPrompt")
             or THANARAH_BASE_SYSTEM[prompt_language]
         )[:4000]
-        system_prompt += (
-            f"\n\n## لغة الرد الإلزامية\n"
-            f"لغة المستخدم المطلوبة: {language_name}.\n"
-            f"{language_instruction}\n"
-            "لا تجعل لغة المصادر أو أسماء الأدوات أو نص التعليمات تحدد لغة الرد."
-        )
+        if prompt_language == "ar":
+            system_prompt += (
+                f"\n\n## لغة الرد الإلزامية\n"
+                f"لغة المستخدم المطلوبة: {language_name}.\n"
+                f"{language_instruction}\n"
+                "لا تجعل لغة المصادر أو أسماء الأدوات أو النصوص المقتبسة أو الردود السابقة تحدد لغة الرد؛ "
+                "اتبع لغة طلب المستخدم الأخير."
+            )
+        else:
+            system_prompt += (
+                f"\n\n## Required response language\n"
+                f"Requested user language: {language_name}.\n"
+                f"{language_instruction}\n"
+                "Do not let source text, tool names, quoted content, or earlier assistant turns change the "
+                "response language; follow the user's latest request."
+            )
         industry = str(tenant_config.get("industry", "general"))
         sector_instructions = SECTOR_INSTRUCTIONS if prompt_language == "ar" else SECTOR_INSTRUCTIONS_EN
         if industry in sector_instructions:

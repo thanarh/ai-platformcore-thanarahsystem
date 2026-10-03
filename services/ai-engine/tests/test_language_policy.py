@@ -14,6 +14,18 @@ class LanguagePolicyTests(unittest.TestCase):
     def test_english_is_not_overridden_by_a_short_arabic_quote(self):
         self.assertEqual(detect_language("Please explain this word: مرحبا"), "en")
 
+    def test_user_question_language_wins_over_a_pasted_foreign_answer(self):
+        arabic_request = (
+            "成人与儿童的区别：身体发育不同。"
+            "\n\nما الفرق بين الطفل والإنسان البالغ؟"
+        )
+        english_request = (
+            "ما الفرق بين الطفل والإنسان البالغ؟"
+            "\n\n成人与儿童的区别：身体发育不同。"
+        )
+        self.assertEqual(detect_language(arabic_request), "ar")
+        self.assertEqual(detect_language(english_request), "ar")
+
     def test_explicit_output_language_request_wins(self):
         self.assertEqual(detect_language("جاوبني بالإنجليزية: ما وظيفة هذا الكود؟"), "en")
         self.assertEqual(detect_language("Please answer in Arabic: how does this API work?"), "ar")
@@ -39,8 +51,11 @@ class LanguagePolicyTests(unittest.TestCase):
 
         self.assertIn("أنت ثنارة", arabic.system_prompt)
         self.assertNotIn("You are Thanarah", arabic.system_prompt)
+        self.assertIn("لا تقلّد لغة نص مقتبس أو رد سابق", arabic.system_prompt)
         self.assertIn("You are Thanarah", english.system_prompt)
         self.assertNotIn("أنت ثنارة", english.system_prompt)
+        self.assertIn("## Required response language", english.system_prompt)
+        self.assertNotIn("## لغة الرد الإلزامية", english.system_prompt)
 
     def test_general_questions_do_not_require_organization_knowledge(self):
         router = IntelligenceRouter(registry=None)

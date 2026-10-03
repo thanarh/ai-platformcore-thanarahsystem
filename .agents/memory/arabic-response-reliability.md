@@ -9,6 +9,12 @@ Keep system and tool instructions in the chosen response language for multilingu
 
 **How to apply:** For Arabic model changes, keep prompts localized, test mixed-script and URL/code cases, and evaluate factual quality with privacy-safe representative prompts. Use verified web evidence for current facts when search is explicitly enabled.
 
+When a user asks in Arabic and includes pasted text in another language, choose Arabic from the user's own question rather than copying the language of that pasted answer or an earlier assistant turn.
+
+**Why:** A copied Chinese answer inside an Arabic request can otherwise bias the model into repeating the wrong response language.
+
+**How to apply:** Prefer the language of the user's question block, explicitly tell the model not to imitate quoted or prior assistant text, and test both Arabic-first and quote-first mixed-script messages.
+
 For web-grounded answers, validate inline citation IDs against fetched sources and do not emit factual lines without citations. A source appendix alone does not support claims. If no cited lines survive, explain the evidence gap and provide the available source links rather than filling it from model knowledge.
 
 **Why:** Live Arabic searches showed that the local model can produce uncited claims and that a generic result page may not substantiate a specific claim.

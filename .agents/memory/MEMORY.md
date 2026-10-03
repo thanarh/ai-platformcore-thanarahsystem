@@ -4,6 +4,7 @@
 - [WhisperLiveKit isolation](whisperlivekit-isolation.md) — keep experimental ASR dependencies off the AI service import path; evaluate Arabic with real reference audio
 - [Current AI-only scope](ai-only-scope.md) — stop after AI Performance Phase 1; no admin/customer features or Phase 2 unless explicitly requested
 - [Arabic response reliability](arabic-response-reliability.md) — keep prompts aligned with the requested language and test mixed-script, code, and URL inputs
+- [Automatic factual-question search](automatic-question-search.md) — route factual questions and comparisons through web search when enabled, while keeping urgent safety first
 - [General answers without RAG](general-answers-without-rag.md) — use model knowledge for general questions; ground organization-specific facts in tenant sources
 - [Urgent chat triage](urgent-chat-triage.md) — handle high-risk personal symptoms before cache or web tools; “now” alone is not web-search intent
 - [Ollama warm readiness](ollama-warm-readiness.md) — `/api/ps` model presence does not guarantee a warm first generation; validate with real generation

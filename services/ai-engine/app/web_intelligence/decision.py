@@ -116,6 +116,9 @@ _CAR_BRAND_TERMS = (
     "toyota",
     "هوندا",
     "honda",
+    "ياماها",
+    "يماها",
+    "yamaha",
     "هيونداي",
     "hyundai",
     "نيسان",
@@ -136,9 +139,16 @@ _GENERIC_VEHICLE_TERMS = (
     "مركبة",
     "مركبه",
     "مركبات",
+    "دراجة نارية",
+    "دراجه ناريه",
+    "دباب",
+    "دبابات",
+    "motorcycle",
+    "motorbike",
+    "sportbike",
 )
 _ENGLISH_VEHICLE_QUERY = re.compile(
-    r"(?<![a-z0-9])(?:cars?|vehicles?|suvs?|sedans?)(?![a-z0-9])"
+    r"(?<![a-z0-9])(?:cars?|vehicles?|suvs?|sedans?|motorcycles?|motorbikes?|sportbikes?|bikes?)(?![a-z0-9])"
 )
 _UNIVERSITY_ENTITY_TERMS = (
     "جامع",
@@ -194,6 +204,43 @@ _DIRECT_URL_SIGNAL = re.compile(
     r"(?i)(?:https?://|www\.)[^\s<>]+|"
     r"(?<![@\w])(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}"
 )
+_QUESTION_PREFIX = re.compile(
+    r"^\s*(?:ما|ماذا|من|أين|اين|وين|متى|كيف|لماذا|ليش|ليه|هل|كم|أي|اي|أيهما|ايهما|"
+    r"ايش|وش|مين|ممكن|"
+    r"what|who|where|when|why|how|which|whom|whose|is|are|am|do|does|did|"
+    r"can|could|should|would|will|have|has|had|can you|could you|would you)"
+    r"(?=\s|$|[؟?])",
+    re.IGNORECASE,
+)
+_ARABIC_QUESTION_ENDING = re.compile(
+    r"(?:^|\s)(?:اي|أي|ايه|إيه|مين|كام)\s*[؟?]?\s*$"
+)
+_PERSONAL_SELF_HARM_ACTION_QUERY = re.compile(
+    r"(?:"
+    r"\b(?:should i|do i|can i|i want to|i might|i will|i am going to|i'm going to)\s+"
+    r"(?:kill|hurt|harm)\s+myself\b|"
+    r"\b(?:should i|i want to|i might|i will|i am going to|i'm going to)\s+"
+    r"(?:commit\s+)?suicid(?:e|al)\b|"
+    r"(?:أروح|اروح|اروج)\s*(?:انتحر|أنتحر)|"
+    r"(?:أقتل|اقتل|أؤذي|اودي|أودي)\s+نفسي|"
+    r"(?:هل\s+)?(?:انتحر|أنتحر)\s*(?:دلوقتي|الآن|الحين|ولا)"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def is_direct_question(query: str) -> bool:
+    text = _DIRECT_URL_SIGNAL.sub(" ", query or "")
+    text = re.sub(r"```[\s\S]*?```|`[^`\n]*`", " ", text)
+    text = " ".join(text.casefold().split())
+    return (
+        "?" in text
+        or "؟" in text
+        or bool(_QUESTION_PREFIX.match(text))
+        or bool(_ARABIC_QUESTION_ENDING.search(text))
+    )
+
+
 _NEWS_TERMS = (
     "أخبار",
     "اخبار",
@@ -278,8 +325,11 @@ def is_recent_vehicle_model_query(query: str) -> bool:
 def is_car_comparison_query(query: str) -> bool:
     text = " ".join((query or "").casefold().split())
     has_comparison_term = any(term in text for term in _COMPARISON_QUERY_TERMS)
-    has_car_brand = any(term.casefold() in text for term in _CAR_BRAND_TERMS)
-    return has_comparison_term and has_car_brand
+    has_vehicle = (
+        any(term.casefold() in text for term in (*_CAR_BRAND_TERMS, *_GENERIC_VEHICLE_TERMS))
+        or bool(_ENGLISH_VEHICLE_QUERY.search(text))
+    )
+    return has_comparison_term and has_vehicle
 
 
 def classify_search_category(query: str) -> SearchCategory:
@@ -329,6 +379,14 @@ def decide_web(
     signals: list[str] = []
     category = classify_search_category(query)
 
+    if _PERSONAL_SELF_HARM_ACTION_QUERY.search(text):
+        return WebDecision(
+            False,
+            "personal_safety_priority",
+            ("personal_safety",),
+            category,
+        )
+
     if config.get("webSearchRequired") is True:
         signals.append("configured_web_required")
     if _DIRECT_URL_SIGNAL.search(query or ""):
@@ -337,6 +395,8 @@ def decide_web(
         signals.append("explicit_tool_selection")
     if has_explicit_search_request(text):
         signals.append("explicit_search_request")
+    if is_direct_question(query):
+        signals.append("automatic_question")
     university_ranking_query = is_university_ranking_query(query)
     recent_vehicle_query = is_recent_vehicle_model_query(query)
     if (
@@ -350,10 +410,12 @@ def decide_web(
     if recent_vehicle_query:
         signals.append("current_vehicle_model_query")
     is_car_comparison = is_car_comparison_query(query)
+    is_comparison = any(term in text for term in _COMPARISON_QUERY_TERMS)
     if (
         any(term.casefold() in text for term in _EXTERNAL_LOOKUP_TERMS)
         or any(term.casefold() in text for term in _EVENT_QUERY_TERMS)
         or is_car_comparison
+        or is_comparison
         or university_ranking_query
     ):
         signals.append("external_factual_lookup")

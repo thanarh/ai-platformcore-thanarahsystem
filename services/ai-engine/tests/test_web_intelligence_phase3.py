@@ -44,10 +44,18 @@ class WebIntelligencePhase3Tests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(decision.use_web)
         self.assertIn("explicit_search_request", decision.signals)
         self.assertIn("time_sensitive_information", decision.signals)
+        self.assertIn("automatic_question", decide_web("ما الفرق بين API و Token?").signals)
 
         with patch.object(settings, "web_search_enabled", True):
             enabled = decide_web("ابحث عن آخر أخبار التقنية اليوم")
             supplied_url = decide_web("هذا هو موقعهم الاكتروني qiroxstudio.online")
+            arabic_comparison = decide_web("ما الفرق بين Yamaha R3 و Yamaha R6")
+            english_question = decide_web("What is the difference between Yamaha R3 and R6?")
+            creative_request = decide_web("اكتب قصيدة عن البحر")
+            self_harm_question = decide_web(
+                "أروح انتحر دلوقتي ولا إيه؟",
+                explicit_request=True,
+            )
             current_events = decide_web("ما حصل اليوم في السعودية")
             historical_events = decide_web("ما اللي حصل في الحرب العالمية الثانية")
             current_weather = decide_web("كم درجة حرارة اليوم في السعودية")
@@ -60,6 +68,12 @@ class WebIntelligencePhase3Tests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(enabled.reason, "web_signal_detected")
         self.assertTrue(supplied_url.use_web)
         self.assertIn("user_provided_url", supplied_url.signals)
+        self.assertTrue(arabic_comparison.use_web)
+        self.assertIn("automatic_question", arabic_comparison.signals)
+        self.assertTrue(english_question.use_web)
+        self.assertFalse(creative_request.use_web)
+        self.assertFalse(self_harm_question.use_web)
+        self.assertEqual(self_harm_question.reason, "personal_safety_priority")
         self.assertTrue(current_events.use_web)
         self.assertEqual(current_events.category, "news")
         self.assertTrue(historical_events.use_web)

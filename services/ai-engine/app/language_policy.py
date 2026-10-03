@@ -29,6 +29,28 @@ _ENGLISH_OUTPUT = re.compile(
     r"\b(?:answer|respond|reply|write|translate)\b[^.!?\n]{0,48}?\b(?:in|into|to)\s+(english|arabic)\b",
     re.IGNORECASE,
 )
+_ARABIC_QUESTION_PREFIX = re.compile(
+    r"^\s*(?:ما|ماذا|من|أين|اين|وين|متى|كيف|لماذا|ليش|ليه|هل|كم|أي|اي|أيهما|ايهما|"
+    r"ايش|وش|مين|ممكن|"
+    r"أشرح|اشرح|أريد|اريد|أحتاج|احتاج)(?=\s|$|[؟?])",
+    re.IGNORECASE,
+)
+_ENGLISH_QUESTION_PREFIX = re.compile(
+    r"^\s*(?:what|who|where|when|why|how|which|whom|whose|"
+    r"can|could|would|should|will)\b",
+    re.IGNORECASE,
+)
+
+
+def _question_language(text: str) -> str | None:
+    """Prefer the language of a user's question over pasted answer text."""
+    for paragraph in re.split(r"(?:\r?\n\s*){2,}", text):
+        candidate = paragraph.strip().lstrip(">\"'“”‘’ ")
+        if _ARABIC_QUESTION_PREFIX.match(candidate):
+            return "ar"
+        if _ENGLISH_QUESTION_PREFIX.match(candidate):
+            return "en"
+    return None
 
 
 def _explicit_output_language(text: str) -> str | None:
@@ -54,6 +76,10 @@ def detect_language(text: str, fallback: str = "ar") -> str:
     explicit = _explicit_output_language(cleaned)
     if explicit:
         return explicit
+
+    question_language = _question_language(cleaned)
+    if question_language:
+        return question_language
 
     counts = Counter()
     for char in cleaned:
@@ -93,12 +119,15 @@ def response_language_instruction(text: str, fallback: str = "ar") -> tuple[str,
             "العربية",
             "اكتب جوابًا عربيًا واضحًا وسليمًا، بالفصحى المبسطة أو بلهجة المستخدم إذا كانت واضحة. "
             "أجب عن المطلوب مباشرة، وأبقِ أسماء المنتجات والمصطلحات التقنية والروابط والكود بلغتها الأصلية "
-            "عند الحاجة. لا تخلط الإنجليزية بالعربية بلا داعٍ. إذا لم تتأكد من معلومة، صرّح بذلك ولا تختلق تفاصيل.",
+            "عند الحاجة. لا تخلط الإنجليزية بالعربية بلا داعٍ، ولا تقلّد لغة نص مقتبس أو رد سابق. "
+            "اكتب الشرح بالعربية، وأبقِ الأسماء والمصطلحات الضرورية فقط بلغتها الأصلية. "
+            "إذا لم تتأكد من معلومة، صرّح بذلك ولا تختلق تفاصيل.",
         ),
         "en": (
             "English",
             "Write a clear, correct answer in English and address the request directly. "
             "Keep product names, technical terms, links, and code in their original form when useful. "
+            "Do not copy the language of quoted text or previous assistant turns. "
             "If uncertain, say so rather than inventing details.",
         ),
         "zh": (
