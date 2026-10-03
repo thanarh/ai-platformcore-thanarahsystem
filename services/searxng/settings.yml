@@ -1,0 +1,28 @@
+use_default_settings:
+  engines:
+    keep_only:
+      - wikipedia
+      - arxiv
+      - github
+      - stackoverflow
+      - bing
+      - bing news
+      - duckduckgo news
+
+general:
+  instance_name: "Thanarah Search"
+
+server:
+  bind_address: "0.0.0.0"
+  port: 8080
+  secret_key: "$SEARXNG_SECRET"
+  image_proxy: false
+  http_protocol_version: "1.1"
+  limiter: false
+  public_instance: false
+
+search:
+  safe_search: 1
+  formats:
+    - html
+    - json

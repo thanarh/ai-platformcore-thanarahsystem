@@ -1,5 +1,5 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field
+from pydantic import Field, field_validator
 from typing import Optional
 
 
@@ -107,6 +107,16 @@ class Settings(BaseSettings):
     web_search_blocked_domains: str = ""
     web_search_capability_cache_seconds: int = 60
     web_max_domains: int = 3
+
+    @field_validator("searxng_url", mode="before")
+    @classmethod
+    def normalize_searxng_url(cls, value: str) -> str:
+        if not isinstance(value, str):
+            return value
+        value = value.strip().rstrip("/")
+        if value and "://" not in value:
+            return f"http://{value}"
+        return value
 
     # Local embeddings for semantic RAG. Sentence Transformers is optional;
     # the service falls back to deterministic hashing embeddings automatically.

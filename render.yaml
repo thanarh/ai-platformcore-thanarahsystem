@@ -30,6 +30,12 @@ services:
         value: http://127.0.0.1:3001
       - key: AI_ENGINE_URL
         value: http://127.0.0.1:8000
+      # Render supplies the private host:port; the AI Engine adds the http:// scheme.
+      - key: SEARXNG_URL
+        fromService:
+          name: thanarah-searxng
+          type: pserv
+          property: hostport
       - key: LOCAL_AI_MODE
         value: auto
       - key: LOCAL_AI_MIN_MEMORY_GB
@@ -124,3 +130,21 @@ services:
         sync: false
       - key: OPENROUTER_API_KEY
         sync: false
+  # Keep search private to the Render network. Enable WEB_SEARCH_ENABLED in the
+  # thanarah-ai service only after the deployed instance passes live search probes.
+  - type: pserv
+    name: thanarah-searxng
+    runtime: docker
+    plan: 0.5c-512mb
+    dockerfilePath: ./services/searxng/Dockerfile
+    dockerContext: ./services/searxng
+    autoDeploy: true
+    envVars:
+      - key: GRANIAN_HOST
+        value: 0.0.0.0
+      - key: SEARXNG_BIND_ADDRESS
+        value: 0.0.0.0
+      - key: SEARXNG_PORT
+        value: 8080
+      - key: SEARXNG_SECRET
+        generateValue: true
