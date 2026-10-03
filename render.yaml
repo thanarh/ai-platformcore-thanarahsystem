@@ -126,6 +126,10 @@ services:
         generateValue: true
       - key: ENCRYPTION_KEY
         generateValue: true
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
       - key: GROQ_API_KEY
         sync: false
       - key: OPENROUTER_API_KEY

@@ -19,5 +19,22 @@ self.addEventListener('push', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  event.waitUntil(clients.openWindow('/chat'));
+  const conversationId = event.notification.data?.conversationId;
+  const targetUrl = conversationId
+    ? `/chat/${encodeURIComponent(conversationId)}`
+    : '/chat';
+  const absoluteUrl = new URL(targetUrl, self.location.origin).href;
+
+  event.waitUntil((async () => {
+    const windows = await clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const client of windows) {
+      if (!client.url.startsWith(self.location.origin)) continue;
+      await client.focus();
+      if (client.url !== absoluteUrl && 'navigate' in client) {
+        await client.navigate(absoluteUrl);
+      }
+      return;
+    }
+    await clients.openWindow(absoluteUrl);
+  })());
 });

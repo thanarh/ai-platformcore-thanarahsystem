@@ -305,15 +305,28 @@ export class AiService {
       skillId: data.skillId,
     };
 
-    // Set SSE headers
-    data.res.setHeader('Content-Type', 'text/event-stream');
-    data.res.setHeader('Cache-Control', 'no-cache, no-transform');
-    data.res.setHeader('Connection', 'keep-alive');
-    data.res.setHeader('Access-Control-Allow-Origin', '*');
-    data.res.setHeader('X-Accel-Buffering', 'no');
-    data.res.flushHeaders?.();
-    data.res.write(': connected\n\n');
+    let clientDisconnected = data.res.destroyed === true || data.res.writableEnded === true;
+    const writeToClient = (chunk: string) => {
+      if (clientDisconnected || data.res.destroyed || data.res.writableEnded) return;
+      data.res.write(chunk);
       data.res.flush?.();
+    };
+    // Keep the model stream alive if the browser closes its SSE connection.
+    // The completed answer is still persisted and can be delivered by push.
+    data.res.once('close', () => {
+      clientDisconnected = true;
+    });
+
+    // Set SSE headers
+    if (!clientDisconnected) {
+      data.res.setHeader('Content-Type', 'text/event-stream');
+      data.res.setHeader('Cache-Control', 'no-cache, no-transform');
+      data.res.setHeader('Connection', 'keep-alive');
+      data.res.setHeader('Access-Control-Allow-Origin', '*');
+      data.res.setHeader('X-Accel-Buffering', 'no');
+      data.res.flushHeaders?.();
+      writeToClient(': connected\n\n');
+    }
 
     let fullContent = '';
     let aiMeta: any = {};
@@ -340,21 +353,38 @@ export class AiService {
       return message;
     };
 
+    const notifyCompletion = (message: any) => {
+      if (!message) return;
+      void this.notificationsService.fireNotify({
+        tenantId: data.tenantId,
+        userId: data.userId,
+        kind: 'chat.completed',
+        title: 'اكتمل الرد',
+        body: 'اكتمل تنفيذ طلبك في ثنارة.',
+        data: {
+          conversationId: data.conversationId,
+          messageId: message._id?.toString(),
+          requestId,
+        },
+      }).catch((error) => this.logger.warn(`Completion notification failed: ${error.message}`));
+    };
+
     const finishWithContinuity = async () => {
       if (responseEnded) return;
       responseEnded = true;
       if (!fullContent) {
         fullContent = continuityContent;
-        data.res.write(`data: ${JSON.stringify({ delta: continuityContent })}\n\n`);
+        writeToClient(`data: ${JSON.stringify({ delta: continuityContent })}\n\n`);
       }
       const message = await persistAssistant(
         fullContent,
         Object.keys(aiMeta).length ? aiMeta : { backend: 'thanarah-core' },
       ).catch(() => null);
-       data.res.write(`data: ${JSON.stringify({ meta: { service: 'Thanarah Intelligence', userMessageId: userMessage._id, messageId: message?._id, conversationTitle } })}\n\n`);
-      data.res.write('data: [DONE]\n\n');
+      notifyCompletion(message);
+      writeToClient(`data: ${JSON.stringify({ meta: { service: 'Thanarah Intelligence', userMessageId: userMessage._id, messageId: message?._id, conversationTitle } })}\n\n`);
+      writeToClient('data: [DONE]\n\n');
       doneSent = true;
-      data.res.end();
+      if (!clientDisconnected && !data.res.destroyed && !data.res.writableEnded) data.res.end();
     };
 
     try {
@@ -366,22 +396,6 @@ export class AiService {
           timeout: 300000,
         },
       );
-
-      data.res.once('close', () => {
-        if (responseEnded) return;
-        responseEnded = true;
-        response.data.destroy();
-        void this.usageService.record({
-          tenantId: data.tenantId,
-          userId: data.userId,
-          conversationId: data.conversationId,
-          requestId,
-          backend: aiMeta.backend || 'thanarah-core',
-          model: aiMeta.model,
-          latencyMs: Date.now() - startTime,
-          status: 'cancelled',
-        }).catch(() => {});
-      });
 
       response.data.on('data', (chunk: Buffer) => {
         if (responseEnded) return;
@@ -418,8 +432,7 @@ export class AiService {
                     },
                   }
                 : parsed;
-              data.res.write(`data: ${JSON.stringify(publicEvent)}\n\n`);
-              data.res.flush?.();
+              writeToClient(`data: ${JSON.stringify(publicEvent)}\n\n`);
             } catch (error) {
               this.logger.warn(`Ignored malformed AI stream event: ${error.message}`);
             }
@@ -434,25 +447,14 @@ export class AiService {
 
         if (!fullContent) {
           fullContent = continuityContent;
-          data.res.write(`data: ${JSON.stringify({ delta: continuityContent })}\n\n`);
+          writeToClient(`data: ${JSON.stringify({ delta: continuityContent })}\n\n`);
         }
 
         const savedMessage = await persistAssistant(fullContent, aiMeta).catch((error) => {
           this.logger.warn(`Assistant message persistence failed: ${error.message}`);
           return null;
         });
-        void this.notificationsService.fireNotify({
-          tenantId: data.tenantId,
-          userId: data.userId,
-          kind: 'chat.completed',
-          title: 'اكتمل الرد',
-          body: 'اكتمل تنفيذ طلبك في ثنارة.',
-          data: {
-            conversationId: data.conversationId,
-            messageId: savedMessage?._id?.toString(),
-            requestId,
-          },
-        }).catch((error) => this.logger.warn(`Completion notification failed: ${error.message}`));
+        notifyCompletion(savedMessage);
         await this.usageService.record({
           tenantId: data.tenantId,
           userId: data.userId,
@@ -464,12 +466,12 @@ export class AiService {
           status: 'success',
         }).catch(() => {});
 
-        data.res.write(`data: ${JSON.stringify({ meta: { service: 'Thanarah Intelligence', userMessageId: userMessage._id, messageId: savedMessage?._id, conversationTitle } })}\n\n`);
+        writeToClient(`data: ${JSON.stringify({ meta: { service: 'Thanarah Intelligence', userMessageId: userMessage._id, messageId: savedMessage?._id, conversationTitle } })}\n\n`);
         if (!doneSent) {
-          data.res.write('data: [DONE]\n\n');
+          writeToClient('data: [DONE]\n\n');
           doneSent = true;
         }
-        data.res.end();
+        if (!clientDisconnected && !data.res.destroyed && !data.res.writableEnded) data.res.end();
       });
 
       response.data.on('error', async (error: Error) => {

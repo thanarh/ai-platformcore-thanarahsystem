@@ -16,6 +16,8 @@ type AppNotification = {
   data?: Record<string, unknown>;
 };
 
+type PushState = 'idle' | 'enabled' | 'unavailable' | 'blocked' | 'install-required';
+
 function decodeVapidKey(value: string) {
   const padding = '='.repeat((4 - (value.length % 4)) % 4);
   const base64 = (value + padding).replace(/-/g, '+').replace(/_/g, '/');
@@ -23,11 +25,23 @@ function decodeVapidKey(value: string) {
   return Uint8Array.from(raw, (char) => char.charCodeAt(0));
 }
 
+function isIosDevice() {
+  return /iPad|iPhone|iPod/i.test(navigator.userAgent)
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+
+function isInstalledApp() {
+  return window.matchMedia('(display-mode: standalone)').matches
+    || (navigator as Navigator & { standalone?: boolean }).standalone === true;
+}
+
 export default function NotificationCenter() {
   const { token } = useAuthStore();
   const [items, setItems] = useState<AppNotification[]>([]);
   const [open, setOpen] = useState(false);
-  const [pushState, setPushState] = useState<'idle' | 'enabled' | 'unavailable'>('idle');
+  const [pushState, setPushState] = useState<PushState>('idle');
+  const [pushMessage, setPushMessage] = useState('');
+  const [pushBusy, setPushBusy] = useState(false);
   const socketRef = useRef<WebSocket | null>(null);
   const unread = useMemo(() => items.filter((item) => !item.readAt).length, [items]);
 
@@ -47,9 +61,6 @@ export default function NotificationCenter() {
         if (parsed.type !== 'notification' || !parsed.notification) return;
         const next = parsed.notification as AppNotification;
         setItems((current) => [next, ...current].slice(0, 50));
-        if (document.visibilityState !== 'visible' && 'Notification' in window && Notification.permission === 'granted') {
-          new Notification(next.title, { body: next.body });
-        }
       } catch {}
     };
     return () => {
@@ -59,26 +70,106 @@ export default function NotificationCenter() {
     };
   }, [token]);
 
-  const enablePush = async () => {
-    if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
-      setPushState('unavailable');
-      return;
-    }
-    const config = await notificationsApi.pushConfig().catch(() => null);
-    if (!config?.enabled || !config.publicKey) {
-      setPushState('unavailable');
-      return;
-    }
-    const permission = await Notification.requestPermission();
-    if (permission !== 'granted') return;
-    const registration = await navigator.serviceWorker.register('/notifications-sw.js');
-    const existing = await registration.pushManager.getSubscription();
-    const subscription = existing || await registration.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: decodeVapidKey(config.publicKey),
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+
+    const inspectPushState = async () => {
+      if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+        if (!cancelled) {
+          setPushState('unavailable');
+          setPushMessage('هذا المتصفح لا يدعم إشعارات الويب.');
+        }
+        return;
+      }
+
+      const config = await notificationsApi.pushConfig().catch(() => null);
+      if (cancelled) return;
+      if (!config?.enabled || !config.publicKey) {
+        setPushState('unavailable');
+        setPushMessage('خدمة الإشعارات غير مهيأة على الخادم حاليًا.');
+        return;
+      }
+
+      if (isIosDevice() && !isInstalledApp()) {
+        setPushState('install-required');
+        setPushMessage('على iPhone أو iPad: أضيفي ثنارة إلى الشاشة الرئيسية من Safari، ثم افتحيها من الأيقونة وفعّلي الإشعارات.');
+        return;
+      }
+
+      if (Notification.permission === 'denied') {
+        setPushState('blocked');
+        setPushMessage('الإشعارات محظورة لهذا الموقع. اسمحي بها من إعدادات المتصفح ثم أعيدي فتح ثنارة.');
+        return;
+      }
+
+      const registration = await navigator.serviceWorker.getRegistration('/');
+      const subscription = await registration?.pushManager.getSubscription();
+      if (!cancelled) {
+        setPushState(subscription ? 'enabled' : 'idle');
+        setPushMessage(subscription ? 'إشعارات الرد مفعّلة على هذا الجهاز.' : '');
+      }
+    };
+
+    void inspectPushState().catch(() => {
+      if (!cancelled) {
+        setPushState('unavailable');
+        setPushMessage('تعذر التحقق من إعداد الإشعارات. أعيدي تحميل الصفحة وحاولي مرة أخرى.');
+      }
     });
-    await notificationsApi.savePushSubscription(subscription.toJSON() as Record<string, unknown>);
-    setPushState('enabled');
+
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  const enablePush = async () => {
+    if (pushBusy) return;
+    setPushBusy(true);
+    setPushMessage('');
+    try {
+      if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+        setPushState('unavailable');
+        setPushMessage('هذا المتصفح لا يدعم إشعارات الويب.');
+        return;
+      }
+      if (isIosDevice() && !isInstalledApp()) {
+        setPushState('install-required');
+        setPushMessage('على iPhone أو iPad: من Safari اضغطي «مشاركة» ثم «إضافة إلى الشاشة الرئيسية»، وافتحي ثنارة من الأيقونة قبل تفعيل الإشعارات.');
+        return;
+      }
+
+      const config = await notificationsApi.pushConfig().catch(() => null);
+      if (!config?.enabled || !config.publicKey) {
+        setPushState('unavailable');
+        setPushMessage('خدمة الإشعارات غير مهيأة على الخادم حاليًا.');
+        return;
+      }
+
+      const permission = Notification.permission === 'default'
+        ? await Notification.requestPermission()
+        : Notification.permission;
+      if (permission !== 'granted') {
+        setPushState('blocked');
+        setPushMessage('لم يتم السماح بالإشعارات. غيّري الإذن من إعدادات المتصفح ثم أعيدي المحاولة.');
+        return;
+      }
+
+      const registration = await navigator.serviceWorker.register('/notifications-sw.js', { scope: '/' });
+      const existing = await registration.pushManager.getSubscription();
+      const subscription = existing || await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: decodeVapidKey(config.publicKey),
+      });
+      await notificationsApi.savePushSubscription(subscription.toJSON() as Record<string, unknown>);
+      setPushState('enabled');
+      setPushMessage('إشعارات اكتمال الرد مفعّلة على هذا الجهاز.');
+    } catch {
+      setPushState('idle');
+      setPushMessage('تعذر تفعيل الإشعارات. تحققي من إذن المتصفح واتصال الإنترنت ثم حاولي مرة أخرى.');
+    } finally {
+      setPushBusy(false);
+    }
   };
 
   const markRead = async (item: AppNotification) => {
@@ -127,9 +218,22 @@ export default function NotificationCenter() {
               </button>
             ))}
           </div>
-          {pushState !== 'enabled' && (
-            <button type="button" onClick={() => void enablePush()} className="font-arabic w-full border-t border-gray-100 px-3 py-2 text-xs text-[#187b57] hover:bg-[#f7faf8]">
-              {pushState === 'unavailable' ? 'إشعارات النظام غير متاحة حاليًا' : 'تفعيل إشعارات النظام'}
+          {pushMessage && (
+            <p
+              role={pushState === 'blocked' || pushState === 'unavailable' ? 'alert' : 'status'}
+              className="font-arabic border-t border-gray-100 px-3 py-2 text-center text-[11px] leading-5 text-[#52635b]"
+            >
+              {pushMessage}
+            </p>
+          )}
+          {pushState === 'idle' && (
+            <button
+              type="button"
+              onClick={() => void enablePush()}
+              disabled={pushBusy}
+              className="font-arabic w-full border-t border-gray-100 px-3 py-2 text-xs text-[#187b57] hover:bg-[#f7faf8] disabled:opacity-60"
+            >
+              {pushBusy ? 'جارٍ تفعيل الإشعارات...' : 'تفعيل إشعارات اكتمال الرد على هذا الجهاز'}
             </button>
           )}
         </div>
