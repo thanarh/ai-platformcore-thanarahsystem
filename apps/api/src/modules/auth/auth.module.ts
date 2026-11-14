@@ -39,6 +39,6 @@ import {
   ],
   controllers: [AuthController],
   providers: [AuthService, PhoneEnrollmentService, JwtStrategy],
-  exports: [AuthService],
+  exports: [AuthService, PhoneEnrollmentService],
 })
 export class AuthModule {}

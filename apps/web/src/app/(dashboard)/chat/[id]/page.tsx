@@ -1,7 +1,8 @@
 'use client';
 export const dynamic = 'force-dynamic';
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import { useParams, useSearchParams } from 'next/navigation';
+import { useEmbeddedRouter } from '@/lib/embedded-navigation';
 import { Send, Square, Copy, ExternalLink, Globe2, Menu, ThumbsUp, ThumbsDown, Pin, Sparkles, Mic, Type, Wand2, Paperclip, FileText, X, ListTodo, Loader2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -50,7 +51,7 @@ function voiceErrorMessage(error: any): string {
 
 export default function ChatPage() {
   const params = useParams();
-  const router = useRouter();
+  const router = useEmbeddedRouter();
   const searchParams = useSearchParams();
   const convId = params.id as string;
 

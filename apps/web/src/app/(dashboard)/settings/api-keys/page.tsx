@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEmbeddedRouter } from '@/lib/embedded-navigation';
 import { AlertCircle, AlertTriangle, Check, Clipboard, KeyRound, Plus, Shield, Trash2 } from 'lucide-react';
 import { apiKeysApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth';
@@ -33,7 +33,7 @@ function errorMessage(error: any, fallback: string) {
 }
 
 export default function ApiKeysPage() {
-  const router = useRouter();
+  const router = useEmbeddedRouter();
   const user = useAuthStore((state) => state.user);
   const hydrated = useAuthStore((state) => state._hasHydrated);
   const isManager = Boolean(user && managerRoles.includes(user.role));

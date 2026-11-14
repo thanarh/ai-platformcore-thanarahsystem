@@ -87,8 +87,12 @@ export class AuthController {
 
   @Get('me')
   @UseGuards(JwtAuthGuard)
-  getMe(@CurrentUser('_id') userId: string) {
-    return this.authService.getMe(userId.toString());
+  async getMe(@CurrentUser() principal: any) {
+    const user = await this.authService.getMe(principal._id.toString());
+    return principal.isEmbedded ? {
+      ...user, role: principal.role, tenantId: principal.tenantId,
+      isEmbedded: true, embeddedIntegrationId: principal.embeddedIntegrationId,
+    } : user;
   }
 
   /**

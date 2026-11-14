@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEmbeddedRouter } from '@/lib/embedded-navigation';
 import { AlertCircle, CheckCircle2, LockKeyhole, RefreshCw, ShieldCheck } from 'lucide-react';
 import api from '@/lib/api';
 import { useAuthStore } from '@/store/auth';
@@ -50,7 +50,7 @@ function errorMessage(error: any) {
 }
 
 export default function WhatsAppSettingsPage() {
-  const router = useRouter();
+  const router = useEmbeddedRouter();
   const user = useAuthStore((state) => state.user);
   const hydrated = useAuthStore((state) => state._hasHydrated);
   const allowed = Boolean(user && managerRoles.includes(user.role));

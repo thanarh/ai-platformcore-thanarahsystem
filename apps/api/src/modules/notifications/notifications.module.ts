@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
-import { JwtModule } from '@nestjs/jwt';
 import { UsersModule } from '../users/users.module';
 import { NotificationsController } from './notifications.controller';
 import { NotificationsService } from './notifications.service';
@@ -13,7 +12,6 @@ import { PushSubscription, PushSubscriptionSchema } from './schemas/push-subscri
       { name: Notification.name, schema: NotificationSchema },
       { name: PushSubscription.name, schema: PushSubscriptionSchema },
     ]),
-    JwtModule.register({}),
     UsersModule,
   ],
   controllers: [NotificationsController],

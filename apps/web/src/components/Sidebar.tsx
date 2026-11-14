@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname } from 'next/navigation';
+import { useEmbeddedRouter } from '@/lib/embedded-navigation';
 import {
   BookOpen,
   ChevronLeft,
@@ -28,7 +29,7 @@ import { ThanarahLogoFull } from './ThanarahLogo';
 import { cn } from '@/lib/utils';
 
 export default function Sidebar() {
-  const router = useRouter();
+  const router = useEmbeddedRouter();
   const pathname = usePathname();
   const { user, clearAuth, isAdmin } = useAuthStore();
   const {
@@ -90,8 +91,13 @@ export default function Sidebar() {
 
   const handleLogout = async () => {
     await authApi.logout().catch(() => {});
+    const embedded = user?.isEmbedded;
+    const context = embedded ? new URLSearchParams(window.location.search).get('origin') : null;
+    const integrationId = user?.embeddedIntegrationId;
     clearAuth();
-    router.replace('/login');
+    router.replace(embedded && integrationId
+      ? `/embed/${integrationId}${context ? `?origin=${encodeURIComponent(context)}` : ''}`
+      : '/login');
   };
 
   const renderConversation = (conv: (typeof conversations)[number]) => (
@@ -155,6 +161,9 @@ export default function Sidebar() {
     { href: '/chat?tool=search', label: 'البحث في الإنترنت', icon: Globe2 },
     { href: '/settings/ai', label: 'أدوات AI', icon: Grid2X2 },
     { href: '/settings/api-keys', label: 'مفاتيح API', icon: KeyRound },
+    ...(['OWNER', 'ADMIN', 'TENANT_OWNER'].includes(user?.role || '')
+      ? [{ href: '/settings/integrations', label: 'ربط نظام ثنارة AI', icon: Globe2 }]
+      : []),
     ...(['OWNER', 'ADMIN', 'TENANT_OWNER'].includes(user?.role || '')
       ? [{ href: '/settings/whatsapp', label: 'WhatsApp Business', icon: MessageCircle }]
       : []),

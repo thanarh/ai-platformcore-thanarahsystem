@@ -2,6 +2,8 @@ import { Injectable, ExecutionContext, UnauthorizedException, ForbiddenException
 import { AuthGuard } from '@nestjs/passport';
 import { Reflector } from '@nestjs/core';
 import { ApiKeysService } from '../../modules/api-keys/api-keys.service';
+import { EmbeddedSessionsService } from '../../modules/embedded/embedded-sessions.service';
+import { assertEmbeddedRoute } from '../../modules/embedded/embedded.policy';
 
 export const IS_PUBLIC_KEY = 'isPublic';
 
@@ -10,6 +12,7 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
   constructor(
     private reflector: Reflector,
     private apiKeysService: ApiKeysService,
+    private embeddedSessions: EmbeddedSessionsService,
   ) {
     super();
   }
@@ -26,6 +29,14 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
 
     // Check for API key authentication — validate the key before granting access
     const request = context.switchToHttp().getRequest();
+    const bearerToken = typeof request.headers.authorization === 'string'
+      ? request.headers.authorization.match(/^Bearer (.+)$/i)?.[1] : undefined;
+    if (bearerToken?.startsWith('the_')) {
+      const path = request.path || request.originalUrl?.split('?')[0] || '';
+      assertEmbeddedRoute(path, request.method || 'GET');
+      request.user = await this.embeddedSessions.authenticate(bearerToken);
+      return true;
+    }
     const bearerKey = typeof request.headers.authorization === 'string'
       ? request.headers.authorization.match(/^Bearer (thn_(?:live|test)_[a-f\d]{64})$/i)?.[1]
       : undefined;

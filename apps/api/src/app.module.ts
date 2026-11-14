@@ -22,6 +22,7 @@ import { AiGatewayModule } from './modules/ai-gateway/ai-gateway.module';
 import { FilesModule } from './modules/files/files.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { WhatsappModule } from './modules/whatsapp/whatsapp.module';
+import { EmbeddedModule } from './modules/embedded/embedded.module';
 
 @Module({
   imports: [
@@ -68,6 +69,7 @@ import { WhatsappModule } from './modules/whatsapp/whatsapp.module';
     FilesModule,
     NotificationsModule,
     WhatsappModule,
+    EmbeddedModule,
     MessagesModule,
     AiModule,
     ApiKeysModule,

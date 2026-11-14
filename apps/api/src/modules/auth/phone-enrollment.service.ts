@@ -3,7 +3,7 @@ import {
   HttpStatus, Injectable, ServiceUnavailableException, UnauthorizedException,
 } from '@nestjs/common';
 import { InjectConnection, InjectModel } from '@nestjs/mongoose';
-import { Connection, Model } from 'mongoose';
+import { ClientSession, Connection, Model } from 'mongoose';
 import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from 'crypto';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { UsersService } from '../users/users.service';
@@ -142,7 +142,13 @@ export class PhoneEnrollmentService {
     };
   }
 
-  async completeRegistration(data: CompletePhoneRegistration) {
+  async completeRegistration(
+    data: CompletePhoneRegistration,
+    afterCreate?: (
+      user: Awaited<ReturnType<UsersService['createPhoneUser']>>,
+      session: ClientSession,
+    ) => Promise<void>,
+  ) {
     const details = this.validateDetails(data);
     const tokenHash = this.tokenHash(data.enrollmentToken);
     try {
@@ -170,6 +176,7 @@ export class PhoneEnrollmentService {
           role: roleAfterPhoneVerification(proof.phoneNumber, Role.TENANT_OWNER),
           tenantId: tenant._id.toString(),
         }, session);
+        if (afterCreate) await afterCreate(user, session);
         return user;
       });
     } catch (error: any) {

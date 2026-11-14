@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { useAuthStore } from '@/store/auth';
+import { getEmbeddedBrowserContext } from '@/store/auth';
 
 const api = axios.create({
   baseURL: '/api',
@@ -12,8 +13,9 @@ async function refreshAccessToken(): Promise<string> {
   if (!refreshPromise) {
     const currentRefreshToken = useAuthStore.getState().refreshToken;
     if (!currentRefreshToken) throw new Error('No refresh token');
+    const isEmbedded = useAuthStore.getState().user?.isEmbedded === true;
     refreshPromise = axios
-      .post('/api/auth/refresh', { refreshToken: currentRefreshToken })
+      .post(isEmbedded ? '/api/embedded/session/refresh' : '/api/auth/refresh', { refreshToken: currentRefreshToken })
       .then((response) => {
         const data = response.data;
         useAuthStore.getState().setAuth(data.user, data.accessToken, data.refreshToken);
@@ -60,7 +62,8 @@ api.interceptors.response.use(
     if (error.response?.status === 401) {
       useAuthStore.getState().clearAuth();
       if (typeof window !== 'undefined') {
-        window.location.href = '/login';
+        const embedded = getEmbeddedBrowserContext();
+        window.location.href = embedded ? `/embed/${embedded.id}${embedded.origin ? `?origin=${encodeURIComponent(embedded.origin)}` : ''}` : '/login';
       }
     }
     return Promise.reject(error);
@@ -93,7 +96,12 @@ export const authApi = {
     lastName: string;
     industry?: string;
   }) => axios.post('/api/auth/register', data).then((r) => r.data),
-  logout: () => api.post('/auth/logout').then((r) => r.data),
+  logout: () => {
+    const state = useAuthStore.getState();
+    return state.user?.isEmbedded
+      ? axios.post('/api/embedded/session/logout', {}, { headers: { Authorization: `Bearer ${state.token}` } }).then((r) => r.data)
+      : api.post('/auth/logout').then((r) => r.data);
+  },
   refresh: (refreshToken: string) =>
     axios.post('/api/auth/refresh', { refreshToken }).then((r) => r.data),
   me: () => api.get('/auth/me').then((r) => r.data),
@@ -184,6 +192,16 @@ export const apiKeysApi = {
     api.delete(`/api-keys/${id}`).then((r) => r.data),
 };
 
+export const embeddedIntegrationsApi = {
+  list: () => api.get('/embedded/integrations').then((response) => response.data),
+  create: (data: { name: string; allowedOrigins: string[] }) =>
+    api.post('/embedded/integrations', data).then((response) => response.data),
+  update: (id: string, data: { name: string; allowedOrigins: string[] }) =>
+    api.patch(`/embedded/integrations/${id}`, data).then((response) => response.data),
+  rotate: (id: string) => api.post(`/embedded/integrations/${id}/rotate`).then((response) => response.data),
+  revoke: (id: string) => api.delete(`/embedded/integrations/${id}`).then((response) => response.data),
+};
+
 // ──── Knowledge ────────────────────────────────────────────────────────────
 export const knowledgeApi = {
   list: () => api.get('/knowledge').then((r) => r.data),
@@ -230,6 +248,7 @@ export const healthApi = {
 // ──── Notifications ───────────────────────────────────────────────────────
 export const notificationsApi = {
   list: () => api.get('/notifications').then((r) => r.data),
+  wsTicket: () => api.post('/notifications/ws-ticket').then((r) => r.data),
   markRead: (id: string) => api.patch(`/notifications/${id}/read`).then((r) => r.data),
   pushConfig: () => api.get('/notifications/push/config').then((r) => r.data),
   savePushSubscription: (subscription: Record<string, unknown>) =>

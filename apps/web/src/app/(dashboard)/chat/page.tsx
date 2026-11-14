@@ -16,7 +16,8 @@ import {
   Sparkles,
   ListTodo,
 } from 'lucide-react';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
+import { useEmbeddedRouter } from '@/lib/embedded-navigation';
 import { ThanarahIcon } from '@/components/ThanarahLogo';
 import { useAuthStore } from '@/store/auth';
 import { useChatStore } from '@/store/chat';
@@ -52,7 +53,7 @@ const shortcuts = [
 ];
 
 export default function ChatHomePage() {
-  const router = useRouter();
+  const router = useEmbeddedRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { user } = useAuthStore();

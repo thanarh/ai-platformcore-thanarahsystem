@@ -1,14 +1,14 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { ConfigService } from '@nestjs/config';
 import { Model } from 'mongoose';
-import { JwtService } from '@nestjs/jwt';
 import { UsersService } from '../users/users.service';
 import { Notification, NotificationDocument } from './schemas/notification.schema';
 import { PushSubscription, PushSubscriptionDocument } from './schemas/push-subscription.schema';
 import * as webpush from 'web-push';
 import { WebSocket, WebSocketServer } from 'ws';
 import { IncomingMessage, Server } from 'http';
+import { createHash, randomBytes } from 'crypto';
 
 export interface FireNotificationInput {
   tenantId: string;
@@ -26,13 +26,13 @@ export class NotificationsService {
   private readonly logger = new Logger(NotificationsService.name);
   private readonly clients = new Set<ConnectedClient>();
   private readonly wss = new WebSocketServer({ noServer: true });
+  private readonly socketTickets = new Map<string, { userId: string; tenantId: string; expiresAt: number }>();
   private pushReady = false;
 
   constructor(
     @InjectModel(Notification.name) private readonly notificationModel: Model<NotificationDocument>,
     @InjectModel(PushSubscription.name) private readonly subscriptionModel: Model<PushSubscriptionDocument>,
     private readonly config: ConfigService,
-    private readonly jwt: JwtService,
     private readonly users: UsersService,
   ) {
     const subject = this.config.get<string>('notifications.vapidSubject');
@@ -54,9 +54,9 @@ export class NotificationsService {
         return;
       }
       if (url.pathname !== '/api/notifications/ws') return;
-      const token = url.searchParams.get('token');
+      const ticket = url.searchParams.get('ticket');
       this.wss.handleUpgrade(request, socket, head, (client) => {
-        void this.authenticateSocket(client, token);
+        void this.authenticateSocket(client, ticket);
       });
     });
   }
@@ -128,18 +128,35 @@ export class NotificationsService {
     };
   }
 
-  private async authenticateSocket(socket: WebSocket, token: string | null) {
-    if (!token) {
+  async createSocketTicket(principal: { _id: string; tenantId: string }) {
+    if (!principal?._id || !principal?.tenantId) throw new UnauthorizedException('A user and tenant are required');
+    const now = Date.now();
+    for (const [hash, ticket] of this.socketTickets) {
+      if (ticket.expiresAt <= now) this.socketTickets.delete(hash);
+    }
+    if (this.socketTickets.size >= 10_000) {
+      throw new HttpException('Notification connection limit reached', HttpStatus.TOO_MANY_REQUESTS);
+    }
+    const ticket = randomBytes(32).toString('base64url');
+    this.socketTickets.set(createHash('sha256').update(ticket).digest('hex'), {
+      userId: principal._id.toString(), tenantId: principal.tenantId.toString(),
+      expiresAt: now + 30_000,
+    });
+    return { ticket, expiresInSeconds: 30 };
+  }
+
+  private async authenticateSocket(socket: WebSocket, rawTicket: string | null) {
+    const hash = rawTicket ? createHash('sha256').update(rawTicket).digest('hex') : '';
+    const ticket = this.socketTickets.get(hash);
+    this.socketTickets.delete(hash);
+    if (!ticket || ticket.expiresAt <= Date.now()) {
       socket.close(1008, 'Authentication required');
       return;
     }
     try {
-      const payload = this.jwt.verify(token, {
-        secret: this.config.get<string>('jwt.secret'),
-      });
-      const user = await this.users.findById(payload.sub);
-      if (!user?.isActive || !user.tenantId) throw new Error('Invalid principal');
-      const client = { socket, tenantId: user.tenantId.toString(), userId: user._id.toString() };
+      const user = await this.users.findById(ticket.userId);
+      if (!user?.isActive || !user.tenantId || user.tenantId.toString() !== ticket.tenantId) throw new Error('Invalid principal');
+      const client = { socket, tenantId: ticket.tenantId, userId: ticket.userId };
       this.clients.add(client);
       socket.on('close', () => this.clients.delete(client));
       socket.on('error', () => this.clients.delete(client));

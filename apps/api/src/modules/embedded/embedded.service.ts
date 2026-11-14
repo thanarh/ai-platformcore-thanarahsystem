@@ -96,10 +96,11 @@ export class EmbeddedService {
     requireEmbeddedToken(key, 'thn_embed');
     if (!data || typeof data.externalUserId !== 'string' || !data.externalUserId.trim()
       || data.externalUserId !== data.externalUserId.trim() || data.externalUserId.length > 200
-      || typeof data.nonce !== 'string' || !/^[\w-]{32,128}$/.test(data.nonce)) {
-      throw new BadRequestException('يلزم معرّف مستخدم خادمي ورمز طلب صالحان.');
+      || (data.nonce !== undefined && (typeof data.nonce !== 'string' || !/^[\w-]{32,128}$/.test(data.nonce)))) {
+      throw new BadRequestException('يلزم معرّف مستخدم خادمي صالح.');
     }
     const origin = normalizeEmbeddedOrigin(data.origin);
+    const nonce = data.nonce || embeddedToken('nonce');
     const integration = await this.integrations.findOne({ _id: this.id(id), keyHash: embeddedHash(key), isActive: true });
     if (!integration) throw new UnauthorizedException('مفتاح الربط غير صالح أو أُبطل.');
     assertEmbeddedOrigin(integration, origin);
@@ -121,11 +122,11 @@ export class EmbeddedService {
     const code = embeddedToken('thb');
     await this.bootstraps.create({
       codeHash: embeddedHash(code), integrationId: integration._id,
-      version: integration.version, subjectHash, origin, nonce: data.nonce,
+      version: integration.version, subjectHash, origin, nonce,
       userId: identity?.userId, tenantId: identity?.tenantId,
       expiresAt: new Date(Date.now() + 60_000),
     });
-    return { code, expiresInSeconds: 60, framePath: `/embed/${id}?origin=${encodeURIComponent(origin)}` };
+    return { code, nonce, expiresInSeconds: 60, framePath: `/embed/${id}?origin=${encodeURIComponent(origin)}` };
   }
 
   async exchange(id: string, data: { code: string; origin: string; nonce: string }) {
@@ -170,7 +171,7 @@ export class EmbeddedService {
     const pending = await this.sessions.findOne({
       integrationId: this.id(id), onboardingHash: embeddedHash(onboardingToken),
       state: 'pending', expiresAt: { $gt: new Date() },
-    }).select('+registrationProofHash');
+    }).select('+onboardingHash +registrationProofHash');
     if (!pending) throw new UnauthorizedException('انتهت تهيئة الحساب. أعد الاتصال من النظام المضيف.');
     const integration = await this.integrations.findById(pending.integrationId);
     assertEmbeddedOrigin(integration, pending.origin);
@@ -190,7 +191,7 @@ export class EmbeddedService {
   }
 
   async bind(pending: EmbeddedSessionDocument, user: UserDocument, session: ClientSession,
-    tokens: ReturnType<EmbeddedSessionsService['tokens']>) {
+    tokens: ReturnType<EmbeddedSessionsService['tokens']>, phoneProof?: string) {
     if (!user.isActive || !user.isPhoneVerified || !user.tenantId) throw new ForbiddenException('يلزم حساب نشط متحقق الجوال.');
     const identity = await this.identities.findOneAndUpdate(
       { integrationId: pending.integrationId, subjectHash: pending.subjectHash },
@@ -202,6 +203,7 @@ export class EmbeddedService {
     }
     const active = await this.sessions.findOneAndUpdate({
       _id: pending._id, state: 'pending', expiresAt: { $gt: new Date() },
+      ...(phoneProof ? { registrationProofHash: embeddedHash(phoneProof) } : {}),
     }, {
       $set: {
         state: 'active', userId: user._id, tenantId: user.tenantId,

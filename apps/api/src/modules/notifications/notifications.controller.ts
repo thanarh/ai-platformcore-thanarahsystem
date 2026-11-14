@@ -22,6 +22,11 @@ export class NotificationsController {
     return this.notifications.getPushConfig();
   }
 
+  @Post('ws-ticket')
+  createSocketTicket(@Req() request: any) {
+    return this.notifications.createSocketTicket(request.user);
+  }
+
   @Post('push-subscriptions')
   saveSubscription(@Req() request: any, @Body() body: any) {
     if (!body?.endpoint || !body?.keys?.p256dh || !body?.keys?.auth) {

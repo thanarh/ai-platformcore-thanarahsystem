@@ -42,7 +42,10 @@ export function assertEmbeddedRoute(path: string, method: string) {
   if (normalized === '/auth/me' && method === 'GET') return;
   if (/^\/(?:conversations|messages|knowledge|files|context-profile|whatsapp|api-keys|notifications)(?:\/|$)/.test(normalized)) return;
   if (/^\/ai(?:\/|$)/.test(normalized)) return; // Admin AI actions also enforce their normal roles.
-  if (/^\/tenants\/(?:me|usage)(?:\/|$)/.test(normalized)) return;
-  if (/^\/embedded\/integrations(?:\/|$)/.test(normalized)) return;
+  if (/^\/tenants\/my(?:\/usage)?$/.test(normalized)) return;
+  // An embedded user may exchange an OTP or refresh/logout their own session,
+  // but may never administer app-to-app integration credentials.
+  if (/^\/embedded\/[a-f\d]{24}\/(?:config|bootstrap|exchange|phone\/(?:request-code|verify-code|complete-registration))$/.test(normalized)) return;
+  if (/^\/embedded\/session\/(?:refresh|logout)$/.test(normalized)) return;
   throw new ForbiddenException('هذه العملية غير متاحة داخل النظام المضمّن.');
 }

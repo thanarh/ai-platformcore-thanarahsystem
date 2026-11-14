@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/auth';
@@ -8,15 +8,42 @@ import { useChatStore } from '@/store/chat';
 import { authApi, conversationsApi } from '@/lib/api';
 import Sidebar from '@/components/Sidebar';
 import NotificationCenter from '@/components/NotificationCenter';
+import EmbeddedEntry from '@/components/EmbeddedEntry';
+import { getEmbeddedBrowserContext } from '@/store/auth';
+import { useEmbeddedRouter } from '@/lib/embedded-navigation';
 
 export default function DashboardShell({ children }: { children: React.ReactNode }) {
-  const router = useRouter();
-  const { token, _hasHydrated, setHasHydrated, setUser } = useAuthStore();
+  const router = useEmbeddedRouter();
+  const { token, user, _hasHydrated, setHasHydrated, setUser } = useAuthStore();
   const { setConversations, setSidebar } = useChatStore();
+  const [embedded, setEmbedded] = useState<{ id: string; origin?: string } | null>(null);
+
+  useEffect(() => setEmbedded(getEmbeddedBrowserContext()), []);
 
   useEffect(() => {
     setSidebar(window.matchMedia('(min-width: 1024px)').matches);
   }, [setSidebar]);
+
+  useEffect(() => {
+    if (!embedded) return;
+    const handleEmbeddedLink = (event: MouseEvent) => {
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const anchor = target.closest('a[href]');
+      if (!(anchor instanceof HTMLAnchorElement) || anchor.target === '_blank' || anchor.hasAttribute('download')) return;
+      const targetUrl = new URL(anchor.href, window.location.href);
+      if (targetUrl.origin !== window.location.origin || !targetUrl.pathname.startsWith('/')) return;
+      if (targetUrl.pathname.startsWith(`/embed/${embedded.id}`)) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      targetUrl.pathname = `/embed/${embedded.id}${targetUrl.pathname}`;
+      if (embedded.origin) targetUrl.searchParams.set('origin', embedded.origin);
+      window.location.assign(`${targetUrl.pathname}${targetUrl.search}${targetUrl.hash}`);
+    };
+    document.addEventListener('click', handleEmbeddedLink, true);
+    return () => document.removeEventListener('click', handleEmbeddedLink, true);
+  }, [embedded]);
 
   useEffect(() => {
     let active = true;
@@ -30,7 +57,7 @@ export default function DashboardShell({ children }: { children: React.ReactNode
 
   useEffect(() => {
     if (!_hasHydrated) return;
-    if (!token) {
+    if (!token && !embedded) {
       router.replace('/login');
       return;
     }
@@ -38,7 +65,7 @@ export default function DashboardShell({ children }: { children: React.ReactNode
       authApi.me().then(setUser),
       conversationsApi.list().then(setConversations),
     ]).catch(() => {});
-  }, [_hasHydrated, router, setConversations, setUser, token]);
+  }, [_hasHydrated, embedded, router, setConversations, setUser, token]);
 
   if (!_hasHydrated) {
     return (
@@ -46,6 +73,10 @@ export default function DashboardShell({ children }: { children: React.ReactNode
         <div className="h-5 w-5 animate-spin rounded-full border-2 border-thanarah-600 border-t-transparent" />
       </div>
     );
+  }
+
+  if (embedded && (!token || !user?.isEmbedded || user.embeddedIntegrationId?.toLowerCase() !== embedded.id.toLowerCase())) {
+    return <EmbeddedEntry integrationId={embedded.id} origin={embedded.origin || ''} />;
   }
 
   if (!token) {
@@ -67,7 +98,7 @@ export default function DashboardShell({ children }: { children: React.ReactNode
 
   return (
     <div className="app-viewport flex overflow-hidden bg-[#f5f5f3]">
-      <NotificationCenter />
+      {!embedded && <NotificationCenter />}
       <Sidebar />
       <main className="flex flex-1 flex-col overflow-hidden">{children}</main>
     </div>

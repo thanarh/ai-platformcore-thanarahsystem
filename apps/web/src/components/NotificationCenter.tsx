@@ -52,20 +52,24 @@ export default function NotificationCenter() {
       if (!cancelled) setItems(Array.isArray(data) ? data : []);
     }).catch(() => {});
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const socket = new WebSocket(`${protocol}//${window.location.host}/api/notifications/ws?token=${encodeURIComponent(token)}`);
-    socketRef.current = socket;
-    socket.onmessage = (event) => {
-      try {
-        const parsed = JSON.parse(event.data);
-        if (parsed.type !== 'notification' || !parsed.notification) return;
-        const next = parsed.notification as AppNotification;
-        setItems((current) => [next, ...current].slice(0, 50));
-      } catch {}
-    };
+    let socket: WebSocket | null = null;
+    void notificationsApi.wsTicket().then(({ ticket }) => {
+      if (cancelled || typeof ticket !== 'string') return;
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      socket = new WebSocket(`${protocol}//${window.location.host}/api/notifications/ws?ticket=${encodeURIComponent(ticket)}`);
+      socketRef.current = socket;
+      socket.onmessage = (event) => {
+        try {
+          const parsed = JSON.parse(event.data);
+          if (parsed.type !== 'notification' || !parsed.notification) return;
+          const next = parsed.notification as AppNotification;
+          setItems((current) => [next, ...current].slice(0, 50));
+        } catch {}
+      };
+    }).catch(() => {});
     return () => {
       cancelled = true;
-      socket.close();
+      socket?.close();
       socketRef.current = null;
     };
   }, [token]);
