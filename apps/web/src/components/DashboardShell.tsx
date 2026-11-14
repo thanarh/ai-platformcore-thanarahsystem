@@ -16,9 +16,9 @@ export default function DashboardShell({ children }: { children: React.ReactNode
   const router = useEmbeddedRouter();
   const { token, user, _hasHydrated, setHasHydrated, setUser } = useAuthStore();
   const { setConversations, setSidebar } = useChatStore();
-  const [embedded, setEmbedded] = useState<{ id: string; origin?: string } | null>(null);
-
-  useEffect(() => setEmbedded(getEmbeddedBrowserContext()), []);
+  const [embedded, setEmbedded] = useState<{ id: string; origin?: string } | null>(
+    () => getEmbeddedBrowserContext(),
+  );
 
   useEffect(() => {
     setSidebar(window.matchMedia('(min-width: 1024px)').matches);
@@ -57,8 +57,8 @@ export default function DashboardShell({ children }: { children: React.ReactNode
 
   useEffect(() => {
     if (!_hasHydrated) return;
-    if (!token && !embedded) {
-      router.replace('/login');
+    if (!token) {
+      if (!embedded) router.replace('/login');
       return;
     }
     Promise.all([
@@ -98,7 +98,7 @@ export default function DashboardShell({ children }: { children: React.ReactNode
 
   return (
     <div className="app-viewport flex overflow-hidden bg-[#f5f5f3]">
-      {!embedded && <NotificationCenter />}
+      <NotificationCenter />
       <Sidebar />
       <main className="flex flex-1 flex-col overflow-hidden">{children}</main>
     </div>

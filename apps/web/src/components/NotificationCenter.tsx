@@ -3,7 +3,7 @@
 import { Bell, BellRing, Check, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { notificationsApi } from '@/lib/api';
-import { useAuthStore } from '@/store/auth';
+import { getEmbeddedBrowserContext, useAuthStore } from '@/store/auth';
 
 type AppNotification = {
   _id?: string;
@@ -48,9 +48,18 @@ export default function NotificationCenter() {
   useEffect(() => {
     if (!token) return;
     let cancelled = false;
-    notificationsApi.list().then((data) => {
+    const refresh = () => notificationsApi.list().then((data) => {
       if (!cancelled) setItems(Array.isArray(data) ? data : []);
     }).catch(() => {});
+    void refresh();
+
+    // A proxied Next.js route cannot upgrade to the API's WebSocket server.
+    // Embedded sessions use same-origin REST polling instead of exposing a
+    // separate API host or putting a bearer token into the socket URL.
+    if (getEmbeddedBrowserContext()) {
+      const timer = window.setInterval(() => { void refresh(); }, 30_000);
+      return () => { cancelled = true; window.clearInterval(timer); };
+    }
 
     let socket: WebSocket | null = null;
     void notificationsApi.wsTicket().then(({ ticket }) => {

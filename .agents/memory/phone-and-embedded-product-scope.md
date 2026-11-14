@@ -28,3 +28,15 @@ WhatsApp identity.
 Do not interpret complete embedding as permission to expose global platform
 administration or other tenants' data. Preserve the separately approved
 platform OTP sender and tenant-specific WhatsApp senders.
+
+For embedded dashboard routes, resolve the integration context synchronously
+from the visible `/embed/:id` URL when initializing the client shell, before
+auth hydration or redirect effects run.
+
+**Why:** Deferring context detection to a later effect can briefly make an
+embedded visitor look like a regular unauthenticated visitor and redirect away
+before the isolated phone enrollment screen mounts.
+
+**How to apply:** Keep server rendering safe when `window` is unavailable, but
+initialize the client context from the route before deciding whether to send
+the user to the standard login page.

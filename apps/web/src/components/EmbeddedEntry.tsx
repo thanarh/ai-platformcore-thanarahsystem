@@ -31,6 +31,7 @@ export default function EmbeddedEntry({ integrationId, origin }: { integrationId
 
   useEffect(() => {
     let active = true;
+    let exchanging = false;
     const absoluteOrigin = (() => { try { return new URL(origin).origin; } catch { return ''; } })();
     if (!absoluteOrigin || absoluteOrigin !== origin) {
       setError('رابط التضمين غير صالح. افتحه من النظام الذي أرسله لك.');
@@ -54,25 +55,28 @@ export default function EmbeddedEntry({ integrationId, origin }: { integrationId
         setError(message(cause)); setStage('error');
       });
     const onMessage = async (event: MessageEvent) => {
-      if (!active || event.source !== window.parent || event.origin !== origin) return;
+      if (!active || exchanging || event.source !== window.parent || event.origin !== origin) return;
       const data = event.data;
       if (data?.type !== 'thanarah:bootstrap' || data.integrationId?.toLowerCase() !== id
         || typeof data.code !== 'string' || typeof data.nonce !== 'string') return;
-      window.removeEventListener('message', onMessage);
+      exchanging = true;
       setError(''); setStage('loading');
       try {
         const { data: result } = await api.post(`/embedded/${id}/exchange`, { code: data.code, nonce: data.nonce, origin });
         if (result.next === 'authenticated' && result.user?.isEmbedded
           && result.user.embeddedIntegrationId?.toLowerCase() === id) {
+          window.removeEventListener('message', onMessage);
           setAuth(result.user, result.accessToken, result.refreshToken);
           return;
         }
         if (result.next !== 'verify_phone' || typeof result.onboardingToken !== 'string') {
           throw new Error('تعذر إنشاء جلسة مضمّنة آمنة.');
         }
+        window.removeEventListener('message', onMessage);
         setOnboardingToken(result.onboardingToken);
         setStage('phone');
       } catch (cause) {
+        exchanging = false;
         setError(message(cause)); setStage('error');
       }
     };
@@ -164,7 +168,10 @@ export default function EmbeddedEntry({ integrationId, origin }: { integrationId
         {stage === 'error' && (
           <div className="mt-4 space-y-3">
             <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm leading-6 text-red-700">{error}</p>
-            <button type="button" onClick={() => { setStage('waiting'); setError(''); }}
+            <button type="button" onClick={() => {
+              setStage('waiting'); setError('');
+              window.parent.postMessage({ type: 'thanarah:bootstrap:refresh', integrationId: id }, origin);
+            }}
               className="text-sm text-thanarah-700">حاول مجددًا</button>
           </div>
         )}

@@ -49,26 +49,31 @@ app.post("/integrations/thanarah/bootstrap", requirePartnerLogin, async (req, re
 استبدل `FRAMEWORK_APP_ORIGIN` بأصل ثنارة الحقيقي الذي يظهر في `framePath`:
 
 ```js
-const response = await fetch("/integrations/thanarah/bootstrap", {
-  method: "POST",
-  headers: { "content-type": "application/json" },
-});
-if (!response.ok) throw new Error("تعذر فتح ثنارة");
-const bootstrap = await response.json();
 const frame = document.querySelector("#thanarah-frame");
-frame.src = FRAMEWORK_APP_ORIGIN + bootstrap.framePath;
-const thanarahOrigin = new URL(frame.src).origin;
+const thanarahOrigin = new URL(FRAMEWORK_APP_ORIGIN).origin;
+async function sendFreshBootstrap() {
+  const response = await fetch("/integrations/thanarah/bootstrap", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+  });
+  if (!response.ok) throw new Error("تعذر فتح ثنارة");
+  const bootstrap = await response.json();
+  if (bootstrap.framePath && !frame.src) frame.src = FRAMEWORK_APP_ORIGIN + bootstrap.framePath;
+  frame.contentWindow.postMessage({
+    type: "thanarah:bootstrap", integrationId: INTEGRATION_ID,
+    code: bootstrap.code, nonce: bootstrap.nonce,
+  }, thanarahOrigin);
+}
 window.addEventListener("message", (event) => {
   if (event.source !== frame.contentWindow || event.origin !== thanarahOrigin) return;
-  if (event.data?.type !== "thanarah:ready"
-      || event.data.integrationId !== INTEGRATION_ID) return;
-  frame.contentWindow.postMessage({
-    type: "thanarah:bootstrap",
-    integrationId: INTEGRATION_ID,
-    code: bootstrap.code,
-    nonce: bootstrap.nonce,
-  }, thanarahOrigin);
-}, { once: false });
+  if (event.data?.integrationId !== INTEGRATION_ID) return;
+  if (event.data?.type === "thanarah:ready"
+      || event.data?.type === "thanarah:bootstrap:refresh") {
+    void sendFreshBootstrap();
+  }
+});
+frame.src = FRAMEWORK_APP_ORIGIN + "/embed/" + INTEGRATION_ID
+  + "?origin=" + encodeURIComponent(location.origin);
 ```
 
 ```html
