@@ -13,6 +13,7 @@ import {
   LogOut,
   Menu,
   MessageSquare,
+  MessageCircle,
   Pin,
   Plus,
   Settings,
@@ -256,6 +257,18 @@ export default function Sidebar() {
                 >
                   <Grid2X2 className="h-[18px] w-[18px]" strokeWidth={1.7} />
                   <span>لوحة التحكم</span>
+                </Link>
+              )}
+              {(user?.role === 'OWNER' || user?.role === 'ADMIN') && (
+                <Link
+                  href="/admin/whatsapp"
+                  className={cn(
+                    'font-arabic flex items-center gap-3 rounded-lg px-2.5 py-2.5 text-[12px] text-[#59656c] transition hover:bg-[#f0f5f3]',
+                    pathname?.startsWith('/admin/whatsapp') && 'bg-[#eef7f2] text-[#167854]',
+                  )}
+                >
+                  <MessageCircle className="h-[18px] w-[18px]" strokeWidth={1.7} />
+                  <span>إدارة واتساب</span>
                 </Link>
               )}
               <button

@@ -21,6 +21,7 @@ import { ContextProfileModule } from './modules/context-profile/context-profile.
 import { AiGatewayModule } from './modules/ai-gateway/ai-gateway.module';
 import { FilesModule } from './modules/files/files.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { WhatsappModule } from './modules/whatsapp/whatsapp.module';
 
 @Module({
   imports: [
@@ -66,6 +67,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
     AiGatewayModule,
     FilesModule,
     NotificationsModule,
+    WhatsappModule,
     MessagesModule,
     AiModule,
     ApiKeysModule,
