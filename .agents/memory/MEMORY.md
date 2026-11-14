@@ -17,3 +17,4 @@
 - [Chat prompt auto-submit idempotency](chat-auto-submit-idempotency.md) — route-triggered prompts must wait for history and dedupe across Strict Mode to avoid duplicate inference on cold starts
 - [GitHub push isolation](github-push-isolation.md) — publish the minimum related commit set from fresh origin/main; keep unrelated local commits out
 - [WhatsApp number ownership](whatsapp-number-ownership.md) — user chose Baileys QR, one number per institution, and an additional platform number for OTP
+- [Phone and embedded product scope](phone-and-embedded-product-scope.md) — verify mobile before account fields; embed the full tenant product with independent institutional identities
