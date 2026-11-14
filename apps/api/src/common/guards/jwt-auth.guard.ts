@@ -26,7 +26,10 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
 
     // Check for API key authentication — validate the key before granting access
     const request = context.switchToHttp().getRequest();
-    const rawKey = request.headers['x-api-key'] as string | undefined;
+    const bearerKey = typeof request.headers.authorization === 'string'
+      ? request.headers.authorization.match(/^Bearer (thn_(?:live|test)_[a-f\d]{64})$/i)?.[1]
+      : undefined;
+    const rawKey = request.headers['x-api-key'] as string | undefined || bearerKey;
     if (rawKey) {
       const apiKey = await this.apiKeysService.validateKey(rawKey);
       if (!apiKey) {

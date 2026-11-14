@@ -55,6 +55,10 @@ The API returns `202` with a delivery ID. Poll
 `read`, or `failed`. A consent record must be active and its reference must
 match. A recipient can revoke consent through the integration API or by
 replying `STOP` / `إلغاء` to the institution's WhatsApp number.
+Responses wrap the delivery in `{ "ok": true, "delivery": { ... } }`.
+Tenant-wide limits are 30 messages per minute and 1000 per day, in addition
+to each API key's hourly limit. Consent and key validity are checked again
+before dispatch. Delivery payloads expire after 30 days.
 
 For media, use `type: "image" | "video" | "audio" | "document"` and provide
 `media: { "mimeType": "...", "fileName": "...", "base64": "..." }`. Uploads
@@ -83,6 +87,8 @@ numbers receive a generic code-request response.
 - The sender uses WhatsApp Web through Baileys, not the official WhatsApp
   Business Platform. It may disconnect or change behavior; no Cloud API
   fallback is configured.
+- Run this session manager in one API process. Multiple replicas require
+  distributed session ownership before they may share this database.
 - The queue retries transient failures a bounded number of times. If a process
   stops after WhatsApp accepted a message but before its status was saved, a
   retry can still produce a duplicate; idempotency prevents duplicate queue

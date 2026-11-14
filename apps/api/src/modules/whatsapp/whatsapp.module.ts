@@ -6,6 +6,7 @@ import { WhatsappAuthKey, WhatsappAuthKeySchema } from './schemas/whatsapp-auth-
 import { WhatsappDelivery, WhatsappDeliverySchema } from './schemas/whatsapp-delivery.schema';
 import { WhatsappSession, WhatsappSessionSchema } from './schemas/whatsapp-session.schema';
 import { WhatsappConsent, WhatsappConsentSchema } from './schemas/whatsapp-consent.schema';
+import { WhatsappBudget, WhatsappBudgetSchema } from './schemas/whatsapp-budget.schema';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { WhatsappConsent, WhatsappConsentSchema } from './schemas/whatsapp-conse
       { name: WhatsappAuthKey.name, schema: WhatsappAuthKeySchema },
       { name: WhatsappDelivery.name, schema: WhatsappDeliverySchema },
       { name: WhatsappConsent.name, schema: WhatsappConsentSchema },
+      { name: WhatsappBudget.name, schema: WhatsappBudgetSchema },
     ]),
   ],
   controllers: [WhatsappController, TenantWhatsappController],

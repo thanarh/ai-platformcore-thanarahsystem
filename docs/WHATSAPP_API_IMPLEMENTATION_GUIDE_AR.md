@@ -1,0 +1,152 @@
+# ربط الأنظمة بواتساب عبر Baileys
+
+## توزيع الأرقام
+
+- **رقم مستقل لكل مؤسسة:** يرسل رسائل أنظمتها الخارجية باستخدام مفاتيحها فقط.
+- **رقم منصة إضافي:** يرسل رموز تسجيل الحسابات والدخول قبل وجود مؤسسة للمستخدم.
+- الربط عبر QR باستخدام Baileys، وليس Cloud API، ولا يوجد انتقال تلقائي إلى مزود آخر.
+
+## تشغيل الربط
+
+1. سجّل الدخول بحساب مالك أو مدير النظام باستخدام البريد وكلمة المرور الموجودين.
+2. افتح **الإعدادات ← WhatsApp** أو صفحة واتساب لدى الأدمن.
+3. اضغط **ربط رقم المنصة**، ثم امسح QR بهاتف رقم المنصة من WhatsApp ← الأجهزة المرتبطة.
+4. اربط رقم المؤسسة من القسم المستقل **رقم المؤسسة** بالطريقة نفسها.
+5. انتظر ظهور حالة **متصل**. لا تعني بداية الاتصال أن الرقم أصبح جاهزًا للإرسال.
+
+تُحفظ بيانات الجلسات ومفاتيح Signal مشفّرة في MongoDB. يلزم سر
+`SESSION_SECRET` ثابت بطول 32 حرفًا على الأقل. تغييره يفقد القدرة على قراءة
+الجلسات والرسائل المحفوظة؛ لا تغيّره دون خطة إعادة ربط.
+
+## إصدار مفتاح تكامل
+
+من **الإعدادات ← مفاتيح API** أصدر مفتاحًا مستقلًا لكل نظام:
+
+- بيئة `live`.
+- نطاق `whatsapp:send` للإرسال وقراءة حالة الرسائل.
+- نطاق `whatsapp:consent` لتوثيق موافقة المستلمين وإلغائها عند الحاجة.
+- حد طلبات في الساعة وتاريخ انتهاء مناسب.
+
+تظهر قيمة المفتاح مرة واحدة فقط، وتُحفظ بصمته في قاعدة البيانات. احتفظ
+بقيمته في أسرار خادم النظام الخارجي، ولا ترسلها إلى المتصفح أو Git.
+يقبل API رأس `x-api-key` أو `Authorization: Bearer`.
+
+## توثيق موافقة المستلم
+
+لا ترسل إلى قوائم مشتراة أو إلى أشخاص لم يوافقوا على نوع الرسائل.
+احتفظ بدليل الموافقة لدى مؤسستك، ثم سجّل مرجعه:
+
+```bash
+curl --fail-with-body "$APP_ORIGIN/api/whatsapp/consents" \
+  -H "Authorization: Bearer $WHATSAPP_INTEGRATION_KEY" \
+  -H "Content-Type: application/json" \
+  --data '{"phone":"+966501234567","source":"booking-form","reference":"consent-000184"}'
+```
+
+للإلغاء استخدم `POST /api/whatsapp/consents/revoke` بجسم
+`{"phone":"+966501234567"}`. تُعالج أيضًا ردود `STOP` و`إلغاء` المباشرة
+عندما تحتوي رسالة WhatsApp الواردة على رقم هاتف المستلم.
+
+## إرسال نص
+
+```bash
+curl --fail-with-body "$APP_ORIGIN/api/whatsapp/messages" \
+  -H "Authorization: Bearer $WHATSAPP_INTEGRATION_KEY" \
+  -H "Idempotency-Key: booking-000184" \
+  -H "Content-Type: application/json" \
+  --data '{"to":"+966501234567","type":"text","text":"تم تأكيد موعدك.","consentReference":"consent-000184"}'
+```
+
+تُقبل أيضًا صيغة النص `recipient.phone` و`message` من الدليل العام،
+مع `consentReference`. الأرقام دولية تبدأ بـ `+`؛ النص حتى 4096 حرفًا.
+
+```json
+{"ok":true,"delivery":{"id":"delivery-id","status":"pending"}}
+```
+
+الاستجابة `202` تعني الحفظ في قائمة الإرسال، لا وصول الرسالة.
+اقرأ الحالة من `GET /api/whatsapp/messages/<delivery-id>` بالمفتاح نفسه.
+الحالات: `pending`، `sending`، `sent`، `delivered`، `read`، `failed`.
+تأتي تحديثات التسليم من أحداث Baileys، وليس Webhook تابعًا لـMeta.
+
+## إرسال صورة أو ملف
+
+أرسل `type` بقيمة `image` أو `video` أو `audio` أو `document`:
+
+```json
+{
+  "to": "+966501234567",
+  "type": "document",
+  "media": {
+    "mimeType": "application/pdf",
+    "fileName": "appointment.pdf",
+    "base64": "<محتوى الملف بترميز base64>"
+  },
+  "caption": "تفاصيل الموعد",
+  "consentReference": "consent-000184"
+}
+```
+
+الحد 10 ميجابايت للملف؛ يقبل النظام أنواع MIME محددة ويتحقق من ترويسة
+الملف الأساسية. لا تُقبل روابط تنزيل خارجية، تفاديًا لوصول الخادم إلى
+عناوين داخلية. هذا الفحص ليس بديلًا عن فحص مضاد للبرمجيات الخبيثة.
+
+## مثال Node.js
+
+يعمل على **خادم النظام العميل فقط**:
+
+```js
+import { randomUUID } from "node:crypto";
+
+export async function sendWhatsAppMessage(phone, message, consentReference, operationId = randomUUID()) {
+  const origin = process.env.APP_ORIGIN;
+  const key = process.env.WHATSAPP_INTEGRATION_KEY;
+  if (!origin || !key) throw new Error("WhatsApp integration is not configured");
+  const response = await fetch(`${origin}/api/whatsapp/messages`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${key}`,
+      "Content-Type": "application/json",
+      "Idempotency-Key": operationId,
+    },
+    body: JSON.stringify({ recipient: { phone }, message, consentReference }),
+  });
+  const result = await response.json();
+  if (!response.ok) throw new Error(`WhatsApp API returned HTTP ${response.status}`);
+  return result.delivery;
+}
+```
+
+خزّن `operationId` لكل عملية، وأعد استخدامه عند إعادة محاولة **نفس**
+الطلب فقط. اختلاف الجسم مع المعرّف نفسه يعيد `409`.
+
+## تسجيل الهاتف والدخول
+
+يُرسل `POST /api/auth/phone/request-code` مع `phone` و`purpose`
+بقيمة `register` أو `login`. يُتحقق من الرمز عبر
+`POST /api/auth/phone/verify-code` مع `phone` و`code` و`purpose`.
+التسجيل يحتاج أيضًا `firstName` و`lastName`، ويقبل `industry`.
+البريد وكلمة المرور اختياريان معًا، ويبقى الدخول بالبريد بديلًا.
+
+الرمز ستة أرقام، صالح لخمس دقائق، يستخدم مرة واحدة، وبحد خمس محاولات.
+تُحفظ بصمته فقط، ولا يُعاد للعميل ولا يُكتب في السجلات.
+توجد حدود مستقلة للهاتف وعنوان الاتصال ورقم المنصة.
+
+## حدود التشغيل
+
+- للمؤسسة 30 رسالة في الدقيقة و1000 في اليوم، بالإضافة إلى حد المفتاح الساعي.
+- تُراجع الموافقة وصلاحية المفتاح مجددًا قبل إخراج الرسالة من القائمة.
+- تُلغى الرسائل المنتظرة عند فصل رقم المؤسسة؛ الإبطال يمنع إرسال رسائل المفتاح المنتظرة.
+- تُحذف سجلات الإرسال ومحتوياتها المشفّرة تلقائيًا بعد 30 يومًا.
+- يعمل مدير جلسات Baileys الحالي في **نسخة خادم واحدة**؛ لا تشغّل عدة نسخ
+  تتنافس على الجلسة نفسها دون إضافة ملكية موزعة للجلسات أولًا.
+- تمنع Idempotency تكرار سجلات القائمة. لا توجد ضمانة تسليم مرة واحدة تمامًا
+  إذا توقف الخادم بين قبول WhatsApp للرسالة وحفظ نتيجة الإرسال.
+- لا توجد لوحة محادثات واردة أو Webhooks صادرة للأنظمة الخارجية في هذا الإصدار؛
+  استخدم مسار قراءة حالة الرسالة.
+- قد تتوقف جلسة WhatsApp Web أو تُقيّد؛ راجع شروط WhatsApp وموافقة المستلمين
+  قبل التشغيل.
+
+أكواد الأخطاء الأساسية: `400` طلب غير صالح، `401` مصادقة مفقودة،
+`403` صلاحية أو موافقة ناقصة، `404` رسالة غير موجودة ضمن المؤسسة،
+`409` تعارض تكرار، `429` تجاوز الحد مع `Retry-After`، و`503` رقم غير جاهز.

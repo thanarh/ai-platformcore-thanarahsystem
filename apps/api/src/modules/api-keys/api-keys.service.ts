@@ -140,6 +140,18 @@ export class ApiKeysService {
     }
   }
 
+  async canSendQueuedWhatsappMessage(id: string, tenantId: string): Promise<boolean> {
+    if (!Types.ObjectId.isValid(id) || !Types.ObjectId.isValid(tenantId)) return false;
+    return Boolean(await this.apiKeyModel.exists({
+      _id: new Types.ObjectId(id),
+      tenantId: new Types.ObjectId(tenantId),
+      isActive: true,
+      environment: 'live',
+      scopes: 'whatsapp:send',
+      $or: [{ expiresAt: null }, { expiresAt: { $gt: new Date() } }],
+    }));
+  }
+
   async revoke(id: string, tenantId: string): Promise<void> {
     if (!tenantId || !Types.ObjectId.isValid(tenantId) || !Types.ObjectId.isValid(id)) throw new BadRequestException('Valid tenant and key required');
     const key = await this.apiKeyModel.findOne({

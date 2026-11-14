@@ -2,6 +2,8 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpException,
+  HttpStatus,
   Injectable,
   NotFoundException,
   OnModuleDestroy,
@@ -15,19 +17,22 @@ import {
   DisconnectReason,
   initAuthCreds,
   makeWASocket,
+  proto,
   WAMessageStatus,
   type SignalDataSet,
   type SignalDataTypeMap,
   type WASocket,
 } from '@whiskeysockets/baileys';
 import { Model, Types } from 'mongoose';
-import QRCode from 'qrcode';
+import * as QRCode from 'qrcode';
 import { createHmac } from 'crypto';
 import { WhatsappAuthKey, WhatsappAuthKeyDocument } from './schemas/whatsapp-auth-key.schema';
 import { WhatsappDelivery, WhatsappDeliveryDocument } from './schemas/whatsapp-delivery.schema';
 import { WhatsappSession, WhatsappSessionDocument } from './schemas/whatsapp-session.schema';
 import { WhatsappConsent, WhatsappConsentDocument } from './schemas/whatsapp-consent.schema';
+import { WhatsappBudget, WhatsappBudgetDocument } from './schemas/whatsapp-budget.schema';
 import { decryptWhatsappData, encryptWhatsappData, whatsappEncryptionKey } from './whatsapp.crypto';
+import { ApiKeysService } from '../api-keys/api-keys.service';
 
 export type WhatsappMessageInput = {
   to: string;
@@ -49,12 +54,16 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   private readonly qrCodes = new Map<string, { dataUrl: string; expiresAt: Date }>();
   private readonly connectedAt = new Map<string, Date>();
   private dispatching = false;
+  private shuttingDown = false;
+  private readonly socketFactory = makeWASocket;
 
   constructor(
     @InjectModel(WhatsappSession.name) private readonly sessionModel: Model<WhatsappSessionDocument>,
     @InjectModel(WhatsappAuthKey.name) private readonly authKeyModel: Model<WhatsappAuthKeyDocument>,
     @InjectModel(WhatsappDelivery.name) private readonly deliveryModel: Model<WhatsappDeliveryDocument>,
     @InjectModel(WhatsappConsent.name) private readonly consentModel: Model<WhatsappConsentDocument>,
+    @InjectModel(WhatsappBudget.name) private readonly budgetModel: Model<WhatsappBudgetDocument>,
+    private readonly apiKeysService: ApiKeysService,
   ) {}
 
   onModuleInit() {
@@ -62,10 +71,12 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleDestroy() {
-    for (const socket of this.sockets.values()) {
+    this.shuttingDown = true;
+    const sockets = [...this.sockets.values()];
+    this.sockets.clear();
+    for (const socket of sockets) {
       socket.end(new Error('Application shutting down'));
     }
-    this.sockets.clear();
   }
 
   private encryptionKey() {
@@ -133,10 +144,14 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
             .lean();
           const values: Record<string, SignalDataTypeMap[T]> = {};
           for (const document of documents) {
-            values[document.keyId] = JSON.parse(
+            let value = JSON.parse(
               decryptWhatsappData(document.encryptedValue, this.encryptionKey()),
               BufferJSON.reviver,
             );
+            if (type === 'app-state-sync-key') {
+              value = proto.Message.AppStateSyncKeyData.fromObject(value);
+            }
+            values[document.keyId] = value;
           }
           return values;
         },
@@ -171,34 +186,45 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       },
     };
 
-    const socket = makeWASocket({
+    const socket = this.socketFactory({
       auth,
       printQRInTerminal: false,
       markOnlineOnConnect: false,
       syncFullHistory: false,
       emitOwnEvents: false,
+      // Never log QR values, message bodies, Signal material or phone numbers.
+      logger: {
+        level: 'silent',
+        trace() {}, debug() {}, info() {}, warn() {}, error() {},
+        child() { return this; },
+      },
     });
     this.sockets.set(scopeKey, socket);
 
-    socket.ev.on('creds.update', async (updatedCreds) => {
+    socket.ev.on('creds.update', async () => {
+      if (this.sockets.get(scopeKey) !== socket) return;
       try {
         await this.sessionModel.updateOne(
           { scopeKey },
           {
             $set: {
               encryptedCreds: encryptWhatsappData(
-                JSON.stringify(updatedCreds, BufferJSON.replacer),
+                JSON.stringify(auth.creds, BufferJSON.replacer),
                 this.encryptionKey(),
               ),
             },
           },
         );
       } catch {
-        await this.sessionModel.updateOne({ scopeKey }, { $set: { connectionState: 'storage_error' } });
+        socket.end(new Error('Session persistence unavailable'));
+        await this.sessionModel
+          .updateOne({ scopeKey }, { $set: { connectionState: 'storage_error' } })
+          .catch(() => undefined);
       }
     });
 
     socket.ev.on('connection.update', async (update) => {
+      if (this.sockets.get(scopeKey) !== socket || this.shuttingDown) return;
       try {
       if (update.qr) {
         try {
@@ -232,7 +258,10 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
         this.sockets.delete(scopeKey);
         this.qrCodes.delete(scopeKey);
         const statusCode = (update.lastDisconnect?.error as any)?.output?.statusCode;
-        const loggedOut = statusCode === DisconnectReason.loggedOut;
+        const loggedOut = [
+          DisconnectReason.loggedOut, DisconnectReason.badSession,
+          DisconnectReason.connectionReplaced, DisconnectReason.forbidden,
+        ].includes(statusCode);
         await this.sessionModel.updateOne(
           { scopeKey },
           {
@@ -267,7 +296,11 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
           const tenantId = scopeKey.startsWith('tenant:') ? scopeKey.slice('tenant:'.length) : null;
           if (!tenantId || !Types.ObjectId.isValid(tenantId)) continue;
           await this.deliveryModel.updateMany(
-            { tenantId: new Types.ObjectId(tenantId), providerMessageId: id },
+            {
+              tenantId: new Types.ObjectId(tenantId),
+              providerMessageId: id,
+              ...(nextStatus === 'delivered' ? { status: { $ne: 'read' } } : {}),
+            },
             { $set: { status: nextStatus } },
           );
         }
@@ -287,7 +320,10 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
           || message.message?.extendedTextMessage?.text
           || '';
         if (!/^\s*(stop|unsubscribe|إلغاء|الغاء)\s*$/i.test(text)) continue;
-        const phone = message.key.remoteJid.split('@')[0].split(':')[0].replace(/\D/g, '');
+        const phoneJid = [message.key.remoteJid, message.key.remoteJidAlt]
+          .find((jid) => jid?.endsWith('@s.whatsapp.net'));
+        if (!phoneJid) continue;
+        const phone = phoneJid.split('@')[0].split(':')[0].replace(/\D/g, '');
         if (!phone) continue;
         await this.consentModel.updateOne(
           { tenantId: new Types.ObjectId(tenantId), phoneNumber: `+${phone}` },
@@ -331,6 +367,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   }
 
   async disconnect(scopeKey: string) {
+    if (this.starting.has(scopeKey)) throw new ConflictException('Connection is starting. Try again shortly.');
     const socket = this.sockets.get(scopeKey);
     this.sockets.delete(scopeKey);
     this.qrCodes.delete(scopeKey);
@@ -401,13 +438,15 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     }
 
     const session = await this.sessionModel.findOne({ scopeKey: `tenant:${tenantId}` }).lean();
-    if (!session?.enabled) {
+    if (!session?.enabled || !session.lastConnectedAt) {
       throw new ServiceUnavailableException({
         code: 'WHATSAPP_TENANT_NOT_CONNECTED',
         message: 'This institution has not linked its WhatsApp account.',
       });
     }
 
+    await this.consumeBudget(`tenant-minute:${tenantId}`, 30, 60);
+    await this.consumeBudget(`tenant-day:${tenantId}`, 1000, 86_400);
     let delivery: WhatsappDeliveryDocument;
     try {
       delivery = await this.deliveryModel.create({
@@ -431,6 +470,28 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       return this.publicDelivery(duplicate);
     }
     return this.publicDelivery(delivery);
+  }
+
+  async consumeBudget(scope: string, limit: number, windowSeconds: number): Promise<void> {
+    const windowMs = windowSeconds * 1000;
+    const window = Math.floor(Date.now() / windowMs);
+    const bucket = `${scope}:${window}`;
+    try {
+      await this.budgetModel.findOneAndUpdate(
+        { bucket, count: { $lt: limit } },
+        {
+          $inc: { count: 1 },
+          $setOnInsert: { expiresAt: new Date((window + 2) * windowMs) },
+        },
+        { upsert: true, new: true },
+      );
+    } catch (error: any) {
+      if (error?.code !== 11000) throw error;
+      throw new HttpException(
+        { code: 'WHATSAPP_RATE_LIMIT', message: 'تم تجاوز حد الاستخدام. حاول لاحقًا.' },
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
   }
 
   async recordConsent(tenantId: string, input: { phone: string; source: string; reference: string }) {
@@ -491,7 +552,13 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  private validateMessage(input: WhatsappMessageInput): WhatsappMessageInput {
+  private validateMessage(raw: WhatsappMessageInput): WhatsappMessageInput {
+    const input: WhatsappMessageInput = raw && {
+      ...raw,
+      to: raw.to || (raw as any).recipient?.phone,
+      type: raw.type || 'text',
+      text: raw.text ?? (raw as any).message,
+    };
     const to = this.normalizePhone(input?.to);
     if (!['text', 'image', 'video', 'audio', 'document'].includes(input?.type)) {
       throw new BadRequestException('Message type must be text, image, video, audio or document');
@@ -589,6 +656,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
 
   @Interval(30_000)
   private async restoreEnabledSessions() {
+    if (this.shuttingDown) return;
     try {
       const enabled = await this.sessionModel.find({ enabled: true }).select('scopeKey scope tenantId').lean();
       for (const session of enabled) {
@@ -610,7 +678,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
 
   @Interval(5_000)
   private async dispatchPendingMessages() {
-    if (this.dispatching) return;
+    if (this.dispatching || this.shuttingDown) return;
     this.dispatching = true;
     try {
       for (let count = 0; count < 10; count += 1) {
@@ -629,7 +697,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
 
         const tenantId = delivery.tenantId.toString();
         const socket = this.sockets.get(`tenant:${tenantId}`);
-        if (!socket) {
+        if (!socket || !(await this.getSessionStatus(`tenant:${tenantId}`)).available) {
           await this.deliveryModel.updateOne(
             { _id: delivery._id },
             {
@@ -648,10 +716,38 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
           const payload = JSON.parse(
             decryptWhatsappData(delivery.encryptedPayload, this.encryptionKey()),
           ) as WhatsappMessageInput;
-          const jid = `${this.normalizePhone(payload.to)}@s.whatsapp.net`;
-          const result = await socket.sendMessage(jid, this.messageContent(payload));
+          if (delivery.apiKeyId && !await this.apiKeysService.canSendQueuedWhatsappMessage(
+            delivery.apiKeyId.toString(), tenantId,
+          )) {
+            await this.deliveryModel.updateOne(
+              { _id: delivery._id },
+              { $set: { status: 'failed', failureCode: 'WHATSAPP_KEY_REVOKED', lockedAt: null } },
+            );
+            continue;
+          }
+          const consent = await this.consentModel.findOne({
+            tenantId: delivery.tenantId,
+            phoneNumber: `+${payload.to}`,
+            status: 'active',
+            reference: payload.consentReference,
+          }).lean();
+          if (!consent) {
+            await this.deliveryModel.updateOne(
+              { _id: delivery._id },
+              { $set: { status: 'failed', failureCode: 'WHATSAPP_CONSENT_REVOKED', lockedAt: null } },
+            );
+            continue;
+          }
+          const jid = `${payload.to}@s.whatsapp.net`;
+          const messageId = `3EB0${delivery._id.toString().toUpperCase()}`;
           await this.deliveryModel.updateOne(
             { _id: delivery._id },
+            { $set: { providerMessageId: messageId } },
+          );
+          const result = await socket.sendMessage(jid, this.messageContent(payload), { messageId });
+          if (!result?.key?.id) throw new Error('Provider did not confirm a message identifier');
+          await this.deliveryModel.updateOne(
+            { _id: delivery._id, status: 'sending' },
             {
               $set: { status: 'sent', providerMessageId: result?.key?.id, lockedAt: null },
               $unset: { failureCode: 1 },

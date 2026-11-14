@@ -43,9 +43,13 @@ export class WhatsappDelivery {
 
   @Prop()
   updatedAt: Date;
+
+  @Prop({ default: () => new Date(Date.now() + 30 * 86_400_000) })
+  expiresAt: Date;
 }
 
 export const WhatsappDeliverySchema = SchemaFactory.createForClass(WhatsappDelivery);
 WhatsappDeliverySchema.index({ tenantId: 1, idempotencyKey: 1 }, { unique: true });
 WhatsappDeliverySchema.index({ status: 1, nextAttemptAt: 1, createdAt: 1 });
 WhatsappDeliverySchema.index({ tenantId: 1, providerMessageId: 1 });
+WhatsappDeliverySchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });

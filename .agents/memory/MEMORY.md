@@ -15,3 +15,5 @@
 - [Python 3.13 speech runtime](python313-speech-runtime.md) — pass the faster-whisper Nix closure through VOICE_STT_PYTHONPATH; never glob-scan /nix/store at app startup
 - [Phase 8.1 benchmark validity](phase81-benchmarking.md) — separate SearXNG outages and cold model reloads from causal warm-path performance claims
 - [Chat prompt auto-submit idempotency](chat-auto-submit-idempotency.md) — route-triggered prompts must wait for history and dedupe across Strict Mode to avoid duplicate inference on cold starts
+- [GitHub push isolation](github-push-isolation.md) — publish the minimum related commit set from fresh origin/main; keep unrelated local commits out
+- [WhatsApp number ownership](whatsapp-number-ownership.md) — user chose Baileys QR, one number per institution, and an additional platform number for OTP

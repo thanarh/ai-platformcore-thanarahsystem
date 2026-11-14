@@ -103,6 +103,11 @@ export default function WhatsAppSettingsPage() {
   }, [allowed, loadReadiness, platformReadiness?.state, readiness?.state]);
 
   const runConnectionAction = async (kind: 'tenant' | 'platform', action: 'connect' | 'disconnect') => {
+    if (action === 'disconnect' && !window.confirm(
+      kind === 'platform'
+        ? 'سيُفصل رقم المنصة وتتوقف رموز WhatsApp حتى ربطه مجددًا. هل تريد المتابعة؟'
+        : 'سيُحذف ربط الرقم وتُلغى الرسائل المنتظرة. هل تريد المتابعة؟',
+    )) return;
     const key = `${kind}:${action}`;
     setBusy(key);
     setError('');
@@ -200,7 +205,7 @@ export default function WhatsAppSettingsPage() {
                   >
                     {busy === 'tenant:connect' ? 'جارٍ بدء الربط…' : readiness.available ? 'تحديث الاتصال' : 'ربط رقم المؤسسة'}
                   </button>
-                  {readiness.available && (
+                  {readiness.state !== 'disconnected' && (
                     <button
                       type="button"
                       disabled={Boolean(busy)}
@@ -274,7 +279,7 @@ export default function WhatsAppSettingsPage() {
                 >
                   {busy === 'platform:connect' ? 'جارٍ بدء الربط…' : platformReadiness?.available ? 'تحديث الاتصال' : 'ربط رقم المنصة'}
                 </button>
-                {platformReadiness?.available && (
+                {platformReadiness && platformReadiness.state !== 'disconnected' && (
                   <button
                     type="button"
                     disabled={Boolean(busy)}

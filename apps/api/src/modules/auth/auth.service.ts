@@ -166,12 +166,16 @@ export class AuthService {
     };
   }
 
-  async requestPhoneCode(phoneValue: string, purpose: 'login' | 'register') {
+  async requestPhoneCode(phoneValue: string, purpose: 'login' | 'register', clientIp: string) {
     const phone = this.normalizePhone(phoneValue);
     if (!['login', 'register'].includes(purpose)) {
       throw new BadRequestException('Purpose must be login or register');
     }
     const phoneHash = this.hashPhone(phone);
+    const ipHash = this.hashPhone(`ip:${clientIp || 'unknown'}`);
+    await this.whatsappService.consumeBudget(`otp-ip:${ipHash}`, 10, 3600);
+    await this.whatsappService.consumeBudget(`otp-phone:${phoneHash}`, 5, 3600);
+    await this.whatsappService.consumeBudget('otp-platform', 500, 86_400);
     const existingUser = await this.usersService.findByPhone(phone);
     const genericResponse = {
       success: true,
@@ -207,6 +211,11 @@ export class AuthService {
     }
     const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
     const codeHash = this.hashOtp(phoneHash, code, secret);
+    await this.whatsappService.consumeBudget(`otp-cooldown:${phoneHash}`, 1, 60);
+    await this.otpChallengeModel.updateMany(
+      { phoneHash, purpose, usedAt: null },
+      { $set: { usedAt: now } },
+    );
     const challenge = await this.otpChallengeModel.create({
       phoneHash,
       purpose,
@@ -240,24 +249,30 @@ export class AuthService {
       throw new BadRequestException('رقم الهاتف أو رمز التحقق غير صالح.');
     }
     const phoneHash = this.hashPhone(phone);
-    const challenge = await this.otpChallengeModel.findOne({
+    const challenge = await this.otpChallengeModel.findOneAndUpdate({
       phoneHash,
       purpose: data.purpose,
       usedAt: null,
       expiresAt: { $gt: new Date() },
       attempts: { $lt: 5 },
-    }).sort({ lastSentAt: -1 });
+    }, { $inc: { attempts: 1 } }, { new: true, sort: { lastSentAt: -1 } });
     if (!challenge) throw new UnauthorizedException('رمز التحقق غير صالح أو منتهي الصلاحية.');
 
     const secret = process.env.SESSION_SECRET || '';
     const expected = Buffer.from(challenge.codeHash, 'hex');
     const actual = Buffer.from(this.hashOtp(phoneHash, data.code, secret), 'hex');
     if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
-      await this.otpChallengeModel.updateOne({ _id: challenge._id, usedAt: null }, { $inc: { attempts: 1 } });
       throw new UnauthorizedException('رمز التحقق غير صحيح.');
     }
 
     if (data.purpose === 'register') {
+      if (
+        (data.email !== undefined && typeof data.email !== 'string')
+        || (data.password !== undefined && typeof data.password !== 'string')
+        || (data.industry !== undefined && (typeof data.industry !== 'string' || data.industry.length > 80))
+      ) {
+        throw new BadRequestException('بيانات التسجيل غير صالحة.');
+      }
       const firstName = typeof data.firstName === 'string' ? data.firstName.trim() : '';
       const lastName = typeof data.lastName === 'string' ? data.lastName.trim() : '';
       const email = typeof data.email === 'string' ? data.email.trim().toLowerCase() : '';

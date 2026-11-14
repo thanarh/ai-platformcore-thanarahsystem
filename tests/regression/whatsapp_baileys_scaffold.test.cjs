@@ -9,6 +9,7 @@ const { WhatsappController, TenantWhatsappController } =
   require('../../apps/api/dist/modules/whatsapp/whatsapp.controller');
 const { WhatsappService } = require('../../apps/api/dist/modules/whatsapp/whatsapp.service');
 const { JwtAuthGuard } = require('../../apps/api/dist/common/guards/jwt-auth.guard');
+const { AuthService } = require('../../apps/api/dist/modules/auth/auth.service');
 const {
   decryptWhatsappData,
   encryptWhatsappData,
@@ -53,14 +54,14 @@ test('Tenant message API enforces role, scope, live environment and idempotency'
     apiKeyEnvironment: 'live',
   };
   assert.deepEqual(await controller.sendMessage(keyUser, 'request-1234', body), {
-    id: 'delivery-id',
-    status: 'pending',
+    ok: true,
+    delivery: { id: 'delivery-id', status: 'pending' },
   });
   assert.deepEqual(calls[0], ['rate', keyUser.apiKeyId]);
   assert.deepEqual(calls[1], [tenantId, body, 'request-1234', keyUser.apiKeyId]);
-  assert.throws(() => controller.sendMessage({ role: 'USER', tenantId }, 'request-1234', body), { status: 403 });
-  assert.throws(() => controller.sendMessage({ ...keyUser, apiKeyEnvironment: 'test' }, 'request-1234', body), { status: 403 });
-  assert.throws(() => controller.sendMessage(keyUser, 'short', body), { status: 400 });
+  await assert.rejects(() => controller.sendMessage({ role: 'USER', tenantId }, 'request-1234', body), { status: 403 });
+  await assert.rejects(() => controller.sendMessage({ ...keyUser, apiKeyEnvironment: 'test' }, 'request-1234', body), { status: 403 });
+  await assert.rejects(() => controller.sendMessage(keyUser, 'short', body), { status: 400 });
 });
 
 test('API keys reach only messaging, status, and consent routes allowed by scope', async () => {
@@ -144,4 +145,180 @@ test('Phone OTP, opt-out, encryption and queue contracts are present without a C
   assert.match(whatsapp, /WHATSAPP_RECIPIENT_CONSENT_REQUIRED/);
   assert.match(whatsapp, /findOneAndUpdate/);
   assert.doesNotMatch(app, /CloudModule|whatsapp-cloud/);
+});
+
+test('Queue stores one encrypted message and returns the same delivery for identical retries', async () => {
+  const key = whatsappEncryptionKey('isolated-unit-test-encryption-key-32-plus');
+  let row;
+  const deliveryModel = {
+    findOne: async () => row || null,
+    create: async data => {
+      row = { ...data, _id: '444444444444444444444444', attempts: 0 };
+      return row;
+    },
+  };
+  const consentModel = { findOne: async query => (
+    query.tenantId.toString() === tenantId ? { reference: 'consent-1042' } : null
+  ) };
+  const sessionModel = { findOne: () => ({
+    lean: async () => ({ enabled: true, lastConnectedAt: new Date() }),
+  }) };
+  const service = new WhatsappService(sessionModel, {}, deliveryModel, consentModel, {});
+  service.encryptionKey = () => key;
+  service.consumeBudget = async () => undefined;
+  const input = { to: '+966501234567', type: 'text', text: 'private payload', consentReference: 'consent-1042' };
+  const first = await service.enqueueMessage(tenantId, input, 'operation-1042');
+  const second = await service.enqueueMessage(tenantId, input, 'operation-1042');
+  assert.equal(first.id, second.id);
+  assert.equal(first.status, 'pending');
+  assert.doesNotMatch(row.encryptedPayload, /private payload/);
+  assert.equal(JSON.parse(decryptWhatsappData(row.encryptedPayload, key)).text, 'private payload');
+  await assert.rejects(
+    () => service.enqueueMessage(tenantId, { ...input, text: 'different' }, 'operation-1042'),
+    { status: 409 },
+  );
+});
+
+test('Unlinked tenants and missing consent cannot enqueue a delivery', async () => {
+  const key = whatsappEncryptionKey('isolated-unit-test-encryption-key-32-plus');
+  const service = new WhatsappService(
+    { findOne: () => ({ lean: async () => null }) },
+    {},
+    { findOne: async () => null },
+    { findOne: async () => null },
+    {},
+  );
+  service.encryptionKey = () => key;
+  const input = { to: '+966501234567', type: 'text', text: 'test', consentReference: 'consent-1042' };
+  await assert.rejects(() => service.enqueueMessage(tenantId, input, 'operation-1042'), { status: 403 });
+  service.consentModel.findOne = async () => ({ reference: 'consent-1042' });
+  await assert.rejects(() => service.enqueueMessage(tenantId, input, 'operation-1042'), { status: 503 });
+});
+
+test('Status lookup always includes the caller tenant and excludes other tenants', async () => {
+  let filter;
+  const service = new WhatsappService({}, {}, {
+    findOne: async query => { filter = query; return null; },
+  }, {}, {});
+  await assert.rejects(() => service.getDelivery(tenantId, '444444444444444444444444'), { status: 404 });
+  assert.equal(filter.tenantId.toString(), tenantId);
+  assert.equal(filter._id, '444444444444444444444444');
+});
+
+test('OTP consumes one challenge once and never returns the code to the caller', async () => {
+  const user = { _id: { toString: () => '111111111111111111111111' }, isPhoneVerified: true };
+  let used = false;
+  let attempts = 0;
+  const codeHash = 'ab'.repeat(32);
+  const challenges = {
+    findOneAndUpdate: async query => {
+      assert.deepEqual(query.attempts, { $lt: 5 });
+      if (used || attempts >= 5) return null;
+      attempts++;
+      return { _id: 'challenge', codeHash };
+    },
+    updateOne: async () => {
+      const modifiedCount = used ? 0 : 1;
+      used = true;
+      return { modifiedCount };
+    },
+  };
+  const users = {
+    findByPhone: async () => user,
+    ensureTenantOwnerRole: async found => found,
+    updateLastLogin: async () => undefined,
+    updateRefreshToken: async () => undefined,
+    toPublic: () => ({ phoneNumber: '+966501234567' }),
+  };
+  const auth = new AuthService(users, {}, {}, {}, {}, {}, challenges);
+  auth.hashPhone = () => 'hashed-phone';
+  auth.hashOtp = (_phone, code) => code === '123456' ? codeHash : 'cd'.repeat(32);
+  auth.generateTokens = async () => ({ accessToken: 'test-access', refreshToken: 'test-refresh' });
+  const payload = { phone: '+966501234567', code: '123456', purpose: 'login' };
+  const result = await auth.verifyPhoneCode(payload);
+  assert.equal(result.accessToken, 'test-access');
+  assert.equal(result.code, undefined);
+  assert.equal(attempts, 1);
+  await assert.rejects(() => auth.verifyPhoneCode(payload), { status: 401 });
+});
+
+test('OTP rejects expired, exhausted and wrong codes without issuing tokens', async () => {
+  const auth = new AuthService({}, {}, {}, {}, {}, {}, {
+    findOneAndUpdate: async () => null,
+  });
+  auth.hashPhone = () => 'hashed-phone';
+  await assert.rejects(() => auth.verifyPhoneCode({
+    phone: '+966501234567', code: '123456', purpose: 'login',
+  }), { status: 401 });
+  auth.otpChallengeModel.findOneAndUpdate = async () => ({ _id: 'c', codeHash: 'ab'.repeat(32) });
+  auth.hashOtp = () => 'cd'.repeat(32);
+  await assert.rejects(() => auth.verifyPhoneCode({
+    phone: '+966501234567', code: '654321', purpose: 'login',
+  }), { status: 401 });
+});
+
+test('Persistent usage buckets reject an exhausted quota without bypassing limits', async () => {
+  const service = new WhatsappService({}, {}, {}, {}, {
+    findOneAndUpdate: async () => { const error = new Error('duplicate bucket'); error.code = 11000; throw error; },
+  });
+  await assert.rejects(() => service.consumeBudget('unit-test', 1, 60), { status: 429 });
+});
+
+test('Session restoration saves the complete encrypted credentials, not a partial update', async () => {
+  const encryptionKey = whatsappEncryptionKey('isolated-unit-test-encryption-key-32-plus');
+  let row = null;
+  const sessionModel = {
+    findOneAndUpdate: (_filter, update) => ({
+      select: async () => {
+        row ??= { ...update.$setOnInsert };
+        return { ...row };
+      },
+    }),
+    updateOne: async (_filter, update) => { Object.assign(row, update.$set || {}); },
+    findOne: () => ({ lean: async () => row }),
+  };
+  let capturedConfig;
+  let callbacks;
+  const factory = config => {
+    capturedConfig = config;
+    callbacks = {};
+    return {
+      ev: { on: (name, callback) => { callbacks[name] = callback; } },
+      end: () => undefined,
+    };
+  };
+  const makeService = () => {
+    const service = new WhatsappService(sessionModel, {}, {}, {}, {});
+    service.encryptionKey = () => encryptionKey;
+    service.socketFactory = factory;
+    return service;
+  };
+  const first = makeService();
+  await first.startPlatformConnection();
+  capturedConfig.auth.creds.registered = true;
+  await callbacks['creds.update']({ registered: true });
+  const stored = JSON.parse(decryptWhatsappData(row.encryptedCreds, encryptionKey));
+  assert.equal(stored.registered, true);
+  assert.ok(stored.noiseKey);
+  assert.ok(stored.signedIdentityKey);
+  assert.doesNotMatch(row.encryptedCreds, /noiseKey/);
+  await first.onModuleDestroy();
+  const restarted = makeService();
+  await restarted.startPlatformConnection();
+  assert.equal(capturedConfig.auth.creds.registered, true);
+  assert.ok(capturedConfig.auth.creds.noiseKey.private instanceof Uint8Array);
+  await restarted.onModuleDestroy();
+});
+
+test('Arabic integration guide JavaScript example is syntactically valid', () => {
+  const { spawnSync } = require('node:child_process');
+  const guide = read('docs/WHATSAPP_API_IMPLEMENTATION_GUIDE_AR.md');
+  const scripts = [...guide.matchAll(/```js\n([\s\S]*?)```/g)];
+  assert.ok(scripts.length > 0);
+  for (const [, script] of scripts) {
+    const checked = spawnSync(process.execPath, ['--input-type=module', '--check'], {
+      input: script, encoding: 'utf8',
+    });
+    assert.equal(checked.status, 0, checked.stderr);
+  }
 });

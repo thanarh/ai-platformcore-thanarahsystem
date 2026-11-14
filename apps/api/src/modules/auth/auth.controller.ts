@@ -8,14 +8,18 @@ import {
   HttpCode,
   HttpStatus,
   SetMetadata,
+  Req,
+  UseFilters,
 } from '@nestjs/common';
 import { JwtAuthGuard, IS_PUBLIC_KEY } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { AuthService } from './auth.service';
+import { WhatsappRateLimitFilter } from '../whatsapp/whatsapp-rate-limit.filter';
 
 const Public = () => SetMetadata(IS_PUBLIC_KEY, true);
 
 @Controller('auth')
+@UseFilters(WhatsappRateLimitFilter)
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
@@ -45,8 +49,13 @@ export class AuthController {
   @Post('phone/request-code')
   @Public()
   @HttpCode(HttpStatus.OK)
-  requestPhoneCode(@Body() body: { phone: string; purpose: 'login' | 'register' }) {
-    return this.authService.requestPhoneCode(body.phone, body.purpose);
+  requestPhoneCode(
+    @Body() body: { phone: string; purpose: 'login' | 'register' },
+    @Req() request: { ip?: string; socket?: { remoteAddress?: string } },
+  ) {
+    return this.authService.requestPhoneCode(
+      body?.phone, body?.purpose, request.ip || request.socket?.remoteAddress || 'unknown',
+    );
   }
 
   @Post('phone/verify-code')

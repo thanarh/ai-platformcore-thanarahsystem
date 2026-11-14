@@ -1,6 +1,6 @@
 import {
   Controller, Get, Post, Body, Headers, UseGuards,
-  BadRequestException, ForbiddenException, HttpCode, HttpStatus, Param,
+  BadRequestException, ForbiddenException, HttpCode, HttpStatus, Param, UseFilters, Header,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -8,6 +8,7 @@ import { Role, Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ApiKeysService } from '../api-keys/api-keys.service';
 import { WhatsappMessageInput, WhatsappService } from './whatsapp.service';
+import { WhatsappRateLimitFilter } from './whatsapp-rate-limit.filter';
 
 @Controller('admin/whatsapp')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -16,7 +17,14 @@ export class WhatsappController {
   constructor(private readonly whatsappService: WhatsappService) {}
 
   @Get('platform/status')
+  @Header('Cache-Control', 'no-store')
   getPlatformStatus() {
+    return this.whatsappService.getSessionStatus('platform');
+  }
+
+  @Get('readiness')
+  @Header('Cache-Control', 'no-store')
+  getReadiness() {
     return this.whatsappService.getSessionStatus('platform');
   }
 
@@ -33,6 +41,7 @@ export class WhatsappController {
 
 @Controller('whatsapp')
 @UseGuards(JwtAuthGuard)
+@UseFilters(WhatsappRateLimitFilter)
 export class TenantWhatsappController {
   constructor(
     private readonly whatsappService: WhatsappService,
@@ -40,6 +49,7 @@ export class TenantWhatsappController {
   ) {}
 
   @Get('readiness')
+  @Header('Cache-Control', 'no-store')
   @UseGuards(RolesGuard)
   @Roles(Role.ADMIN, Role.OWNER, Role.TENANT_OWNER)
   getTenantReadiness(@CurrentUser() user: any) {
@@ -62,7 +72,7 @@ export class TenantWhatsappController {
 
   @Post('messages')
   @HttpCode(HttpStatus.ACCEPTED)
-  sendMessage(
+  async sendMessage(
     @CurrentUser() user: any,
     @Headers('idempotency-key') idempotencyKey: string,
     @Body() body: WhatsappMessageInput,
@@ -75,32 +85,25 @@ export class TenantWhatsappController {
     if (typeof idempotencyKey !== 'string' || !/^[A-Za-z0-9_.:-]{8,128}$/.test(idempotencyKey)) {
       throw new BadRequestException('A unique Idempotency-Key is required');
     }
-    if (scopedKey) {
-      return this.apiKeysService.consumeRateLimit(user.apiKeyId).then(() =>
-        this.whatsappService.enqueueMessage(
-          user.tenantId?.toString(),
-          body,
-          idempotencyKey,
-          user.apiKeyId,
-        ),
-      );
-    }
-    return this.whatsappService.enqueueMessage(
+    if (scopedKey) await this.apiKeysService.consumeRateLimit(user.apiKeyId);
+    const delivery = await this.whatsappService.enqueueMessage(
       user.tenantId?.toString(),
       body,
       idempotencyKey,
+      scopedKey ? user.apiKeyId : undefined,
     );
+    return { ok: true, delivery };
   }
 
   @Get('messages/:id')
-  getDelivery(@CurrentUser() user: any, @Param('id') id: string) {
+  async getDelivery(@CurrentUser() user: any, @Param('id') id: string) {
     const manager = [Role.ADMIN, Role.OWNER, Role.TENANT_OWNER].includes(user?.role);
     const scopedKey = user?.isApiKeyAuth === true && user.apiKeyScopes?.includes('whatsapp:send');
     if ((!manager && !scopedKey) || (scopedKey && user.apiKeyEnvironment !== 'live')) {
       throw new ForbiddenException('WhatsApp status permission required');
     }
     if (!user?.tenantId) throw new ForbiddenException('Tenant access required');
-    return this.whatsappService.getDelivery(user.tenantId.toString(), id);
+    return { ok: true, delivery: await this.whatsappService.getDelivery(user.tenantId.toString(), id) };
   }
 
   @Post('consents')

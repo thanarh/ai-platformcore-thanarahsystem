@@ -2,7 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AppModule } from './app.module';
-import express from 'express';
+import * as express from 'express';
 import helmet from 'helmet';
 import * as compression from 'compression';
 import { NotificationsService } from './modules/notifications/notifications.service';
@@ -24,6 +24,10 @@ async function bootstrap() {
     logger: ['error', 'warn', 'log'],
     bodyParser: false,
   });
+  app.enableShutdownHooks();
+  // The same-origin Next.js proxy is local; do not treat its loopback address
+  // as the end user's IP when applying OTP abuse limits.
+  app.getHttpAdapter().getInstance().set('trust proxy', 'loopback');
   app.use('/api/whatsapp/messages', express.json({ limit: '15mb' }));
   app.use(express.json({ limit: '100kb' }));
   app.use(express.urlencoded({ extended: true, limit: '100kb' }));
