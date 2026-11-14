@@ -159,7 +159,13 @@ export const aiApi = {
 // ──── API Keys ─────────────────────────────────────────────────────────────
 export const apiKeysApi = {
   list: () => api.get('/api-keys').then((r) => r.data),
-  create: (data: { name: string; environment?: string; scopes?: string[] }) =>
+  create: (data: {
+    name: string;
+    environment?: string;
+    scopes?: string[];
+    rateLimit?: number;
+    expiresAt?: string;
+  }) =>
     api.post('/api-keys', data).then((r) => r.data),
   revoke: (id: string) =>
     api.delete(`/api-keys/${id}`).then((r) => r.data),

@@ -14,7 +14,7 @@ export class ApiKey {
   @Prop({ required: true })
   name: string;
 
-  @Prop({ required: true })
+  @Prop({ required: true, select: false })
   keyHash: string; // SHA-256 hash of the actual key
 
   @Prop({ required: true })

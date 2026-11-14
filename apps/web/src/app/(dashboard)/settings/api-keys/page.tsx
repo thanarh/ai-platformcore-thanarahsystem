@@ -1,180 +1,285 @@
 'use client';
-export const dynamic = 'force-dynamic';
-import { useEffect, useState } from 'react';
+
+import { useCallback, useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { AlertCircle, AlertTriangle, Check, Clipboard, KeyRound, Plus, Shield, Trash2 } from 'lucide-react';
 import { apiKeysApi } from '@/lib/api';
-import { Key, Plus, Trash2, Copy, Eye, EyeOff, AlertTriangle } from 'lucide-react';
+import { useAuthStore } from '@/store/auth';
 import { cn, formatDate } from '@/lib/utils';
 
+export const dynamic = 'force-dynamic';
+
+type ApiKeyRecord = {
+  _id: string;
+  name: string;
+  environment?: string;
+  keyPrefix?: string;
+  scopes?: string[];
+  usageCount?: number;
+  lastUsedAt?: string;
+  expiresAt?: string;
+  rateLimit?: number;
+};
+
+const managerRoles = ['OWNER', 'ADMIN', 'TENANT_OWNER'];
+const availableScopes = [
+  { value: 'chat', label: 'محادثة AI', detail: 'الوصول إلى واجهة المحادثة' },
+  { value: 'whatsapp:send', label: 'إرسال WhatsApp', detail: 'نطاق مخطط؛ الإرسال معطّل حاليًا' },
+];
+
+function errorMessage(error: any, fallback: string) {
+  return error?.response?.data?.message || error?.response?.data?.error || error?.message || fallback;
+}
+
 export default function ApiKeysPage() {
-  const [keys, setKeys] = useState<any[]>([]);
+  const router = useRouter();
+  const user = useAuthStore((state) => state.user);
+  const hydrated = useAuthStore((state) => state._hasHydrated);
+  const isManager = Boolean(user && managerRoles.includes(user.role));
+  const [keys, setKeys] = useState<ApiKeyRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [listError, setListError] = useState('');
+  const [actionError, setActionError] = useState('');
   const [showCreate, setShowCreate] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [revoking, setRevoking] = useState<string | null>(null);
   const [newKey, setNewKey] = useState<string | null>(null);
-  const [form, setForm] = useState({ name: '', environment: 'live' });
+  const [copied, setCopied] = useState(false);
+  const [form, setForm] = useState({
+    name: '',
+    environment: 'live',
+    scopes: ['chat'] as string[],
+    hourlyRateLimit: '120',
+    expiresAt: '',
+  });
 
-  useEffect(() => { loadKeys(); }, []);
+  useEffect(() => {
+    if (hydrated && !isManager) router.replace('/chat');
+  }, [hydrated, isManager, router]);
 
-  const loadKeys = () => {
+  const loadKeys = useCallback(async () => {
     setLoading(true);
-    apiKeysApi.list().then(setKeys).catch(() => {}).finally(() => setLoading(false));
+    setListError('');
+    try {
+      const result = await apiKeysApi.list();
+      setKeys(Array.isArray(result) ? result : result?.keys || []);
+    } catch (error) {
+      setListError(errorMessage(error, 'تعذّر تحميل مفاتيح API. تحقق من صلاحيتك ثم أعد المحاولة.'));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isManager) void loadKeys();
+  }, [isManager, loadKeys]);
+
+  const toggleScope = (value: string) => {
+    setForm((current) => ({
+      ...current,
+      scopes: current.scopes.includes(value)
+        ? current.scopes.filter((scope) => scope !== value)
+        : [...current.scopes, value],
+    }));
   };
 
-  const handleCreate = async () => {
-    if (!form.name.trim()) return;
-    const result = await apiKeysApi.create({
-      name: form.name,
-      environment: form.environment as any,
-    });
-    setNewKey(result.key);
-    setForm({ name: '', environment: 'live' });
-    setShowCreate(false);
-    loadKeys();
+  const handleCreate = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setActionError('');
+    const hourlyRateLimit = Number(form.hourlyRateLimit);
+    if (!Number.isInteger(hourlyRateLimit) || hourlyRateLimit < 1 || hourlyRateLimit > 1000) {
+      setActionError('حد الطلبات في الساعة يجب أن يكون عددًا صحيحًا من 1 إلى 1000.');
+      return;
+    }
+    if (!form.scopes.length) {
+      setActionError('اختر نطاقًا واحدًا على الأقل للمفتاح.');
+      return;
+    }
+    const expiresAt = form.expiresAt ? new Date(form.expiresAt).toISOString() : undefined;
+    if (expiresAt && new Date(expiresAt).getTime() <= Date.now()) {
+      setActionError('تاريخ انتهاء الصلاحية يجب أن يكون في المستقبل.');
+      return;
+    }
+    setCreating(true);
+    try {
+      const result = await apiKeysApi.create({
+        name: form.name.trim(),
+        environment: form.environment,
+        scopes: form.scopes,
+        rateLimit: hourlyRateLimit,
+        ...(expiresAt ? { expiresAt } : {}),
+      });
+      if (!result?.key) throw new Error('تم إنشاء المفتاح لكن لم يصل المفتاح السري من الخادم. تواصل مع المسؤول قبل المتابعة.');
+      setNewKey(result.key);
+      setCopied(false);
+      setForm({ name: '', environment: 'live', scopes: ['chat'], hourlyRateLimit: '120', expiresAt: '' });
+      setShowCreate(false);
+      await loadKeys();
+    } catch (error) {
+      setActionError(errorMessage(error, 'تعذّر إنشاء المفتاح. لم تُحفظ البيانات؛ راجع الصلاحيات وحاول مجددًا.'));
+    } finally {
+      setCreating(false);
+    }
   };
 
-  const handleRevoke = async (id: string) => {
-    if (!confirm('هل أنت متأكد من إلغاء هذا المفتاح؟')) return;
-    await apiKeysApi.revoke(id);
-    loadKeys();
+  const handleRevoke = async (key: ApiKeyRecord) => {
+    if (!window.confirm(`إلغاء مفتاح «${key.name}»؟ ستتوقف الطلبات التي تستخدمه فورًا.`)) return;
+    setActionError('');
+    setRevoking(key._id);
+    try {
+      await apiKeysApi.revoke(key._id);
+      await loadKeys();
+    } catch (error) {
+      setActionError(errorMessage(error, 'تعذّر إلغاء المفتاح. لم تتغير حالته.'));
+    } finally {
+      setRevoking(null);
+    }
   };
+
+  const copyKey = async () => {
+    if (!newKey) return;
+    try {
+      await navigator.clipboard.writeText(newKey);
+      setCopied(true);
+    } catch (error) {
+      setActionError(errorMessage(error, 'تعذّر النسخ. انسخ المفتاح يدويًا قبل إغلاق هذه الرسالة.'));
+    }
+  };
+
+  if (!hydrated || (hydrated && !isManager)) {
+    return <div className="flex min-h-[50vh] items-center justify-center" dir="rtl"><div className="h-5 w-5 animate-pulse rounded-full bg-[#6e987b]" /></div>;
+  }
 
   return (
-    <div className="flex-1 overflow-auto p-6" dir="rtl">
-      <div className="max-w-3xl mx-auto space-y-6">
-        <div className="flex items-center justify-between">
+    <main className="min-h-[100dvh] flex-1 overflow-auto bg-[#f3f6f3] px-4 py-7 text-[#24332f] sm:px-7 lg:px-10" dir="rtl">
+      <div className="mx-auto max-w-5xl space-y-6">
+        <header className="flex flex-col justify-between gap-4 rounded-[24px] bg-[#173d35] p-6 text-[#f7f4e9] sm:flex-row sm:items-end sm:p-8">
           <div>
-            <h1 className="text-2xl font-semibold text-gray-900 font-arabic">مفاتيح API</h1>
-            <p className="text-sm text-gray-500 mt-0.5 font-arabic">
-              أنشئ مفاتيح للوصول إلى ثنارة AI من تطبيقاتك
-            </p>
+            <p className="mb-3 flex items-center gap-2 text-xs font-semibold text-[#b5d6b8]"><KeyRound className="h-4 w-4" /> إدارة وصول المؤسسة</p>
+            <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">مفاتيح API</h1>
+            <p className="mt-2 max-w-xl text-sm leading-7 text-[#d5e3d9]">أنشئ مفاتيح محدودة الصلاحية للتكاملات. يظهر السر مرة واحدة فقط؛ خزّنه في خادمك وليس في المتصفح.</p>
           </div>
-          <button
-            onClick={() => setShowCreate(true)}
-            className="flex items-center gap-2 bg-thanarah-700 text-white rounded-xl px-4 py-2.5 text-sm hover:bg-thanarah-600 transition font-arabic"
-          >
-            <Plus className="w-4 h-4" />
-            مفتاح جديد
+          <button onClick={() => { setActionError(''); setShowCreate((visible) => !visible); }} className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#d1e1c5] px-4 text-sm font-bold text-[#204936] transition hover:bg-[#e1ebd9]">
+            <Plus className="h-4 w-4" /> إنشاء مفتاح
           </button>
-        </div>
+        </header>
 
-        {/* Show new key (only once) */}
+        {actionError && <div role="alert" className="flex items-start gap-2 rounded-xl border border-[#e5c7bd] bg-[#fff7f3] p-3 text-sm text-[#8b3f2e]"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /><span>{actionError}</span><button onClick={() => setActionError('')} className="mr-auto text-xs underline">إغلاق</button></div>}
+
         {newKey && (
-          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4" dir="rtl">
+          <section className="rounded-2xl border border-[#dfca8a] bg-[#fff8df] p-4 sm:p-5">
             <div className="flex items-start gap-3">
-              <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
-              <div className="flex-1">
-                <p className="font-medium text-amber-800 font-arabic text-sm mb-2">
-                  احفظ هذا المفتاح الآن — لن يظهر مرة أخرى
-                </p>
-                <div className="flex items-center gap-2 bg-white border border-amber-200 rounded-lg px-3 py-2">
-                  <code className="flex-1 text-xs text-gray-800 font-mono break-all">{newKey}</code>
-                  <button
-                    onClick={() => navigator.clipboard.writeText(newKey)}
-                    className="p-1 hover:bg-amber-100 rounded transition flex-shrink-0"
-                  >
-                    <Copy className="w-3.5 h-3.5 text-amber-600" />
-                  </button>
+              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-[#98772a]" />
+              <div className="min-w-0 flex-1">
+                <h2 className="text-sm font-bold text-[#69521d]">انسخ المفتاح الآن — لن يظهر مرة أخرى</h2>
+                <p className="mt-1 text-xs leading-5 text-[#83703e]">لا ترسله في البريد أو واجهة العميل. خزّنه كسر في بيئة خادمك.</p>
+                <div className="mt-3 flex items-center gap-2 rounded-xl border border-[#eadcae] bg-[#fffdf4] p-3">
+                  <code className="min-w-0 flex-1 break-all font-mono text-xs text-[#42391f]" dir="ltr">{newKey}</code>
+                  <button onClick={() => void copyKey()} className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-[#eee4bf] px-2.5 py-2 text-xs font-semibold text-[#63501e]"><Clipboard className="h-3.5 w-3.5" />{copied ? 'تم النسخ' : 'نسخ'}</button>
                 </div>
-                <button
-                  onClick={() => setNewKey(null)}
-                  className="text-xs text-amber-600 mt-2 font-arabic hover:underline"
-                >
-                  فهمت، تم الحفظ
-                </button>
+                <button onClick={() => setNewKey(null)} className="mt-3 text-xs font-semibold text-[#806421] underline">تم حفظ المفتاح بأمان</button>
               </div>
             </div>
-          </div>
+          </section>
         )}
 
-        {/* Create form */}
         {showCreate && (
-          <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
-            <h3 className="font-medium text-gray-900 font-arabic">مفتاح API جديد</h3>
-            <input
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-              placeholder="اسم المفتاح (مثال: تطبيق المواعيد)"
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-thanarah-400 font-arabic"
-            />
-            <select
-              value={form.environment}
-              onChange={(e) => setForm({ ...form, environment: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-thanarah-400 font-arabic bg-white"
-            >
-              <option value="live">إنتاج (live)</option>
-              <option value="test">اختبار (test)</option>
-            </select>
-            <div className="flex gap-2">
-              <button
-                onClick={handleCreate}
-                className="flex-1 bg-thanarah-700 text-white rounded-lg py-2 text-sm hover:bg-thanarah-600 transition font-arabic"
-              >
-                إنشاء
-              </button>
-              <button
-                onClick={() => setShowCreate(false)}
-                className="px-4 border border-gray-200 rounded-lg py-2 text-sm hover:bg-gray-50 transition font-arabic"
-              >
-                إلغاء
-              </button>
+          <form onSubmit={handleCreate} className="rounded-[22px] border border-[#dce5de] bg-[#fbfcf8] p-5 shadow-[0_10px_30px_rgba(29,66,51,.04)] sm:p-6">
+            <div className="mb-5 flex items-start gap-3">
+              <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[#e5efe3] text-[#39775b]"><Shield className="h-4 w-4" /></div>
+              <div><h2 className="text-base font-bold">مفتاح بتفويض محدد</h2><p className="mt-1 text-xs text-[#78867d]">اختر أقل الصلاحيات اللازمة ومدة وصول مناسبة.</p></div>
             </div>
-          </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="text-xs font-semibold text-[#53675d]">اسم المفتاح
+                <input required maxLength={80} value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} placeholder="مثال: نظام المواعيد" className="mt-1.5 h-11 w-full rounded-xl border border-[#dce5de] bg-white px-3 text-sm outline-none focus:border-[#6f9b7f]" />
+              </label>
+              <label className="text-xs font-semibold text-[#53675d]">البيئة
+                <select value={form.environment} onChange={(event) => setForm((current) => ({ ...current, environment: event.target.value }))} className="mt-1.5 h-11 w-full rounded-xl border border-[#dce5de] bg-white px-3 text-sm outline-none focus:border-[#6f9b7f]">
+                  <option value="live">إنتاج (live)</option><option value="test">اختبار (test)</option>
+                </select>
+              </label>
+              <label className="text-xs font-semibold text-[#53675d]">الحد الأقصى للطلبات في الساعة
+                <input type="number" required min={1} max={1000} step={1} value={form.hourlyRateLimit} onChange={(event) => setForm((current) => ({ ...current, hourlyRateLimit: event.target.value }))} className="mt-1.5 h-11 w-full rounded-xl border border-[#dce5de] bg-white px-3 font-mono text-sm outline-none focus:border-[#6f9b7f]" dir="ltr" />
+              </label>
+              <label className="text-xs font-semibold text-[#53675d]">تاريخ الانتهاء <span className="font-normal text-[#89958d]">(اختياري)</span>
+                <input type="date" value={form.expiresAt} onChange={(event) => setForm((current) => ({ ...current, expiresAt: event.target.value }))} className="mt-1.5 h-11 w-full rounded-xl border border-[#dce5de] bg-white px-3 text-sm outline-none focus:border-[#6f9b7f]" />
+              </label>
+            </div>
+            <fieldset className="mt-5">
+              <legend className="mb-2 text-xs font-bold text-[#53675d]">النطاقات المسموحة</legend>
+              <div className="grid gap-2 sm:grid-cols-3">
+                {availableScopes.map((scope) => (
+                  <label key={scope.value} className={cn('flex cursor-pointer items-start gap-2.5 rounded-xl border p-3 transition', form.scopes.includes(scope.value) ? 'border-[#aac7ae] bg-[#edf5eb]' : 'border-[#e1e8e0] bg-white hover:bg-[#f7f9f5]')}>
+                    <input type="checkbox" checked={form.scopes.includes(scope.value)} onChange={() => toggleScope(scope.value)} className="mt-0.5 accent-[#39775b]" />
+                    <span><span className="block text-xs font-bold">{scope.label}</span><span className="mt-1 block font-mono text-[10px] text-[#718176]" dir="ltr">{scope.value}</span><span className="mt-1 block text-[10px] text-[#87938a]">{scope.detail}</span></span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            <div className="mt-5 flex flex-col gap-2 sm:flex-row">
+              <button disabled={creating} className="inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-[#246c50] text-sm font-bold text-white transition hover:bg-[#195d43] disabled:opacity-60">{creating ? 'جارٍ الإنشاء…' : <><Check className="h-4 w-4" />إنشاء المفتاح</>}</button>
+              <button type="button" disabled={creating} onClick={() => setShowCreate(false)} className="h-11 rounded-xl border border-[#dce5de] px-5 text-sm font-semibold text-[#617268] hover:bg-[#f0f4ed]">إلغاء</button>
+            </div>
+          </form>
         )}
 
-        {/* Keys list */}
-        <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+        <section className="overflow-hidden rounded-[22px] border border-[#dce5de] bg-[#fbfcf8]">
+          <div className="flex items-center justify-between border-b border-[#e6ece5] px-5 py-4">
+            <div><h2 className="text-sm font-bold">المفاتيح النشطة</h2><p className="mt-1 text-[10px] text-[#839087]">تُعرض بيانات الاستخدام فقط؛ لا يمكن استرجاع الأسرار السابقة.</p></div>
+            <span className="rounded-full bg-[#edf3e9] px-2.5 py-1 text-[10px] font-bold text-[#54705d]">{keys.length} مفتاح</span>
+          </div>
           {loading ? (
-            <div className="p-6 flex justify-center">
-              <div className="w-5 h-5 border-2 border-thanarah-600 border-t-transparent rounded-full animate-spin" />
-            </div>
+            <div className="space-y-3 p-5" aria-label="جارٍ تحميل المفاتيح">{[1, 2, 3].map((row) => <div key={row} className="h-16 animate-pulse rounded-xl bg-[#edf1eb]" />)}</div>
+          ) : listError ? (
+            <div className="p-6 text-sm text-[#8b3f2e]"><p>{listError}</p><button onClick={() => void loadKeys()} className="mt-3 text-xs font-bold underline">إعادة المحاولة</button></div>
           ) : keys.length === 0 ? (
-            <div className="p-8 text-center text-gray-400">
-              <Key className="w-10 h-10 mx-auto mb-2 opacity-30" />
-              <p className="text-sm font-arabic">لا توجد مفاتيح API بعد</p>
+            <div className="px-5 py-12 text-center">
+              <div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-[#edf3e9]"><KeyRound className="h-5 w-5 text-[#65816b]" /></div>
+              <p className="mt-3 text-sm font-bold">لا توجد مفاتيح بعد</p>
+              <p className="mt-1 text-xs text-[#849087]">أنشئ مفتاحًا مخصصًا للتكامل الأول.</p>
             </div>
           ) : (
-            keys.map((key) => (
-              <div key={key._id} className="flex items-center gap-3 px-4 py-3.5 border-b border-gray-100 last:border-0">
-                <div className="flex-shrink-0">
-                  <Key className="w-4 h-4 text-thanarah-600" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-medium text-gray-800 font-arabic">{key.name}</p>
-                    <span className={cn(
-                      'text-xs px-1.5 py-0.5 rounded font-arabic',
-                      key.environment === 'live' ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-600'
-                    )}>
-                      {key.environment}
-                    </span>
+            <div className="divide-y divide-[#edf1eb]">
+              {keys.map((key) => (
+                <article key={key._id} className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center">
+                  <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[#edf3e9] text-[#64816b]"><KeyRound className="h-4 w-4" /></div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="text-sm font-bold">{key.name}</h3>
+                      <span className={cn('rounded-full px-2 py-0.5 text-[9px] font-semibold', key.environment === 'live' ? 'bg-[#e6f2e5] text-[#36704c]' : 'bg-[#edf0ec] text-[#67766c]')}>{key.environment || 'live'}</span>
+                      {key.expiresAt && <span className="text-[10px] text-[#78867d]">ينتهي {formatDate(key.expiresAt)}</span>}
+                    </div>
+                    <code className="mt-1 block font-mono text-[11px] text-[#718176]" dir="ltr">{key.keyPrefix || 'prefix غير متاح'}••••••••</code>
+                    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-[#87938a]">
+                      <span>حد {key.rateLimit ?? '—'} طلب/ساعة</span>
+                      <span>استخدام {key.usageCount ?? 0} مرة</span>
+                      {key.lastUsedAt && <span>آخر استخدام {formatDate(key.lastUsedAt)}</span>}
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-1.5">{(key.scopes || []).map((scope) => <span key={scope} className="rounded-md bg-[#f0f4ed] px-1.5 py-1 font-mono text-[9px] text-[#62776a]" dir="ltr">{scope}</span>)}</div>
                   </div>
-                  <p className="text-xs text-gray-400 mt-0.5 font-mono">{key.keyPrefix}</p>
-                  <p className="text-xs text-gray-400 font-arabic">
-                    استُخدم {key.usageCount} مرة
-                    {key.lastUsedAt && ` · آخر استخدام: ${formatDate(key.lastUsedAt)}`}
-                  </p>
-                </div>
-                <button
-                  onClick={() => handleRevoke(key._id)}
-                  className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            ))
+                  <button disabled={revoking === key._id} onClick={() => void handleRevoke(key)} aria-label={`إلغاء ${key.name}`} className="inline-flex h-9 items-center justify-center gap-2 self-end rounded-lg border border-[#ead3cc] px-3 text-xs font-semibold text-[#9a4e3c] transition hover:bg-[#fff3ef] disabled:opacity-50 sm:self-center">
+                    <Trash2 className="h-3.5 w-3.5" />{revoking === key._id ? 'جارٍ الإلغاء…' : 'إلغاء المفتاح'}
+                  </button>
+                </article>
+              ))}
+            </div>
           )}
-        </div>
+        </section>
 
-        {/* API reference */}
-        <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
-          <h3 className="font-medium text-gray-800 mb-3 text-sm font-arabic">مثال على استخدام API</h3>
-          <pre className="text-xs text-gray-600 font-mono overflow-x-auto" dir="ltr">
-{`curl -X POST https://your-domain.com/api/v1/chat/completions \\
-  -H "Authorization: Bearer thn_live_..." \\
-  -H "Content-Type: application/json" \\
-  -d '{"messages": [{"role": "user", "content": "مرحبا"}]}'`}
-          </pre>
-        </div>
+        <section className="rounded-[22px] border border-[#d9e2dc] bg-[#eef3ed] p-5 sm:p-6">
+          <h2 className="text-sm font-bold">نطاق WhatsApp قيد التجهيز</h2>
+          <p className="mt-1 text-xs leading-6 text-[#68786d]">النطاق محفوظ للعقد المستقبلي فقط؛ الإرسال غير متاح ويرجع HTTP 503 حتى اعتماد موصل Baileys. لا ترسل طلبات حقيقية الآن.</p>
+          <pre dir="ltr" className="mt-3 overflow-x-auto rounded-xl bg-[#203b32] p-4 text-[11px] leading-6 text-[#e5eee4]"><code>{`POST /api/whatsapp/messages
+x-api-key: $THANARAH_API_KEY
+Idempotency-Key: appointment-8421-reminder
+Content-Type: application/json
+
+{"to":"+9665XXXXXXXX","type":"text","text":"موعدكم غدًا الساعة 10:00"}
+
+Current response: HTTP 503 WHATSAPP_TRANSPORT_BLOCKED`}</code></pre>
+        </section>
+        <p className="flex items-start gap-2 px-1 text-[10px] leading-5 text-[#87938a]"><Shield className="mt-0.5 h-3 w-3 shrink-0" />واجهة الإدارة لا تغني عن صلاحيات الخادم؛ يجب أن يفرض الخادم دور المدير على إنشاء المفاتيح وإلغائها.</p>
       </div>
-    </div>
+    </main>
   );
 }

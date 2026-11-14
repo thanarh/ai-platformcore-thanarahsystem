@@ -36,6 +36,14 @@ author = "agent"
 task = "workflow.run"
 args = "Start application"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "web-typecheck"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "whatsapp-baileys"
+
 [[workflows.workflow]]
 name = "Start application"
 author = "agent"
@@ -47,6 +55,28 @@ outputType = "webview"
 task = "shell.exec"
 args = "WEB_SEARCH_ENABLED=true SEARXNG_URL=http://127.0.0.1:8080 bash start-dev.sh"
 waitForPort = 5000
+
+[[workflows.workflow]]
+name = "web-typecheck"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd apps/web && npx tsc --noEmit --incremental false"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "whatsapp-baileys"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npm run build --prefix apps/api && node --test tests/regression/whatsapp_baileys_scaffold.test.cjs"
+
+[workflows.workflow.metadata]
+isValidation = true
 
 [[ports]]
 localPort = 3001

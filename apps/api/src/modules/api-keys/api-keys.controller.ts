@@ -12,9 +12,12 @@ import {
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ApiKeysService } from './api-keys.service';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { Role, Roles } from '../../common/decorators/roles.decorator';
 
 @Controller('api-keys')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(Role.OWNER, Role.ADMIN, Role.TENANT_OWNER)
 export class ApiKeysController {
   constructor(private readonly apiKeysService: ApiKeysService) {}
 
@@ -32,6 +35,7 @@ export class ApiKeysController {
       environment?: 'live' | 'test';
       scopes?: string[];
       rateLimit?: number;
+      expiresAt?: string;
     },
   ) {
     const { key, rawKey } = await this.apiKeysService.create({
@@ -41,11 +45,13 @@ export class ApiKeysController {
       environment: body.environment,
       scopes: body.scopes,
       rateLimit: body.rateLimit,
+      expiresAt: body.expiresAt,
     });
 
     // Return key with raw value (shown ONCE only)
+    const { keyHash: _hash, ...safeKey } = key.toObject();
     return {
-      ...key.toObject(),
+      ...safeKey,
       key: rawKey,
       warning: 'This is the only time the full key will be shown. Save it securely.',
     };

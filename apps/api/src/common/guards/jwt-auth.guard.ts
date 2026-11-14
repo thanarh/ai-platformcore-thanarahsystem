@@ -1,4 +1,4 @@
-import { Injectable, ExecutionContext, UnauthorizedException } from '@nestjs/common';
+import { Injectable, ExecutionContext, UnauthorizedException, ForbiddenException } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { Reflector } from '@nestjs/core';
 import { ApiKeysService } from '../../modules/api-keys/api-keys.service';
@@ -32,6 +32,11 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
       if (!apiKey) {
         throw new UnauthorizedException('Invalid or expired API key');
       }
+      // A dedicated messaging key must not inherit access to legacy chat/user routes.
+      if (!apiKey.scopes.includes('chat') &&
+        !/^\/(?:api\/)?whatsapp\/messages\/?$/i.test(request.path || '')) {
+        throw new ForbiddenException('API key is not scoped for this route');
+      }
       // Establish a tenant-bound principal so downstream handlers behave correctly
       request.user = {
         _id: apiKey.createdBy,
@@ -39,6 +44,9 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
         role: 'api',
         isApiKeyAuth: true,
         apiKeyScopes: apiKey.scopes,
+        apiKeyId: String(apiKey._id),
+        apiKeyRateLimit: apiKey.rateLimit,
+        apiKeyEnvironment: apiKey.environment,
       };
       return true;
     }
