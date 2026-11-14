@@ -39,6 +39,12 @@ export class ApiKey {
   rateLimit: number; // requests per hour
 
   @Prop()
+  rateWindowStartedAt?: Date;
+
+  @Prop({ default: 0 })
+  requestsInWindow: number;
+
+  @Prop()
   expiresAt: Date;
 
   @Prop()

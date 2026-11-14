@@ -1,59 +1,94 @@
-# WhatsApp Baileys scaffold
+# WhatsApp Baileys Integration
 
-The project's package security policy currently blocks Baileys. The application therefore
-does **not** install or use Baileys, create WhatsApp Web sessions, display QR codes, send or
-receive messages, or deliver login verification codes over WhatsApp. This implementation
-does not use Meta Cloud as a fallback.
+This app uses a separate Baileys session for each tenant. A platform-owned
+session is reserved for phone verification codes because new users do not yet
+belong to a tenant. There is no Meta Cloud API fallback.
 
-## Available API
+## Link accounts
 
-`GET /api/whatsapp/readiness` is tenant-authenticated and restricted to
-`OWNER`, `ADMIN`, or `TENANT_OWNER`. It returns the real capability state:
+An `OWNER` or `ADMIN` can link the platform OTP number from
+`/settings/whatsapp`. Tenant managers can link their institution's own number
+from the same page. Scan the short-lived QR from WhatsApp's **Linked devices**
+screen. QR values are held in memory only and are available only to authorized
+managers. Baileys credentials and Signal keys are encrypted with AES-256-GCM
+before storage in MongoDB. Keep `SESSION_SECRET` stable and at least 32
+characters; rotating it makes existing sessions unreadable.
 
-```json
+## Send API
+
+Create a live API key with `whatsapp:send`. A second optional `whatsapp:consent`
+scope lets an integration register and revoke recipient consent. API keys are
+shown once and stored as hashes.
+
+Before sending, create a tenant-scoped consent record:
+
+```http
+POST /api/whatsapp/consents
+x-api-key: <live key with whatsapp:consent>
+Content-Type: application/json
+
 {
-  "available": false,
-  "integration": "baileys",
-  "state": "blocked",
-  "reason": "package_security_policy",
-  "configured": false,
-  "capabilities": {
-    "linkSession": false,
-    "receiveMessages": false,
-    "sendMessages": false,
-    "sendMedia": false,
-    "deliverVerificationCodes": false
-  }
+  "phone": "+966501234567",
+  "source": "booking-form",
+  "reference": "consent-2026-000184"
 }
 ```
 
-`POST /api/whatsapp/messages` is reserved as the future API contract. It requires either
-a tenant manager JWT or an unexpired live API key with `whatsapp:send`, plus an
-`Idempotency-Key` with 8–128 safe characters. It **always returns HTTP 503**
-(`WHATSAPP_TRANSPORT_BLOCKED`) while the transport is blocked. It does not enqueue data,
-write a pretend delivery record, contact WhatsApp, or fall back to another provider.
+Then submit a message with a fresh `Idempotency-Key`:
 
 ```http
 POST /api/whatsapp/messages
-x-api-key: <live tenant key with whatsapp:send>
-Idempotency-Key: order-reminder-1042
+x-api-key: <live key with whatsapp:send>
+Idempotency-Key: booking-2026-000184
 Content-Type: application/json
 
-{"to":"+966500000000","type":"text","text":"Your appointment is tomorrow"}
+{
+  "to": "+966501234567",
+  "type": "text",
+  "text": "تم تأكيد موعدك يوم الأحد الساعة 10 صباحًا.",
+  "consentReference": "consent-2026-000184"
+}
 ```
 
-Image and document request shapes, consent, templates, API limits, and media limits are
-**not yet implemented**. Never interpret a 503 response as queued or sent. Login through
-a phone number/WhatsApp code is also unavailable; do not enable phone-only registration
-until a permitted, verified delivery provider exists.
+The API returns `202` with a delivery ID. Poll
+`GET /api/whatsapp/messages/<delivery-id>` for `pending`, `sent`, `delivered`,
+`read`, or `failed`. A consent record must be active and its reference must
+match. A recipient can revoke consent through the integration API or by
+replying `STOP` / `إلغاء` to the institution's WhatsApp number.
 
-Do not bypass package-security blocks or install Baileys from another registry or source.
-If the security policy changes, review the dependency and account/platform rules first,
-then implement session isolation, QR lifecycle, reconnect handling, data encryption,
-opt-in/opt-out, bounded rate limits, media validation, and production end-to-end testing.
-There are no active WhatsApp sessions or delivery records to clean up.
+For media, use `type: "image" | "video" | "audio" | "document"` and provide
+`media: { "mimeType": "...", "fileName": "...", "base64": "..." }`. Uploads
+are limited to 10 MB and accepted MIME types are checked against file
+signatures. Text is limited to 4096 characters. Do not send sensitive
+information in messages or logs.
 
-## Checks
+## Phone sign-in
+
+`POST /api/auth/phone/request-code` accepts `{ "phone": "+966...", "purpose":
+"login" | "register" }`. `POST /api/auth/phone/verify-code` verifies the
+six-digit code; for registration it also accepts first/last name, industry,
+and optional email/password. Codes expire in five minutes, are stored only as
+HMACs, allow at most five attempts, and are sent through the platform-owned
+Baileys session. Email/password sign-in remains available.
+
+The platform session must be connected before WhatsApp OTP can be sent.
+Requests are rate-limited per phone number, and unknown or already-used phone
+numbers receive a generic code-request response.
+
+## Operational boundaries
+
+- Do not copy QR codes, auth keys, or Baileys session data into logs or tickets.
+- Keep each tenant's session isolated; platform OTP credentials are separate.
+- Revoke the consent record when the recipient opts out.
+- The sender uses WhatsApp Web through Baileys, not the official WhatsApp
+  Business Platform. It may disconnect or change behavior; no Cloud API
+  fallback is configured.
+- The queue retries transient failures a bounded number of times. If a process
+  stops after WhatsApp accepted a message but before its status was saved, a
+  retry can still produce a duplicate; idempotency prevents duplicate queue
+  records, not every possible provider-side duplicate.
+
+## Verification
 
 ```bash
 npm run build --prefix apps/api

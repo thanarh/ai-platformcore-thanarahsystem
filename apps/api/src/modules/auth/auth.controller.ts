@@ -42,6 +42,29 @@ export class AuthController {
     return this.authService.login(body.email, body.password);
   }
 
+  @Post('phone/request-code')
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  requestPhoneCode(@Body() body: { phone: string; purpose: 'login' | 'register' }) {
+    return this.authService.requestPhoneCode(body.phone, body.purpose);
+  }
+
+  @Post('phone/verify-code')
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  verifyPhoneCode(@Body() body: {
+    phone: string;
+    code: string;
+    purpose: 'login' | 'register';
+    firstName?: string;
+    lastName?: string;
+    industry?: string;
+    email?: string;
+    password?: string;
+  }) {
+    return this.authService.verifyPhoneCode(body);
+  }
+
   @Post('refresh')
   @Public()
   @HttpCode(HttpStatus.OK)

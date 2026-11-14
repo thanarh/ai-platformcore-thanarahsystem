@@ -2,6 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AppModule } from './app.module';
+import express from 'express';
 import helmet from 'helmet';
 import * as compression from 'compression';
 import { NotificationsService } from './modules/notifications/notifications.service';
@@ -21,7 +22,11 @@ process.on('unhandledRejection', (reason: unknown) => {
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     logger: ['error', 'warn', 'log'],
+    bodyParser: false,
   });
+  app.use('/api/whatsapp/messages', express.json({ limit: '15mb' }));
+  app.use(express.json({ limit: '100kb' }));
+  app.use(express.urlencoded({ extended: true, limit: '100kb' }));
 
   // Security
   app.use(helmet({ contentSecurityPolicy: false }));

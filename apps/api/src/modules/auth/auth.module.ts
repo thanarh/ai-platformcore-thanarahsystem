@@ -8,12 +8,22 @@ import { JwtStrategy } from './strategies/jwt.strategy';
 import { UsersModule } from '../users/users.module';
 import { TenantsModule } from '../tenants/tenants.module';
 import { EmailModule } from '../email/email.module';
+import { WhatsappModule } from '../whatsapp/whatsapp.module';
+import { MongooseModule } from '@nestjs/mongoose';
+import {
+  WhatsappOtpChallenge,
+  WhatsappOtpChallengeSchema,
+} from './schemas/whatsapp-otp-challenge.schema';
 
 @Module({
   imports: [
     UsersModule,
     TenantsModule,
     EmailModule,
+    WhatsappModule,
+    MongooseModule.forFeature([
+      { name: WhatsappOtpChallenge.name, schema: WhatsappOtpChallengeSchema },
+    ]),
     PassportModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],

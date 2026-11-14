@@ -6,11 +6,17 @@ export type UserDocument = User & Document;
 
 @Schema({ timestamps: true })
 export class User {
-  @Prop({ required: true, lowercase: true, trim: true })
-  email: string;
+  @Prop({ lowercase: true, trim: true })
+  email?: string;
 
-  @Prop({ required: true })
-  passwordHash: string;
+  @Prop()
+  passwordHash?: string;
+
+  @Prop({ trim: true })
+  phoneNumber?: string;
+
+  @Prop({ default: false })
+  isPhoneVerified: boolean;
 
   @Prop({ required: true })
   firstName: string;
@@ -64,3 +70,7 @@ export const UserSchema = SchemaFactory.createForClass(User);
 UserSchema.index({ email: 1 });
 UserSchema.index({ tenantId: 1 });
 UserSchema.index({ emailVerificationToken: 1 });
+UserSchema.index(
+  { phoneNumber: 1 },
+  { unique: true, partialFilterExpression: { phoneNumber: { $type: 'string' } } },
+);

@@ -25,6 +25,8 @@
     "concurrently": "^10.0.7"
   },
   "dependencies": {
-    "@whiskeysockets/baileys": "^7.0.0-rc14"
+    "@types/qrcode": "^1.5.6",
+    "@whiskeysockets/baileys": "^7.0.0-rc14",
+    "qrcode": "^1.5.4"
   }
 }

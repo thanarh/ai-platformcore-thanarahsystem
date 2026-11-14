@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, HttpException, HttpStatus } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { createHash, randomBytes } from 'crypto';
@@ -21,7 +21,7 @@ export class ApiKeysService {
       typeof data.name !== 'string' || !data.name.trim() || data.name.length > 100 ||
       (data.environment !== undefined && !['live', 'test'].includes(data.environment)) ||
       (data.scopes !== undefined && (!Array.isArray(data.scopes) || !data.scopes.length ||
-        data.scopes.some(s => !['chat', 'whatsapp:send'].includes(s)))) ||
+        data.scopes.some(s => !['chat', 'whatsapp:send', 'whatsapp:consent'].includes(s)))) ||
       (data.rateLimit !== undefined && (!Number.isInteger(data.rateLimit) || data.rateLimit < 1 || data.rateLimit > 1000)) ||
       (data.expiresAt !== undefined && (!Number.isFinite(Date.parse(data.expiresAt)) || Date.parse(data.expiresAt) <= Date.now()))) {
       throw new BadRequestException('Invalid key name, tenant, scopes, rate limit or expiry');
@@ -78,6 +78,66 @@ export class ApiKeysService {
     });
 
     return apiKey;
+  }
+
+  async consumeRateLimit(apiKeyId: string): Promise<void> {
+    if (!Types.ObjectId.isValid(apiKeyId)) throw new BadRequestException('Valid API key required');
+    const now = new Date();
+    const windowStart = new Date(now.getTime() - 60 * 60 * 1000);
+    const resetWindow = {
+      $or: [
+        { rateWindowStartedAt: { $exists: false } },
+        { rateWindowStartedAt: { $lte: windowStart } },
+      ],
+    };
+    const underLimit = {
+      $expr: {
+        $lt: [
+          { $ifNull: ['$requestsInWindow', 0] },
+          '$rateLimit',
+        ],
+      },
+    };
+    const updated = await this.apiKeyModel.findOneAndUpdate(
+      { _id: new Types.ObjectId(apiKeyId), isActive: true, $or: [resetWindow, underLimit] },
+      [
+        {
+          $set: {
+            rateWindowStartedAt: {
+              $cond: [
+                {
+                  $or: [
+                    { $eq: [{ $ifNull: ['$rateWindowStartedAt', null] }, null] },
+                    { $lte: ['$rateWindowStartedAt', windowStart] },
+                  ],
+                },
+                now,
+                '$rateWindowStartedAt',
+              ],
+            },
+            requestsInWindow: {
+              $cond: [
+                {
+                  $or: [
+                    { $eq: [{ $ifNull: ['$rateWindowStartedAt', null] }, null] },
+                    { $lte: ['$rateWindowStartedAt', windowStart] },
+                  ],
+                },
+                1,
+                { $add: [{ $ifNull: ['$requestsInWindow', 0] }, 1] },
+              ],
+            },
+          },
+        },
+      ],
+      { new: true },
+    );
+    if (!updated) {
+      throw new HttpException(
+        'API key rate limit exceeded. Retry after the hourly window resets.',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
   }
 
   async revoke(id: string, tenantId: string): Promise<void> {

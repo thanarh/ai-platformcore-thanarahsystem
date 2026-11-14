@@ -22,6 +22,9 @@ export function RegisterForm() {
   const [form, setForm] = useState({
     firstName: '',
     lastName: '',
+    phone: '',
+    code: '',
+    codeSent: false,
     email: '',
     password: '',
     confirmPassword: '',
@@ -34,26 +37,40 @@ export function RegisterForm() {
     event.preventDefault();
     setError('');
 
-    if (form.password !== form.confirmPassword) {
-      setError('كلمتا المرور غير متطابقتين');
-      return;
-    }
-    if (form.password.length < 8) {
-      setError('كلمة المرور يجب أن تكون 8 أحرف على الأقل');
-      return;
+    if (form.email || form.password || form.confirmPassword) {
+      if (!form.email || !form.password || !form.confirmPassword) {
+        setError('أدخل البريد وكلمة المرور وتأكيدها معًا، أو اتركها فارغة.');
+        return;
+      }
+      if (form.password !== form.confirmPassword) {
+        setError('كلمتا المرور غير متطابقتين');
+        return;
+      }
+      if (form.password.length < 8) {
+        setError('كلمة المرور يجب أن تكون 8 أحرف على الأقل');
+        return;
+      }
     }
 
     setLoading(true);
     try {
-      const data = await authApi.register({
-        email: form.email,
-        password: form.password,
-        firstName: form.firstName,
-        lastName: form.lastName,
-        industry: form.industry,
-      });
-      setAuth(data.user, data.accessToken, data.refreshToken);
-      router.push('/chat');
+      if (!form.codeSent) {
+        await authApi.requestPhoneCode({ phone: form.phone, purpose: 'register' });
+        setForm((current) => ({ ...current, codeSent: true }));
+      } else {
+        const data = await authApi.verifyPhoneCode({
+          phone: form.phone,
+          code: form.code,
+          purpose: 'register',
+          firstName: form.firstName,
+          lastName: form.lastName,
+          industry: form.industry,
+          email: form.email || undefined,
+          password: form.password || undefined,
+        });
+        setAuth(data.user, data.accessToken, data.refreshToken);
+        router.push('/chat');
+      }
     } catch (err: any) {
       const serverMessage = err.response?.data?.message;
       const message = Array.isArray(serverMessage) ? serverMessage.join('، ') : serverMessage;
@@ -106,8 +123,55 @@ export function RegisterForm() {
       </div>
 
       <div>
+        <label htmlFor="thanarah-register-phone" className="mb-1 block text-sm font-medium text-gray-700 font-arabic">
+          رقم الجوال
+        </label>
+        <input
+          id="thanarah-register-phone"
+          type="tel"
+          disabled={form.codeSent}
+          autoComplete="tel"
+          value={form.phone}
+          onChange={(event) => setForm({ ...form, phone: event.target.value })}
+          className={`${inputClass} text-left`}
+          placeholder="+9665XXXXXXXX"
+          dir="ltr"
+          required
+        />
+        {form.codeSent && (
+          <button
+            type="button"
+            onClick={() => setForm((current) => ({ ...current, codeSent: false, code: '' }))}
+            className="mt-2 text-xs font-medium text-thanarah-700 font-arabic"
+          >
+            تغيير رقم الجوال
+          </button>
+        )}
+      </div>
+
+      {form.codeSent && (
+        <div>
+          <label htmlFor="thanarah-register-code" className="mb-1 block text-sm font-medium text-gray-700 font-arabic">
+            رمز التحقق من WhatsApp
+          </label>
+          <input
+            id="thanarah-register-code"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            value={form.code}
+            onChange={(event) => setForm({ ...form, code: event.target.value.replace(/\D/g, '').slice(0, 6) })}
+            className={`${inputClass} text-center tracking-[.35em]`}
+            placeholder="••••••"
+            required
+            minLength={6}
+            maxLength={6}
+          />
+        </div>
+      )}
+
+      <div>
         <label htmlFor="thanarah-register-email" className="mb-1 block text-sm font-medium text-gray-700 font-arabic">
-          البريد الإلكتروني
+          البريد الإلكتروني <span className="text-gray-400">(اختياري)</span>
         </label>
         <input
           id="thanarah-register-email"
@@ -117,7 +181,6 @@ export function RegisterForm() {
           onChange={(event) => setForm({ ...form, email: event.target.value })}
           className={`${inputClass} text-left`}
           dir="ltr"
-          required
         />
       </div>
 
@@ -139,7 +202,7 @@ export function RegisterForm() {
 
       <div>
         <label htmlFor="thanarah-register-password" className="mb-1 block text-sm font-medium text-gray-700 font-arabic">
-          كلمة المرور
+          كلمة المرور <span className="text-gray-400">(اختيارية)</span>
         </label>
         <input
           id="thanarah-register-password"
@@ -149,14 +212,13 @@ export function RegisterForm() {
           onChange={(event) => setForm({ ...form, password: event.target.value })}
           className={inputClass}
           dir="ltr"
-          required
           minLength={8}
         />
       </div>
 
       <div>
         <label htmlFor="thanarah-register-confirm-password" className="mb-1 block text-sm font-medium text-gray-700 font-arabic">
-          تأكيد كلمة المرور
+          تأكيد كلمة المرور <span className="text-gray-400">(اختياري)</span>
         </label>
         <input
           id="thanarah-register-confirm-password"
@@ -166,7 +228,6 @@ export function RegisterForm() {
           onChange={(event) => setForm({ ...form, confirmPassword: event.target.value })}
           className={inputClass}
           dir="ltr"
-          required
         />
       </div>
 
@@ -186,7 +247,7 @@ export function RegisterForm() {
         aria-busy={loading}
         className="w-full rounded-xl bg-thanarah-700 py-3 text-sm font-medium text-white transition hover:bg-thanarah-600 disabled:cursor-not-allowed disabled:opacity-60 font-arabic active:scale-[0.98]"
       >
-        {loading ? 'جارٍ التسجيل...' : 'إنشاء الحساب'}
+        {loading ? 'جارٍ المعالجة...' : form.codeSent ? 'تأكيد الرمز وإنشاء الحساب' : 'إرسال رمز WhatsApp'}
       </button>
     </form>
   );

@@ -37,6 +37,36 @@ export class UsersService {
     return user.save();
   }
 
+  async createPhoneUser(data: {
+    phoneNumber: string;
+    email?: string;
+    password?: string;
+    firstName: string;
+    lastName: string;
+    role?: Role;
+    tenantId?: string;
+  }): Promise<UserDocument> {
+    const phoneNumber = data.phoneNumber.trim();
+    if (await this.userModel.exists({ phoneNumber })) {
+      throw new ConflictException('Phone number already in use');
+    }
+    const email = data.email?.trim().toLowerCase() || undefined;
+    if (email && await this.emailExists(email)) {
+      throw new ConflictException('Email already in use');
+    }
+    const user = new this.userModel({
+      phoneNumber,
+      isPhoneVerified: true,
+      email,
+      passwordHash: data.password ? await bcrypt.hash(data.password, 12) : undefined,
+      firstName: data.firstName.trim(),
+      lastName: data.lastName.trim(),
+      role: data.role || Role.USER,
+      tenantId: data.tenantId ? new Types.ObjectId(data.tenantId) : undefined,
+    });
+    return user.save();
+  }
+
   async findByEmail(email: string): Promise<UserDocument | null> {
     return this.userModel.findOne({ email: email.toLowerCase(), isActive: true });
   }
@@ -47,6 +77,10 @@ export class UsersService {
 
   async findById(id: string): Promise<UserDocument | null> {
     return this.userModel.findById(id);
+  }
+
+  async findByPhone(phoneNumber: string): Promise<UserDocument | null> {
+    return this.userModel.findOne({ phoneNumber, isActive: true });
   }
 
   /**

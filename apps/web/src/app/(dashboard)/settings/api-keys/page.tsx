@@ -24,7 +24,8 @@ type ApiKeyRecord = {
 const managerRoles = ['OWNER', 'ADMIN', 'TENANT_OWNER'];
 const availableScopes = [
   { value: 'chat', label: 'محادثة AI', detail: 'الوصول إلى واجهة المحادثة' },
-  { value: 'whatsapp:send', label: 'إرسال WhatsApp', detail: 'نطاق مخطط؛ الإرسال معطّل حاليًا' },
+  { value: 'whatsapp:send', label: 'إرسال WhatsApp', detail: 'إرسال نصوص ووسائط ومتابعة حالة التسليم' },
+  { value: 'whatsapp:consent', label: 'موافقات WhatsApp', detail: 'تسجيل الموافقات وإلغاء الإذن قبل الإرسال' },
 ];
 
 function errorMessage(error: any, fallback: string) {

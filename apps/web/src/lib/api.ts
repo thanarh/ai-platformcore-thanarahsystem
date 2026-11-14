@@ -73,6 +73,18 @@ export default api;
 export const authApi = {
   login: (email: string, password: string) =>
     api.post('/auth/login', { email, password }).then((r) => r.data),
+  requestPhoneCode: (data: { phone: string; purpose: 'login' | 'register' }) =>
+    api.post('/auth/phone/request-code', data).then((r) => r.data),
+  verifyPhoneCode: (data: {
+    phone: string;
+    code: string;
+    purpose: 'login' | 'register';
+    firstName?: string;
+    lastName?: string;
+    industry?: string;
+    email?: string;
+    password?: string;
+  }) => api.post('/auth/phone/verify-code', data).then((r) => r.data),
   register: (data: {
     email: string;
     password: string;

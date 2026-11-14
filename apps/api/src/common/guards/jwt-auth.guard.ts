@@ -34,7 +34,15 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
       }
       // A dedicated messaging key must not inherit access to legacy chat/user routes.
       if (!apiKey.scopes.includes('chat') &&
-        !/^\/(?:api\/)?whatsapp\/messages\/?$/i.test(request.path || '')) {
+        !(
+          /^\/(?:api\/)?whatsapp\/messages\/?$/i.test(request.path || '')
+          && request.method === 'POST'
+          || /^\/(?:api\/)?whatsapp\/messages\/[a-f\d]{24}\/?$/i.test(request.path || '')
+          && request.method === 'GET'
+          || /^\/(?:api\/)?whatsapp\/consents(?:\/revoke)?\/?$/i.test(request.path || '')
+          && request.method === 'POST'
+          && apiKey.scopes.includes('whatsapp:consent')
+        )) {
         throw new ForbiddenException('API key is not scoped for this route');
       }
       // Establish a tenant-bound principal so downstream handlers behave correctly
