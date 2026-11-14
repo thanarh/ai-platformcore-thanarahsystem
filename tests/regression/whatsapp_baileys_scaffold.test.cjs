@@ -134,7 +134,8 @@ test('Stored WhatsApp data uses authenticated encryption with fresh nonces', () 
 
 test('Phone OTP, opt-out, encryption and queue contracts are present without a Cloud fallback', () => {
   const app = read('apps/api/src/app.module.ts');
-  const auth = read('apps/api/src/modules/auth/auth.service.ts');
+  const auth = read('apps/api/src/modules/auth/auth.service.ts')
+    + read('apps/api/src/modules/auth/phone-enrollment.service.ts');
   const whatsapp = read('apps/api/src/modules/whatsapp/whatsapp.service.ts');
   const pkg = read('package.json');
   assert.match(app, /WhatsappModule/);
@@ -205,56 +206,34 @@ test('Status lookup always includes the caller tenant and excludes other tenants
   assert.equal(filter._id, '444444444444444444444444');
 });
 
-test('OTP consumes one challenge once and never returns the code to the caller', async () => {
+test('Verified existing phone receives a normal authenticated session', async () => {
   const user = { _id: { toString: () => '111111111111111111111111' }, isPhoneVerified: true };
-  let used = false;
-  let attempts = 0;
-  const codeHash = 'ab'.repeat(32);
-  const challenges = {
-    findOneAndUpdate: async query => {
-      assert.deepEqual(query.attempts, { $lt: 5 });
-      if (used || attempts >= 5) return null;
-      attempts++;
-      return { _id: 'challenge', codeHash };
-    },
-    updateOne: async () => {
-      const modifiedCount = used ? 0 : 1;
-      used = true;
-      return { modifiedCount };
-    },
-  };
   const users = {
-    findByPhone: async () => user,
-    ensureTenantOwnerRole: async found => found,
     updateLastLogin: async () => undefined,
     updateRefreshToken: async () => undefined,
     toPublic: () => ({ phoneNumber: '+966501234567' }),
   };
-  const auth = new AuthService(users, {}, {}, {}, {}, {}, challenges);
-  auth.hashPhone = () => 'hashed-phone';
-  auth.hashOtp = (_phone, code) => code === '123456' ? codeHash : 'cd'.repeat(32);
+  const auth = new AuthService(users, {}, {}, {}, {}, {
+    verifyCode: async () => ({ next: 'authenticated', user }),
+  });
   auth.generateTokens = async () => ({ accessToken: 'test-access', refreshToken: 'test-refresh' });
   const payload = { phone: '+966501234567', code: '123456', purpose: 'login' };
   const result = await auth.verifyPhoneCode(payload);
   assert.equal(result.accessToken, 'test-access');
   assert.equal(result.code, undefined);
-  assert.equal(attempts, 1);
-  await assert.rejects(() => auth.verifyPhoneCode(payload), { status: 401 });
+  assert.equal(result.next, 'authenticated');
 });
 
-test('OTP rejects expired, exhausted and wrong codes without issuing tokens', async () => {
-  const auth = new AuthService({}, {}, {}, {}, {}, {}, {
-    findOneAndUpdate: async () => null,
+test('Verified new phone receives only an enrollment proof, never login tokens', async () => {
+  const enrollment = { next: 'complete_registration', enrollmentToken: 'opaque-test-proof' };
+  const auth = new AuthService({}, {}, {}, {}, {}, {
+    verifyCode: async () => enrollment,
   });
-  auth.hashPhone = () => 'hashed-phone';
-  await assert.rejects(() => auth.verifyPhoneCode({
+  const result = await auth.verifyPhoneCode({
     phone: '+966501234567', code: '123456', purpose: 'login',
-  }), { status: 401 });
-  auth.otpChallengeModel.findOneAndUpdate = async () => ({ _id: 'c', codeHash: 'ab'.repeat(32) });
-  auth.hashOtp = () => 'cd'.repeat(32);
-  await assert.rejects(() => auth.verifyPhoneCode({
-    phone: '+966501234567', code: '654321', purpose: 'login',
-  }), { status: 401 });
+  });
+  assert.deepEqual(result, enrollment);
+  assert.equal(result.accessToken, undefined);
 });
 
 test('Persistent usage buckets reject an exhausted quota without bypassing limits', async () => {

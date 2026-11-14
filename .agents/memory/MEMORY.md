@@ -18,3 +18,4 @@
 - [GitHub push isolation](github-push-isolation.md) — publish the minimum related commit set from fresh origin/main; keep unrelated local commits out
 - [WhatsApp number ownership](whatsapp-number-ownership.md) — user chose Baileys QR, one number per institution, and an additional platform number for OTP
 - [Phone and embedded product scope](phone-and-embedded-product-scope.md) — verify mobile before account fields; embed the full tenant product with independent institutional identities
+- [Next.js browser assertions](nextjs-browser-assertions.md) — scope form-error assertions; the framework adds its own accessibility alert

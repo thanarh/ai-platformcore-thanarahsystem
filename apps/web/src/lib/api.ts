@@ -72,26 +72,27 @@ export default api;
 // ──── Auth ────────────────────────────────────────────────────────────────
 export const authApi = {
   login: (email: string, password: string) =>
-    api.post('/auth/login', { email, password }).then((r) => r.data),
-  requestPhoneCode: (data: { phone: string; purpose: 'login' | 'register' }) =>
-    api.post('/auth/phone/request-code', data).then((r) => r.data),
+    axios.post('/api/auth/login', { email, password }).then((r) => r.data),
+  requestPhoneCode: (data: { phone: string; purpose: 'login' | 'register'; country?: string }) =>
+    axios.post('/api/auth/phone/request-code', data).then((r) => r.data),
   verifyPhoneCode: (data: {
     phone: string;
     code: string;
     purpose: 'login' | 'register';
-    firstName?: string;
-    lastName?: string;
-    industry?: string;
+    country?: string;
+  }) => axios.post('/api/auth/phone/verify-code', data).then((r) => r.data),
+  completePhoneRegistration: (data: {
+    enrollmentToken: string; firstName: string; lastName: string;
+    industry?: string; email?: string; password?: string;
+  }) => axios.post('/api/auth/phone/complete-registration', data).then((r) => r.data),
+  register: (data: {
+    enrollmentToken: string;
     email?: string;
     password?: string;
-  }) => api.post('/auth/phone/verify-code', data).then((r) => r.data),
-  register: (data: {
-    email: string;
-    password: string;
     firstName: string;
     lastName: string;
     industry?: string;
-  }) => api.post('/auth/register', data).then((r) => r.data),
+  }) => axios.post('/api/auth/register', data).then((r) => r.data),
   logout: () => api.post('/auth/logout').then((r) => r.data),
   refresh: (refreshToken: string) =>
     axios.post('/api/auth/refresh', { refreshToken }).then((r) => r.data),

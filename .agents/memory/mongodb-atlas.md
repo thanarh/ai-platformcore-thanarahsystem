@@ -25,3 +25,11 @@ Always connect with `dbName: "thanarah_ai"` before reading or changing applicati
 **Why:** An Atlas URI can select a different default database than the NestJS application, which explicitly uses `thanarah_ai`; a successful write to the URI-default database may be invisible to the app.
 
 **How to apply:** For bootstrap, repair, or inspection scripts, mirror the application's database options and validate the resulting behavior through the public API rather than trusting the direct database write alone.
+
+## Isolated integration databases
+
+Use short random names (at most 38 bytes) for disposable test databases on this Atlas environment.
+
+**Why:** Atlas rejected a longer isolated test database name with an explicit 38-byte maximum, although a normal MongoDB server may allow longer names.
+
+**How to apply:** Tests must select their own uniquely named database explicitly and only drop that exact test database; never reuse the application database for destructive cleanup.

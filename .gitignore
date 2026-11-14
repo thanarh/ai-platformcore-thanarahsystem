@@ -31,3 +31,4 @@ coverage/
 /models/
 services/ai-engine/models/
 /.ollama/models/
+/generated-artifacts/

@@ -15,6 +15,7 @@ import { JwtAuthGuard, IS_PUBLIC_KEY } from '../../common/guards/jwt-auth.guard'
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { AuthService } from './auth.service';
 import { WhatsappRateLimitFilter } from '../whatsapp/whatsapp-rate-limit.filter';
+import { CompletePhoneRegistration } from './phone-enrollment.service';
 
 const Public = () => SetMetadata(IS_PUBLIC_KEY, true);
 
@@ -27,14 +28,7 @@ export class AuthController {
   @Public()
   register(
     @Body()
-    body: {
-      email: string;
-      password: string;
-      firstName: string;
-      lastName: string;
-      industry?: string;
-      tenantSlug?: string;
-    },
+    body: CompletePhoneRegistration,
   ) {
     return this.authService.register(body);
   }
@@ -50,11 +44,11 @@ export class AuthController {
   @Public()
   @HttpCode(HttpStatus.OK)
   requestPhoneCode(
-    @Body() body: { phone: string; purpose: 'login' | 'register' },
+    @Body() body: { phone: string; purpose: 'login' | 'register'; country?: string },
     @Req() request: { ip?: string; socket?: { remoteAddress?: string } },
   ) {
     return this.authService.requestPhoneCode(
-      body?.phone, body?.purpose, request.ip || request.socket?.remoteAddress || 'unknown',
+      body?.phone, body?.purpose, request.ip || request.socket?.remoteAddress || 'unknown', body?.country,
     );
   }
 
@@ -65,13 +59,16 @@ export class AuthController {
     phone: string;
     code: string;
     purpose: 'login' | 'register';
-    firstName?: string;
-    lastName?: string;
-    industry?: string;
-    email?: string;
-    password?: string;
+    country?: string;
   }) {
     return this.authService.verifyPhoneCode(body);
+  }
+
+  @Post('phone/complete-registration')
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  completePhoneRegistration(@Body() body: CompletePhoneRegistration) {
+    return this.authService.completePhoneRegistration(body);
   }
 
   @Post('refresh')

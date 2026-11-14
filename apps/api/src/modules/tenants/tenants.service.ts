@@ -1,17 +1,17 @@
 import { Injectable, NotFoundException, ConflictException, HttpException, HttpStatus } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { ClientSession, Model } from 'mongoose';
 import { Tenant, TenantDocument } from './schemas/tenant.schema';
 
 @Injectable()
 export class TenantsService {
   constructor(@InjectModel(Tenant.name) private tenantModel: Model<TenantDocument>) {}
 
-  async create(data: Partial<Tenant>): Promise<TenantDocument> {
-    const existing = await this.tenantModel.findOne({ slug: data.slug });
+  async create(data: Partial<Tenant>, session?: ClientSession): Promise<TenantDocument> {
+    const existing = await this.tenantModel.findOne({ slug: data.slug }).session(session || null);
     if (existing) throw new ConflictException('Tenant slug already exists');
     const tenant = new this.tenantModel(data);
-    return tenant.save();
+    return tenant.save({ session });
   }
 
   async findById(id: string): Promise<TenantDocument> {

@@ -404,9 +404,16 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       });
     }
     const jid = `${this.normalizePhone(phone)}@s.whatsapp.net`;
-    await socket.sendMessage(jid, {
+    const registrations = await socket.onWhatsApp(jid);
+    if (!registrations?.some((registration) => registration.exists)) {
+      throw new BadRequestException('الرقم غير متاح على WhatsApp.');
+    }
+    const sent = await socket.sendMessage(jid, {
       text: `رمز التحقق الخاص بك هو: ${code}\nينتهي خلال 5 دقائق. لا تشاركه مع أحد.`,
     });
+    if (!sent?.key?.id) {
+      throw new ServiceUnavailableException('تعذر تأكيد إرسال رمز WhatsApp.');
+    }
   }
 
   async enqueueMessage(tenantId: string, input: WhatsappMessageInput, idempotencyKey: string, apiKeyId?: string) {

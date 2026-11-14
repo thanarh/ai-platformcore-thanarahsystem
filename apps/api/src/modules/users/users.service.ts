@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model, Types } from 'mongoose';
+import { ClientSession, Model, Types } from 'mongoose';
 import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
 import { User, UserDocument } from './schemas/user.schema';
@@ -45,14 +45,14 @@ export class UsersService {
     lastName: string;
     role?: Role;
     tenantId?: string;
-  }): Promise<UserDocument> {
+  }, session?: ClientSession): Promise<UserDocument> {
     const phoneNumber = data.phoneNumber.trim();
-    if (await this.userModel.exists({ phoneNumber })) {
-      throw new ConflictException('Phone number already in use');
+    if (await this.userModel.exists({ phoneNumber }).session(session || null)) {
+      throw new ConflictException('رقم الجوال مرتبط بحساب بالفعل. سجّل الدخول بالجوال.');
     }
     const email = data.email?.trim().toLowerCase() || undefined;
-    if (email && await this.emailExists(email)) {
-      throw new ConflictException('Email already in use');
+    if (email && await this.userModel.exists({ email }).session(session || null)) {
+      throw new ConflictException('البريد الإلكتروني مسجل بالفعل. استخدم بريدًا آخر أو سجّل الدخول.');
     }
     const user = new this.userModel({
       phoneNumber,
@@ -64,7 +64,7 @@ export class UsersService {
       role: data.role || Role.USER,
       tenantId: data.tenantId ? new Types.ObjectId(data.tenantId) : undefined,
     });
-    return user.save();
+    return user.save({ session });
   }
 
   async findByEmail(email: string): Promise<UserDocument | null> {
@@ -81,6 +81,17 @@ export class UsersService {
 
   async findByPhone(phoneNumber: string): Promise<UserDocument | null> {
     return this.userModel.findOne({ phoneNumber, isActive: true });
+  }
+
+  async findAnyByPhone(phoneNumber: string): Promise<UserDocument | null> {
+    return this.userModel.findOne({ phoneNumber });
+  }
+
+  async confirmPhoneOwnership(user: UserDocument, role: Role): Promise<UserDocument> {
+    // The caller must have verified an OTP; never use this in email sign-in.
+    user.isPhoneVerified = true;
+    user.role = role;
+    return user.save();
   }
 
   /**
