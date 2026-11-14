@@ -22,6 +22,6 @@
     "start:ai": "cd services/ai-engine && python -m uvicorn main:app --host 0.0.0.0 --port 8000"
   },
   "devDependencies": {
-    "concurrently": "^8.2.2"
+    "concurrently": "^10.0.7"
   }
 }
