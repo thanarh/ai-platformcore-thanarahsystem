@@ -62,16 +62,17 @@ class BackendRegistry:
             )
 
         # ── 3. Managed high-quality provider — PRIMARY when configured ─────
+        external_api_key = settings.external_ai_api_key or settings.openai_api_key
         if (
             settings.external_ai_enabled
-            and settings.external_ai_api_key
+            and external_api_key
             and settings.external_ai_model
         ):
             from app.backends.managed_provider import ManagedProviderBackend
 
             managed = ManagedProviderBackend(
                 base_url=settings.external_ai_base_url,
-                api_key=settings.external_ai_api_key,
+                api_key=external_api_key,
                 model=settings.external_ai_model,
                 daily_limit=settings.external_ai_daily_limit,
                 rpm_limit=settings.external_ai_rpm_limit,

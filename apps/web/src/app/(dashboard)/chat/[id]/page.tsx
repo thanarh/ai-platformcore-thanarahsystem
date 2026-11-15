@@ -3,7 +3,7 @@ export const dynamic = 'force-dynamic';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { useEmbeddedRouter } from '@/lib/embedded-navigation';
-import { Send, Square, Copy, ExternalLink, Globe2, Menu, ThumbsUp, ThumbsDown, Pin, Sparkles, Mic, Type, Wand2, Paperclip, FileText, X, ListTodo, Loader2 } from 'lucide-react';
+import { Send, Square, Copy, ExternalLink, Globe2, Menu, ThumbsUp, ThumbsDown, Pin, Sparkles, Mic, Type, Wand2, Paperclip, FileText, X, ListTodo, Loader2, Volume2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useChatStore, Message } from '@/store/chat';
@@ -71,6 +71,7 @@ export default function ChatPage() {
   const [voiceState, setVoiceState] = useState<VoiceState>('IDLE');
   const [voiceError, setVoiceError] = useState('');
   const [voiceAvailable, setVoiceAvailable] = useState(false);
+  const [voicePlaybackUrl, setVoicePlaybackUrl] = useState<string | null>(null);
   const [voiceLanguage] = useState<'auto'>('auto');
   const [showTools, setShowTools] = useState(false);
   const [selectedSkillId, setSelectedSkillId] = useState<string | undefined>();
@@ -93,24 +94,54 @@ export default function ChatPage() {
   const voiceStartPendingRef = useRef(false);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recordingStreamRef = useRef<MediaStream | null>(null);
+  const voiceAudioUrlRef = useRef<string | null>(null);
+  const voiceFileInputRef = useRef<HTMLInputElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const recordingStartedAtRef = useRef<number | null>(null);
 
   const convMessages: Message[] = messages[convId] || [];
 
   useEffect(() => {
+    if (!token) {
+      setVoiceAvailable(false);
+      return;
+    }
+    let active = true;
     aiApi.voiceCapabilities()
-      .then((capabilities) => setVoiceAvailable(capabilities?.voiceEnabled === true))
-      .catch(() => setVoiceAvailable(false));
+      .then((capabilities) => {
+        if (active) setVoiceAvailable(capabilities?.voiceEnabled === true);
+      })
+      .catch(() => {
+        if (active) setVoiceAvailable(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [token]);
+
+  useEffect(() => {
+    if (!token) {
+      setSkills([]);
+      return;
+    }
+    let active = true;
     aiApi.skills()
-      .then((payload) => setSkills(payload?.skills || []))
-      .catch(() => setSkills([]));
-  }, []);
+      .then((payload) => {
+        if (active) setSkills(payload?.skills || []);
+      })
+      .catch(() => {
+        if (active) setSkills([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [token]);
 
   useEffect(() => () => {
     recorderRef.current?.stop?.();
     recordingStreamRef.current?.getTracks().forEach((track) => track.stop());
     audioRef.current?.pause();
+    if (voiceAudioUrlRef.current) URL.revokeObjectURL(voiceAudioUrlRef.current);
   }, []);
 
   useEffect(() => {
@@ -163,6 +194,37 @@ export default function ChatPage() {
     if (viewport) viewport.scrollTop = viewport.scrollHeight;
   }, [convMessages]);
 
+  const playVoiceAudio = useCallback(async (audioUrl: string) => {
+    audioRef.current?.pause();
+    const audio = new Audio(audioUrl);
+    audioRef.current = audio;
+    audio.onended = () => {
+      if (audioRef.current === audio) audioRef.current = null;
+      setVoiceState('IDLE');
+      if (voiceAudioUrlRef.current === audioUrl) {
+        URL.revokeObjectURL(audioUrl);
+        voiceAudioUrlRef.current = null;
+        setVoicePlaybackUrl(null);
+      }
+    };
+    audio.onerror = () => {
+      if (audioRef.current === audio) audioRef.current = null;
+      setVoiceState('IDLE');
+      setVoicePlaybackUrl(audioUrl);
+    };
+    setVoiceState('SPEAKING');
+    try {
+      await audio.play();
+      setVoicePlaybackUrl(null);
+    } catch {
+      if (audioRef.current === audio) audioRef.current = null;
+      setVoiceState('IDLE');
+      // Mobile browsers can block playback after an async response. Keep a
+      // replay URL so the user can start playback with a direct tap.
+      setVoicePlaybackUrl(audioUrl);
+    }
+  }, []);
+
   const speakResponse = useCallback(async (content: string, language: 'ar' | 'en') => {
     if (!content) {
       setVoiceState('IDLE');
@@ -172,23 +234,19 @@ export default function ChatPage() {
       const audioBlob = await aiApi.voiceSynthesize(convId, content, language);
       const audioUrl = URL.createObjectURL(audioBlob);
       audioRef.current?.pause();
-      const audio = new Audio(audioUrl);
-      audioRef.current = audio;
-      audio.onended = () => {
-        URL.revokeObjectURL(audioUrl);
-        setVoiceState('IDLE');
-      };
-      audio.onerror = () => {
-        URL.revokeObjectURL(audioUrl);
-        setVoiceState('IDLE');
-      };
-      setVoiceState('SPEAKING');
-      await audio.play();
+      if (voiceAudioUrlRef.current) URL.revokeObjectURL(voiceAudioUrlRef.current);
+      voiceAudioUrlRef.current = audioUrl;
+      setVoicePlaybackUrl(audioUrl);
+      await playVoiceAudio(audioUrl);
     } catch {
-      // Text delivery already succeeded; TTS is deliberately best-effort.
       setVoiceState('IDLE');
+      setVoiceError('وصل الرد نصيًا، لكن تعذّر إنشاء الرد الصوتي.');
     }
-  }, [convId]);
+  }, [convId, playVoiceAudio]);
+
+  const replayVoiceResponse = useCallback(() => {
+    if (voicePlaybackUrl) void playVoiceAudio(voicePlaybackUrl);
+  }, [playVoiceAudio, voicePlaybackUrl]);
 
   const handleSend = useCallback(async (
     overrideContent?: string,
@@ -400,6 +458,69 @@ export default function ChatPage() {
     setTimeout(() => textareaRef.current?.focus(), 0);
   };
 
+  const submitVoiceAudio = useCallback(async (audio: Blob, startedAt: number) => {
+    setVoiceError('');
+    setVoiceState('TRANSCRIBING');
+    try {
+      const result = await aiApi.voiceTranscribe(convId, audio, voiceLanguage);
+      const transcript = String(result?.transcript || '').trim();
+      if (!transcript) throw new Error('لم يتم العثور على كلام واضح في التسجيل.');
+      const detectedLanguage: 'ar' | 'en' = result?.language === 'en' ? 'en' : 'ar';
+      setInput(transcript);
+      void handleSend(transcript, {
+        inputMode: 'voice',
+        speakResponse: true,
+        language: detectedLanguage,
+        voiceMetadata: {
+          sessionId: `voice-${Date.now()}`,
+          language: detectedLanguage,
+          transcriptionStatus: 'completed',
+          audioMimeType: audio.type,
+          durationMs: result.durationMs || Date.now() - startedAt,
+          capturedAt: new Date().toISOString(),
+          audioStored: false,
+          transcriptionLatencyMs: result.latencyMs,
+          languageProbability: result.languageProbability,
+        },
+      });
+    } catch (error: any) {
+      setVoiceError(voiceErrorMessage(error));
+      setVoiceState('ERROR');
+    }
+  }, [convId, handleSend, voiceLanguage]);
+
+  const handleVoiceFileSelected = useCallback(async (
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    if (file.size > 10_000_000) {
+      setVoiceError('حجم التسجيل أكبر من الحد المسموح. أرسل تسجيلًا أقصر.');
+      setVoiceState('ERROR');
+      return;
+    }
+    const extensionMimeTypes: Record<string, string> = {
+      m4a: 'audio/mp4',
+      mp4: 'audio/mp4',
+      wav: 'audio/wav',
+      webm: 'audio/webm',
+      ogg: 'audio/ogg',
+      mp3: 'audio/mpeg',
+    };
+    const extension = file.name.split('.').pop()?.toLowerCase() || '';
+    const mimeType = file.type.startsWith('audio/')
+      ? file.type
+      : extensionMimeTypes[extension];
+    if (!mimeType) {
+      setVoiceError('اختر تسجيلًا بصيغة صوت مدعومة مثل M4A أو WAV.');
+      setVoiceState('ERROR');
+      return;
+    }
+    const audio = file.type === mimeType ? file : new Blob([file], { type: mimeType });
+    await submitVoiceAudio(audio, Date.now());
+  }, [submitVoiceAudio]);
+
   const startVoiceCapture = useCallback(async () => {
     if (voiceStartPendingRef.current || recorderRef.current) return;
     voiceStartPendingRef.current = true;
@@ -408,15 +529,25 @@ export default function ChatPage() {
     setVoiceError('');
     try {
       if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
-        throw new Error('المتصفح لا يدعم تسجيل الصوت المحلي.');
+        setVoiceError('التسجيل المباشر غير متاح في هذا المتصفح. اختر تسجيلًا صوتيًا من جهازك.');
+        voiceFileInputRef.current?.click();
+        return;
       }
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mimeType = [
+        'audio/mp4;codecs=mp4a.40.2',
+        'audio/mp4',
         'audio/webm;codecs=opus',
         'audio/webm',
         'audio/ogg;codecs=opus',
-        'audio/mp4',
-      ].find((candidate) => MediaRecorder.isTypeSupported(candidate)) || '';
+      ].find((candidate) => {
+        if (typeof MediaRecorder.isTypeSupported !== 'function') return false;
+        try {
+          return MediaRecorder.isTypeSupported(candidate);
+        } catch {
+          return false;
+        }
+      }) || '';
       const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
       const chunks: Blob[] = [];
       recordingStreamRef.current = stream;
@@ -434,44 +565,18 @@ export default function ChatPage() {
         stream.getTracks().forEach((track) => track.stop());
         recordingStreamRef.current = null;
         recorderRef.current = null;
+        const startedAt = recordingStartedAtRef.current || Date.now();
         if (chunks.length === 0) {
           setVoiceError('لم يصل صوت من الميكروفون. تحقق من الإذن ثم أعد التسجيل.');
           setVoiceState('ERROR');
           recordingStartedAtRef.current = null;
           return;
         }
-        setVoiceState('TRANSCRIBING');
-        try {
-          const audio = new Blob(chunks, { type: recorder.mimeType || mimeType || 'audio/webm' });
-          const result = await aiApi.voiceTranscribe(convId, audio, voiceLanguage);
-          const transcript = String(result?.transcript || '').trim();
-          if (!transcript) throw new Error('لم يتم العثور على كلام واضح في التسجيل.');
-          const detectedLanguage: 'ar' | 'en' = result?.language === 'en' ? 'en' : 'ar';
-          setInput(transcript);
-          void handleSend(transcript, {
-            inputMode: 'voice',
-            speakResponse: true,
-            language: detectedLanguage,
-            voiceMetadata: {
-              sessionId: `voice-${Date.now()}`,
-              language: detectedLanguage,
-              transcriptionStatus: 'completed',
-              audioMimeType: audio.type,
-              durationMs: result.durationMs || Date.now() - (recordingStartedAtRef.current || Date.now()),
-              capturedAt: new Date().toISOString(),
-              audioStored: false,
-              transcriptionLatencyMs: result.latencyMs,
-              languageProbability: result.languageProbability,
-            },
-          });
-        } catch (error: any) {
-          setVoiceError(voiceErrorMessage(error));
-          setVoiceState('ERROR');
-        } finally {
-          recordingStartedAtRef.current = null;
-        }
+        const audio = new Blob(chunks, { type: recorder.mimeType || mimeType || 'audio/webm' });
+        await submitVoiceAudio(audio, startedAt);
+        recordingStartedAtRef.current = null;
       };
-      recorder.start();
+      recorder.start(250);
     } catch (error: any) {
       recordingStreamRef.current?.getTracks().forEach((track) => track.stop());
       recordingStreamRef.current = null;
@@ -488,7 +593,7 @@ export default function ChatPage() {
     } finally {
       voiceStartPendingRef.current = false;
     }
-  }, [convId, handleSend, voiceLanguage]);
+  }, [submitVoiceAudio]);
 
   useEffect(() => {
     if (
@@ -764,6 +869,14 @@ export default function ChatPage() {
               accept=".txt,.md,.markdown,.csv,.tsv,.json,.xml,.html,.htm,.log,.pdf,text/plain,text/csv,application/json,application/pdf"
               onChange={handleFileSelected}
             />
+            <input
+              ref={voiceFileInputRef}
+              type="file"
+              className="hidden"
+              accept="audio/*"
+              capture
+              onChange={handleVoiceFileSelected}
+            />
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
@@ -880,6 +993,17 @@ export default function ChatPage() {
               <span className="mr-auto rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[10px]">
                 {voiceState}
               </span>
+              {voicePlaybackUrl && (
+                <button
+                  type="button"
+                  onClick={replayVoiceResponse}
+                  className="inline-flex items-center gap-1 rounded-lg border border-thanarah-200 bg-thanarah-50 px-2 py-1 text-[10px] text-thanarah-800"
+                  aria-label="تشغيل الرد الصوتي"
+                >
+                  <Volume2 className="h-3 w-3" />
+                  استمع للرد
+                </button>
+              )}
               <button
                 type="button"
                 disabled={voiceState === 'SPEAKING'}

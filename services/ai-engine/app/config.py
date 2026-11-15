@@ -117,7 +117,9 @@ class Settings(BaseSettings):
     openai_web_search_max_concurrency: int = Field(default=2, ge=1, le=10)
     openai_web_search_max_output_tokens: int = Field(default=192, ge=64, le=512)
     openai_web_search_daily_limit: int = Field(default=25, ge=1, le=10000)
-    openai_web_search_daily_budget_usd: float = Field(default=0.75, ge=0.01, le=1000.0)
+    # Share the user's $0.25/day OpenAI cap with the answer-generation backend:
+    # $0.06 for search reservations and $0.19 for generated replies.
+    openai_web_search_daily_budget_usd: float = Field(default=0.06, ge=0.01, le=1000.0)
     openai_web_search_reservation_usd: float = Field(default=0.03, ge=0.01, le=1.0)
     openai_web_search_input_usd_per_million: float = Field(default=0.10, ge=0.0)
     openai_web_search_output_usd_per_million: float = Field(default=0.50, ge=0.0)
@@ -163,17 +165,19 @@ class Settings(BaseSettings):
     external_ai_enabled: bool = False
     external_ai_api_key: Optional[str] = None
     external_ai_base_url: str = "https://api.openai.com/v1"
-    external_ai_model: str = ""
-    external_ai_max_tokens_field: str = "max_tokens"
-    external_ai_timeout_seconds: float = 90.0
-    external_ai_max_retries: int = 2
-    external_ai_max_concurrency: int = 16
-    external_ai_daily_limit: int = 50000
-    external_ai_rpm_limit: int = 300
-    external_ai_daily_budget_usd: float = 10.0
-    external_ai_input_price_per_million: float = 0.0
-    external_ai_output_price_per_million: float = 0.0
-    external_ai_max_tokens_fast: int = 256
+    external_ai_model: str = "gpt-5-nano"
+    external_ai_max_tokens_field: str = "max_completion_tokens"
+    external_ai_timeout_seconds: float = Field(default=2.0, ge=1.0, le=30.0)
+    external_ai_max_retries: int = 0
+    external_ai_max_concurrency: int = 4
+    external_ai_daily_limit: int = 200
+    external_ai_rpm_limit: int = 20
+    external_ai_daily_budget_usd: float = Field(default=0.19, ge=0.01, le=1000.0)
+    # Conservative reservation rates; these intentionally exceed the selected
+    # small model's expected rates to leave headroom in the daily spend cap.
+    external_ai_input_price_per_million: float = 0.5
+    external_ai_output_price_per_million: float = 2.0
+    external_ai_max_tokens_fast: int = 192
     external_ai_max_tokens_balanced: int = 768
     external_ai_max_tokens_deep: int = 1600
 

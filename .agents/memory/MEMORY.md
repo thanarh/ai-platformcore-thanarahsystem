@@ -2,7 +2,8 @@
 - [MongoDB Atlas connection](mongodb-atlas.md) — lazyConnection:true required; IP whitelist needed for Replit container
 - [AI response cache safety](ai-response-cache-safety.md) — cache only context-free requests until mutable RAG and memory expose reliable tenant versions
 - [WhisperLiveKit isolation](whisperlivekit-isolation.md) — keep experimental ASR dependencies off the AI service import path; evaluate Arabic with real reference audio
-- [Current AI-only scope](ai-only-scope.md) — stop after AI Performance Phase 1; no admin/customer features or Phase 2 unless explicitly requested
+- [Current AI-only scope](ai-only-scope.md) — local-first remains default; OpenAI replies are approved with limited context and a $0.25/day cap
+- [OpenAI small-model compatibility](openai-small-model-availability.md) — verify model access per key; this workspace's key used GPT-5 Nano with minimal reasoning
 - [Arabic response reliability](arabic-response-reliability.md) — keep prompts aligned with the requested language and test mixed-script, code, and URL inputs
 - [Automatic factual-question search](automatic-question-search.md) — route factual questions and comparisons through web search when enabled, while keeping urgent safety first
 - [General answers without RAG](general-answers-without-rag.md) — use model knowledge for general questions; ground organization-specific facts in tenant sources

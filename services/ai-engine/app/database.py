@@ -36,6 +36,7 @@ async def init_db():
             "createdAt",
             expireAfterSeconds=60 * 60 * 24 * 45,
         )
+        await db.ai_managed_provider_usage.create_index("expiresAt", expireAfterSeconds=0)
         await db.ai_daily_learning.create_index(
             [("day", 1), ("tenantId", 1), ("userId", 1)],
             unique=True,
