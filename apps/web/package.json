@@ -17,6 +17,7 @@
     "clsx": "^2.1.0",
     "date-fns": "^3.3.1",
     "js-cookie": "^3.0.5",
+    "libphonenumber-js": "^1.13.16",
     "lucide-react": "^0.400.0",
     "next": "^15.5.29",
     "react": "^19.0.0",
