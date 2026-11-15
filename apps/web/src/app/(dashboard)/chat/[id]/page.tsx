@@ -21,6 +21,28 @@ type ChatAttachment = {
   truncated?: boolean;
 };
 
+function voiceErrorMessage(error: any): string {
+  const status = error?.response?.status;
+  if (status === 429) return 'خدمة تحويل الصوت مشغولة الآن. انتظر قليلًا ثم أعد المحاولة.';
+  if (status === 413) return 'حجم التسجيل كبير. أرسل تسجيلًا أقصر.';
+  if (status === 503) return 'خدمة تحويل الصوت غير متاحة حاليًا. أعد المحاولة بعد قليل.';
+
+  const data = error?.response?.data;
+  let message = data?.detail ?? data?.message ?? error?.message;
+  if (Array.isArray(message)) message = message.join('، ');
+  if (typeof message === 'string') {
+    try {
+      const parsed = JSON.parse(message);
+      message = parsed?.detail ?? parsed?.message ?? message;
+    } catch {
+      // The API may return a plain-text error.
+    }
+    if (Array.isArray(message)) message = message.join('، ');
+    if (typeof message === 'string' && message.trim()) return message;
+  }
+  return 'تعذر فهم التسجيل الصوتي. تحقق من الميكروفون ثم جرّب تسجيلًا أقصر وأوضح.';
+}
+
 export default function ChatPage() {
   const params = useParams();
   const router = useRouter();
@@ -407,7 +429,9 @@ export default function ChatPage() {
         recordingStreamRef.current = null;
         recorderRef.current = null;
         if (chunks.length === 0) {
-          setVoiceState('IDLE');
+          setVoiceError('لم يصل صوت من الميكروفون. تحقق من الإذن ثم أعد التسجيل.');
+          setVoiceState('ERROR');
+          recordingStartedAtRef.current = null;
           return;
         }
         setVoiceState('TRANSCRIBING');
@@ -435,8 +459,7 @@ export default function ChatPage() {
             },
           });
         } catch (error: any) {
-          const message = error?.response?.data?.message || error?.message;
-          setVoiceError(Array.isArray(message) ? message.join('، ') : (message || 'تعذر فهم التسجيل الصوتي.'));
+          setVoiceError(voiceErrorMessage(error));
           setVoiceState('ERROR');
         } finally {
           recordingStartedAtRef.current = null;

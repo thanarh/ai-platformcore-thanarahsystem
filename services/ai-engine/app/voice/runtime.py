@@ -60,37 +60,46 @@ class FasterWhisperWorker:
     def __init__(self, model_path: Path):
         self.model_path = model_path
         self.process: asyncio.subprocess.Process | None = None
+        self._start_lock = asyncio.Lock()
         self.lock = asyncio.Lock()
 
     async def start(self) -> None:
-        if self.process and self.process.returncode is None:
-            return
-        env = os.environ.copy()
-        env["PYTHONPATH"] = self._python_path()
-        self.process = await asyncio.create_subprocess_exec(
-            settings.voice_stt_python,
-            "-u",
-            str(Path(__file__).with_name("stt_worker.py")),
-            str(self.model_path),
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
-            env=env,
-        )
-        try:
-            line = await asyncio.wait_for(
-                self.process.stdout.readline(), timeout=settings.voice_timeout_seconds
+        async with self._start_lock:
+            if self.process and self.process.returncode is None:
+                return
+            env = os.environ.copy()
+            env["PYTHONPATH"] = self._python_path()
+            self.process = await asyncio.create_subprocess_exec(
+                settings.voice_stt_python,
+                "-u",
+                str(Path(__file__).with_name("stt_worker.py")),
+                str(self.model_path),
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+                env=env,
             )
-        except asyncio.TimeoutError as exc:
-            await self.stop()
-            raise VoiceRuntimeError("Local STT worker startup timed out") from exc
-        if not line or json.loads(line).get("ready") is not True:
-            await self.stop()
-            raise VoiceRuntimeError("Local STT worker failed to start")
+            try:
+                line = await asyncio.wait_for(
+                    self.process.stdout.readline(), timeout=settings.voice_timeout_seconds
+                )
+            except asyncio.TimeoutError as exc:
+                await self.stop()
+                raise VoiceRuntimeError("Local STT worker startup timed out") from exc
+            if not line or json.loads(line).get("ready") is not True:
+                await self.stop()
+                raise VoiceRuntimeError("Local STT worker failed to start")
 
     async def transcribe(self, audio_path: Path, language: str) -> dict[str, Any]:
         await self.start()
-        async with self.lock:
+        try:
+            await asyncio.wait_for(
+                self.lock.acquire(),
+                timeout=settings.voice_queue_timeout_seconds,
+            )
+        except asyncio.TimeoutError as exc:
+            raise VoiceBusyError("Voice transcription is busy. Please retry shortly.") from exc
+        try:
             if not self.process or not self.process.stdin or not self.process.stdout:
                 raise VoiceRuntimeError("Local STT worker is unavailable")
             self.process.stdin.write(
@@ -111,6 +120,8 @@ class FasterWhisperWorker:
             if not result.get("ok"):
                 raise VoiceRuntimeError(result.get("error", "Local STT failed"))
             return result
+        finally:
+            self.lock.release()
 
     async def stop(self) -> None:
         if not self.process:
@@ -219,7 +230,7 @@ class LocalVoiceRuntime:
         started = time.perf_counter()
         try:
             await asyncio.wait_for(
-                self._semaphore.acquire(), timeout=settings.voice_timeout_seconds
+                self._semaphore.acquire(), timeout=settings.voice_queue_timeout_seconds
             )
             acquired = True
             with tempfile.TemporaryDirectory(prefix="thanarah-voice-") as directory:
@@ -239,6 +250,10 @@ class LocalVoiceRuntime:
                 duration_ms=duration_ms,
                 provider="faster-whisper",
             )
+        except asyncio.TimeoutError as exc:
+            raise VoiceBusyError(
+                "Voice transcription is busy. Please retry shortly."
+            ) from exc
         finally:
             if acquired:
                 self._semaphore.release()

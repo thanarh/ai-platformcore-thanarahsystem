@@ -62,6 +62,7 @@ class Settings(BaseSettings):
     voice_max_audio_bytes: int = 10_000_000
     voice_max_duration_seconds: int = 60
     voice_max_concurrency: int = 2
+    voice_queue_timeout_seconds: float = Field(default=2.0, ge=0.5, le=30.0)
     voice_timeout_seconds: float = 60.0
     voice_tts_max_chars: int = 6000
     rag_max_scan: int = 2000

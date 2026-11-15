@@ -130,7 +130,18 @@ export const aiApi = {
   voiceCapabilities: () => api.get('/ai/voice/capabilities').then((r) => r.data),
   voiceTranscribe: (conversationId: string, audio: Blob, language: 'ar' | 'en' | 'auto') => {
     const formData = new FormData();
-    formData.append('audio', audio, 'voice-input.webm');
+    const mimeType = audio.type.split(';', 1)[0].toLowerCase();
+    const extensionByMimeType: Record<string, string> = {
+      'audio/wav': 'wav',
+      'audio/x-wav': 'wav',
+      'audio/webm': 'webm',
+      'audio/ogg': 'ogg',
+      'audio/mpeg': 'mp3',
+      'audio/mp4': 'm4a',
+      'audio/x-m4a': 'm4a',
+    };
+    const extension = extensionByMimeType[mimeType] || 'webm';
+    formData.append('audio', audio, `voice-input.${extension}`);
     formData.append('conversationId', conversationId);
     formData.append('language', language);
     return api.post('/ai/voice/transcribe', formData).then((r) => r.data);

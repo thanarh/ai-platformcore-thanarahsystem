@@ -10,10 +10,33 @@ from pydantic import BaseModel, Field
 
 from app.config import settings
 from app.voice.contracts import VOICE_CAPABILITIES
-from app.voice.runtime import VoiceInputError, VoiceRuntimeError, voice_runtime
+from app.voice.runtime import VoiceBusyError, VoiceInputError, VoiceRuntimeError, voice_runtime
 
 
 router = APIRouter()
+
+_VOICE_ERROR_MESSAGES = {
+    "Unsupported audio MIME type": "صيغة التسجيل غير مدعومة. أعد التسجيل من زر الصوت وحاول مجددًا.",
+    "Audio exceeds the maximum allowed size": "حجم التسجيل أكبر من الحد المسموح. أرسل تسجيلًا أقصر.",
+    "Audio exceeds the maximum allowed duration": "مدة التسجيل أطول من المسموح. أرسل تسجيلًا أقصر.",
+    "Malformed audio": "تعذر قراءة التسجيل. أعد تسجيله بصيغة صوت مدعومة.",
+    "Audio contains no duration": "لم يصل صوت واضح من الميكروفون. تحقق من إذن الميكروفون ثم أعد المحاولة.",
+    "Audio processing failed": "تعذر معالجة التسجيل. أعد تسجيله وحاول مرة أخرى.",
+    "Local STT is unavailable": "خدمة تحويل الصوت غير متاحة حاليًا. أعد المحاولة بعد قليل.",
+    "Local STT request timed out": "استغرقت معالجة التسجيل وقتًا طويلًا. جرّب تسجيلًا أقصر.",
+    "Local STT worker stopped": "توقفت خدمة تحويل الصوت أثناء المعالجة. أعد المحاولة.",
+    "Local STT worker is unavailable": "خدمة تحويل الصوت غير متاحة حاليًا. أعد المحاولة بعد قليل.",
+    "Local STT failed": "تعذر التعرّف على الكلام في التسجيل. جرّب تسجيلًا أوضح.",
+    "Local voice process timed out": "استغرقت معالجة التسجيل وقتًا طويلًا. جرّب تسجيلًا أقصر.",
+    "Voice transcription is busy. Please retry shortly.": "خدمة تحويل الصوت مشغولة الآن. انتظر قليلًا ثم أعد المحاولة.",
+}
+
+
+def _voice_error_detail(error: Exception) -> str:
+    return _VOICE_ERROR_MESSAGES.get(
+        str(error),
+        "تعذر معالجة التسجيل الصوتي الآن. أعد تسجيلًا قصيرًا وواضحًا ثم حاول مجددًا.",
+    )
 
 
 @router.get("/capabilities")
@@ -53,9 +76,15 @@ async def transcribe(
     try:
         result = await voice_runtime.transcribe(content, audio.content_type or "", language)
     except VoiceInputError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=_voice_error_detail(exc)) from exc
+    except VoiceBusyError as exc:
+        raise HTTPException(
+            status_code=429,
+            detail=_voice_error_detail(exc),
+            headers={"Retry-After": "2"},
+        ) from exc
     except VoiceRuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        raise HTTPException(status_code=503, detail=_voice_error_detail(exc)) from exc
     return {
         "transcript": result.text,
         "language": result.language,
