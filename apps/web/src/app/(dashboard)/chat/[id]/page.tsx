@@ -26,6 +26,7 @@ function voiceErrorMessage(error: any): string {
   if (status === 429) return 'خدمة تحويل الصوت مشغولة الآن. انتظر قليلًا ثم أعد المحاولة.';
   if (status === 413) return 'حجم التسجيل كبير. أرسل تسجيلًا أقصر.';
   if (status === 503) return 'خدمة تحويل الصوت غير متاحة حاليًا. أعد المحاولة بعد قليل.';
+  if (status >= 500) return 'حدث خطأ في خدمة تحويل الصوت. أعد المحاولة بعد قليل.';
 
   const data = error?.response?.data;
   let message = data?.detail ?? data?.message ?? error?.message;
@@ -39,6 +40,10 @@ function voiceErrorMessage(error: any): string {
     }
     if (Array.isArray(message)) message = message.join('، ');
     if (typeof message === 'string' && message.trim()) return message;
+  }
+  if (status === 400) return 'صيغة التسجيل غير صالحة. أعد التسجيل من زر الصوت وحاول مجددًا.';
+  if (/network|timeout|aborted|failed to fetch/i.test(String(error?.message || ''))) {
+    return 'تعذر الاتصال بخدمة تحويل الصوت. تحقق من الاتصال ثم أعد المحاولة.';
   }
   return 'تعذر فهم التسجيل الصوتي. تحقق من الميكروفون ثم جرّب تسجيلًا أقصر وأوضح.';
 }
@@ -469,7 +474,15 @@ export default function ChatPage() {
     } catch (error: any) {
       recordingStreamRef.current?.getTracks().forEach((track) => track.stop());
       recordingStreamRef.current = null;
-      setVoiceError(error?.message || 'اسمح للمتصفح باستخدام الميكروفون ثم حاول مرة أخرى.');
+      const errorName = String(error?.name || '');
+      const errorMessage = /NotAllowedError|SecurityError/.test(errorName)
+        ? 'اسمح للمتصفح باستخدام الميكروفون ثم حاول مرة أخرى.'
+        : /NotFoundError/.test(errorName)
+          ? 'لم يتم العثور على ميكروفون. وصّل ميكروفونًا ثم حاول مرة أخرى.'
+          : /NotReadableError/.test(errorName)
+            ? 'الميكروفون مستخدم في تطبيق آخر. أغلقه ثم حاول مرة أخرى.'
+            : error?.message || 'تعذر بدء تسجيل الصوت. حاول مرة أخرى.';
+      setVoiceError(errorMessage);
       setVoiceState('ERROR');
     } finally {
       voiceStartPendingRef.current = false;

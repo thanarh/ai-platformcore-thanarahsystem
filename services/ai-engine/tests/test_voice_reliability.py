@@ -1,4 +1,6 @@
 import asyncio
+import subprocess
+import tempfile
 import unittest
 from io import BytesIO
 from pathlib import Path
@@ -77,6 +79,54 @@ class VoiceReliabilityTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.duration_ms, 1200)
         runtime._stt.transcribe.assert_awaited_once()
         runtime._normalize.assert_awaited_once()
+
+    async def test_browser_webm_container_is_normalized_before_stt(self):
+        runtime = LocalVoiceRuntime()
+        runtime._started = True
+
+        async def inspect_normalized_file(path, language):
+            self.assertEqual(language, "ar")
+            self.assertTrue(path.read_bytes().startswith(b"RIFF"))
+            return {
+                "text": "",
+                "language": "ar",
+                "languageProbability": 0.99,
+            }
+
+        runtime._stt = SimpleNamespace(transcribe=AsyncMock(side_effect=inspect_normalized_file))
+        with tempfile.TemporaryDirectory(prefix="voice-format-test-") as directory:
+            source = Path(directory) / "browser-recording.webm"
+            subprocess.run(
+                [
+                    "ffmpeg",
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    "anullsrc=r=48000:cl=mono",
+                    "-t",
+                    "0.5",
+                    "-c:a",
+                    "libopus",
+                    "-f",
+                    "webm",
+                    str(source),
+                ],
+                check=True,
+                capture_output=True,
+            )
+            result = await runtime.transcribe(
+                source.read_bytes(),
+                "audio/webm;codecs=opus",
+                "ar",
+            )
+
+        self.assertEqual(result.text, "")
+        self.assertGreaterEqual(result.duration_ms, 450)
+        self.assertLessEqual(result.duration_ms, 650)
+        runtime._stt.transcribe.assert_awaited_once()
 
     async def test_busy_error_is_a_localized_retryable_http_response(self):
         audio = UploadFile(

@@ -26,8 +26,10 @@ _VOICE_ERROR_MESSAGES = {
     "Local STT request timed out": "استغرقت معالجة التسجيل وقتًا طويلًا. جرّب تسجيلًا أقصر.",
     "Local STT worker stopped": "توقفت خدمة تحويل الصوت أثناء المعالجة. أعد المحاولة.",
     "Local STT worker is unavailable": "خدمة تحويل الصوت غير متاحة حاليًا. أعد المحاولة بعد قليل.",
+    "Local STT worker returned an invalid response": "تعذر قراءة نتيجة تحويل الصوت. أعد المحاولة.",
     "Local STT failed": "تعذر التعرّف على الكلام في التسجيل. جرّب تسجيلًا أوضح.",
     "Local voice process timed out": "استغرقت معالجة التسجيل وقتًا طويلًا. جرّب تسجيلًا أقصر.",
+    "Local voice process is unavailable": "أدوات معالجة الصوت غير متاحة حاليًا. أعد المحاولة بعد قليل.",
     "Voice transcription is busy. Please retry shortly.": "خدمة تحويل الصوت مشغولة الآن. انتظر قليلًا ثم أعد المحاولة.",
 }
 

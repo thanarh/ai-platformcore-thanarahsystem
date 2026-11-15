@@ -86,7 +86,11 @@ class FasterWhisperWorker:
             except asyncio.TimeoutError as exc:
                 await self.stop()
                 raise VoiceRuntimeError("Local STT worker startup timed out") from exc
-            if not line or json.loads(line).get("ready") is not True:
+            try:
+                ready = json.loads(line) if line else None
+            except (TypeError, ValueError):
+                ready = None
+            if not isinstance(ready, dict) or ready.get("ready") is not True:
                 await self.stop()
                 raise VoiceRuntimeError("Local STT worker failed to start")
 
@@ -116,7 +120,14 @@ class FasterWhisperWorker:
             if not line:
                 await self.stop()
                 raise VoiceRuntimeError("Local STT worker stopped")
-            result = json.loads(line)
+            try:
+                result = json.loads(line)
+            except (TypeError, ValueError) as exc:
+                await self.stop()
+                raise VoiceRuntimeError("Local STT worker returned an invalid response") from exc
+            if not isinstance(result, dict):
+                await self.stop()
+                raise VoiceRuntimeError("Local STT worker returned an invalid response")
             if not result.get("ok"):
                 raise VoiceRuntimeError(result.get("error", "Local STT failed"))
             return result
@@ -320,12 +331,15 @@ class LocalVoiceRuntime:
     async def _run(
         self, command: list[str], input_bytes: bytes | None, timeout: float
     ) -> bytes:
-        process = await asyncio.create_subprocess_exec(
-            *command,
-            stdin=asyncio.subprocess.PIPE if input_bytes is not None else asyncio.subprocess.DEVNULL,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *command,
+                stdin=asyncio.subprocess.PIPE if input_bytes is not None else asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+        except FileNotFoundError as exc:
+            raise VoiceRuntimeError("Local voice process is unavailable") from exc
         try:
             stdout, stderr = await asyncio.wait_for(
                 process.communicate(input=input_bytes), timeout=timeout
