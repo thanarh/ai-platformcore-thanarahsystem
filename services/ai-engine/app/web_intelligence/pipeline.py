@@ -23,6 +23,7 @@ from app.web_intelligence.decision import (
 )
 from app.web_intelligence.extractor import ExtractedPage, extract_html
 from app.web_intelligence.fetcher import FetchError, SafeHTTPFetcher
+from app.web_intelligence.openai_search import openai_web_search_provider
 from app.web_intelligence.search import (
     SearchResult,
     SearXNGClient,
@@ -50,6 +51,11 @@ class WebPipelineResult:
     sources: list[dict[str, Any]] = field(default_factory=list)
     events: list[dict[str, Any]] = field(default_factory=list)
     error: str | None = None
+    answer: str | None = None
+    answer_model: str | None = None
+    answer_input_tokens: int = 0
+    answer_output_tokens: int = 0
+    answer_cache_hit: bool = False
 
 
 class WebIntelligencePipeline:
@@ -166,7 +172,21 @@ class WebIntelligencePipeline:
         engines = await self.search_client.discover_engines()
         return {
             "enabled": settings.web_search_enabled,
-            "provider": "SearXNG",
+            "provider": "OpenAI Responses web_search, with SearXNG fallback"
+            if openai_web_search_provider.enabled
+            else "SearXNG",
+            "providers": [
+                {
+                    "id": "openai",
+                    "enabled": openai_web_search_provider.enabled,
+                    "model": settings.openai_web_search_model
+                    if openai_web_search_provider.enabled
+                    else None,
+                    "dailyLimit": settings.openai_web_search_daily_limit,
+                    "cacheTtlSeconds": settings.openai_web_search_cache_ttl_seconds,
+                },
+                {"id": "searxng", "enabled": settings.web_search_enabled},
+            ],
             "endpoint": self.search_client.base_url,
             "probe": probe,
             "engines": engines.get("engines", []),
@@ -222,6 +242,86 @@ class WebIntelligencePipeline:
             ),
             event_callback,
         )
+        tenant_settings = tenant_config or {}
+        tenant_industry = str(tenant_settings.get("industry") or "").casefold()
+        openai_allowed = (
+            openai_web_search_provider.enabled
+            and tenant_settings.get("openaiWebSearchEnabled", True) is not False
+            and tenant_industry not in {"healthcare", "medical", "legal", "finance", "financial"}
+            and not bool(tenant_settings.get("medicalMode"))
+            and not tenant_settings.get("systemPrompt")
+            and not tenant_settings.get("contextProfile")
+            and not tenant_settings.get("preferredBackend")
+            and tenant_settings.get("responseProfile") != "deep"
+            and not direct_urls
+            and not requires_same_day_results(query)
+            and not is_university_ranking_query(query)
+            and not is_recent_vehicle_model_query(query)
+        )
+        if openai_allowed:
+            openai_started = time.perf_counter()
+            openai_answer = await openai_web_search_provider.search(
+                query,
+                tenant_id=tenant_id,
+                user_id=user_id,
+                conversation_id=conversation_id,
+                language=language,
+                region=region,
+                as_of_date=as_of_date,
+                timezone_name=timezone_name,
+                tenant_config=tenant_settings,
+            )
+            if telemetry is not None:
+                telemetry.add_ms("openaiWebSearchMs", openai_started)
+                telemetry.set("webSearchProvider", "openai" if openai_answer else "searxng")
+                telemetry.set(
+                    "openaiWebSearchCacheHit",
+                    bool(openai_answer and openai_answer.cache_hit),
+                )
+            if openai_answer:
+                result.answer = openai_answer.answer
+                result.answer_model = openai_answer.model
+                result.answer_input_tokens = openai_answer.input_tokens
+                result.answer_output_tokens = openai_answer.output_tokens
+                result.answer_cache_hit = openai_answer.cache_hit
+                result.sources = openai_answer.sources
+                result.context = "## OpenAI web-search answer\n" + openai_answer.answer
+                for index, source in enumerate(result.sources, start=1):
+                    await self._emit_event(
+                        result,
+                        self._event(
+                            "source_found",
+                            progress=75,
+                            source={
+                                "id": source["id"],
+                                "title": source["title"],
+                                "url": source["url"],
+                                "rank": index,
+                                "domain": source["domain"],
+                                "engines": ["openai_web_search"],
+                                "category": decision.category,
+                            },
+                        ),
+                        event_callback,
+                    )
+                await self._emit_event(
+                    result,
+                    self._event(
+                        "status",
+                        state="complete",
+                        progress=100,
+                        sourceCount=len(result.sources),
+                    ),
+                    event_callback,
+                )
+                if telemetry is not None:
+                    telemetry.set("webSearchResultCount", len(result.sources))
+                    telemetry.set("webFetchedCount", 0)
+                    telemetry.add_ms("webTotalMs", pipeline_started)
+                return result
+            if telemetry is not None:
+                telemetry.set("openaiWebSearchFallback", "searxng")
+
         started = time.perf_counter()
         search_queries, search_queries_truncated = split_search_queries(query)
         search_query = normalize_search_query(query)

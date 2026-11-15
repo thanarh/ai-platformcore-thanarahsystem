@@ -109,6 +109,23 @@ class Settings(BaseSettings):
     web_search_capability_cache_seconds: int = 60
     web_max_domains: int = 3
 
+    # Optional, quota-bounded OpenAI Responses API web search. It only runs
+    # when web search is enabled and OPENAI_API_KEY is present.
+    openai_web_search_enabled: bool = True
+    openai_web_search_model: str = "gpt-6-luna"
+    openai_web_search_timeout_seconds: float = Field(default=5.0, ge=1.0, le=30.0)
+    openai_web_search_max_concurrency: int = Field(default=2, ge=1, le=10)
+    openai_web_search_max_output_tokens: int = Field(default=192, ge=64, le=512)
+    openai_web_search_daily_limit: int = Field(default=25, ge=1, le=10000)
+    openai_web_search_daily_budget_usd: float = Field(default=0.75, ge=0.01, le=1000.0)
+    openai_web_search_reservation_usd: float = Field(default=0.03, ge=0.01, le=1.0)
+    openai_web_search_input_usd_per_million: float = Field(default=0.10, ge=0.0)
+    openai_web_search_output_usd_per_million: float = Field(default=0.50, ge=0.0)
+    openai_web_search_tool_usd_per_1k_calls: float = Field(default=10.0, ge=0.0)
+    openai_web_search_cache_enabled: bool = True
+    openai_web_search_cache_ttl_seconds: int = Field(default=180, ge=30, le=600)
+    openai_web_search_cache_size: int = Field(default=128, ge=1, le=2048)
+
     @field_validator("searxng_url", mode="before")
     @classmethod
     def normalize_searxng_url(cls, value: str) -> str:

@@ -30,6 +30,12 @@ async def init_db():
             [("tenantId", 1), ("userId", 1), ("profile", 1), ("createdAt", -1)]
         )
         await db.ai_response_cache.create_index("expiresAt", expireAfterSeconds=0)
+        await db.ai_openai_web_search_cache.create_index("key", unique=True)
+        await db.ai_openai_web_search_cache.create_index("expiresAt", expireAfterSeconds=0)
+        await db.ai_openai_web_search_usage.create_index(
+            "createdAt",
+            expireAfterSeconds=60 * 60 * 24 * 45,
+        )
         await db.ai_daily_learning.create_index(
             [("day", 1), ("tenantId", 1), ("userId", 1)],
             unique=True,

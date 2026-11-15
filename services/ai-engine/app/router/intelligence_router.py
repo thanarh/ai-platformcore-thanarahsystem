@@ -452,12 +452,17 @@ class IntelligenceRouter:
         search_language = detect_language(last_user_msg, fallback=runtime.language)
         if search_language not in {"ar", "en"}:
             search_language = runtime.language
+        effective_tenant_config = dict(chat_request.tenantConfig or {})
+        if chat_request.skillId or len(chat_request.messages) > 1:
+            # A direct provider answer must not bypass skill instructions or
+            # conversational context; those requests keep the normal pipeline.
+            effective_tenant_config["openaiWebSearchEnabled"] = False
         result = await web_intelligence_pipeline.run(
             last_user_msg,
             tenant_id=chat_request.tenantId,
             user_id=chat_request.userId,
             conversation_id=chat_request.conversationId,
-            tenant_config=chat_request.tenantConfig,
+            tenant_config=effective_tenant_config,
             language=search_language,
             region=runtime_mapping.get("region"),
             as_of_date=runtime_snapshot["currentDate"],
@@ -1203,8 +1208,17 @@ class IntelligenceRouter:
         logger.info(f"[TIR] Route decision: {route.backend_id} — {route.reason}")
 
         context_started = time.perf_counter()
-        memories, rag_sources, user_profile = await self._load_context_sources(chat_request, route, telemetry, profile_task)
+        context_task = asyncio.create_task(
+            self._load_context_sources(chat_request, route, telemetry, profile_task)
+        )
         web_result = await self._load_web_context(chat_request, telemetry)
+        if web_result.answer and web_result.sources:
+            context_task.cancel()
+            profile_task.cancel()
+            await asyncio.gather(context_task, return_exceptions=True)
+            memories, rag_sources, user_profile = [], [], None
+        else:
+            memories, rag_sources, user_profile = await context_task
         telemetry.add_ms("contextMs", context_started)
         last_user_message = next(
             (message.content for message in reversed(chat_request.messages) if message.role == "user"),
@@ -1239,6 +1253,30 @@ class IntelligenceRouter:
                 backend="web-search-unavailable",
                 routeDecision=route.reason,
                 ragSources=rag_sources,
+                requestId=telemetry.request_id,
+            )
+        if web_result.answer and web_result.sources:
+            web_route = RouteDecision(
+                backend_id="openai-web-search",
+                reason="Returned a concise answer with verified OpenAI web citations",
+                rag_enabled=route.rag_enabled,
+                fallback_order=[],
+            )
+            telemetry.finish(
+                route=web_route.backend_id,
+                model=web_result.answer_model or "openai-web-search",
+                cache_hit=web_result.answer_cache_hit,
+                input_tokens=web_result.answer_input_tokens,
+                output_tokens=web_result.answer_output_tokens,
+            )
+            return ChatResponse(
+                content=self._with_web_citations(web_result.answer, web_result.sources),
+                model=web_result.answer_model or "openai-web-search",
+                backend=web_route.backend_id,
+                routeDecision=web_route.reason,
+                inputTokens=web_result.answer_input_tokens,
+                outputTokens=web_result.answer_output_tokens,
+                ragSources=[*rag_sources, *web_result.sources],
                 requestId=telemetry.request_id,
             )
         today_news_headlines = self._today_news_headlines(
@@ -1528,12 +1566,21 @@ class IntelligenceRouter:
         logger.info(f"[TIR Stream] Route: {route.backend_id}")
 
         context_started = time.perf_counter()
-        memories, rag_sources, user_profile = await self._load_context_sources(chat_request, route, telemetry, profile_task)
+        context_task = asyncio.create_task(
+            self._load_context_sources(chat_request, route, telemetry, profile_task)
+        )
         web_result = await self._load_web_context(
             chat_request,
             telemetry,
             event_callback=event_callback,
         )
+        if web_result.answer and web_result.sources:
+            context_task.cancel()
+            profile_task.cancel()
+            await asyncio.gather(context_task, return_exceptions=True)
+            memories, rag_sources, user_profile = [], [], None
+        else:
+            memories, rag_sources, user_profile = await context_task
         telemetry.add_ms("contextMs", context_started)
         last_user_message = next(
             (message.content for message in reversed(chat_request.messages) if message.role == "user"),
@@ -1571,6 +1618,33 @@ class IntelligenceRouter:
                 _unavailable_web_stream(),
                 unavailable_route,
                 rag_sources,
+                telemetry,
+                web_result.events,
+            )
+        if web_result.answer and web_result.sources:
+            web_route = RouteDecision(
+                backend_id="openai-web-search",
+                reason="Returned a concise answer with verified OpenAI web citations",
+                rag_enabled=route.rag_enabled,
+                fallback_order=[],
+            )
+            answer = self._with_web_citations(web_result.answer, web_result.sources)
+            telemetry.finish(
+                route=web_route.backend_id,
+                model=web_result.answer_model or "openai-web-search",
+                cache_hit=web_result.answer_cache_hit,
+                input_tokens=web_result.answer_input_tokens,
+                output_tokens=web_result.answer_output_tokens,
+            )
+
+            async def _openai_web_answer_stream() -> AsyncGenerator[str, None]:
+                telemetry.set("timeToFirstTokenMs", round((time.perf_counter() - telemetry.started_at) * 1000, 2))
+                yield answer
+
+            return (
+                _openai_web_answer_stream(),
+                web_route,
+                [*rag_sources, *web_result.sources],
                 telemetry,
                 web_result.events,
             )
