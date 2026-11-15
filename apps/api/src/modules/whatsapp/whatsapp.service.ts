@@ -25,7 +25,7 @@ import {
 } from '@whiskeysockets/baileys';
 import { Model, Types } from 'mongoose';
 import * as QRCode from 'qrcode';
-import { createHmac } from 'crypto';
+import { createHash, createHmac } from 'crypto';
 import { WhatsappAuthKey, WhatsappAuthKeyDocument } from './schemas/whatsapp-auth-key.schema';
 import { WhatsappDelivery, WhatsappDeliveryDocument } from './schemas/whatsapp-delivery.schema';
 import { WhatsappSession, WhatsappSessionDocument } from './schemas/whatsapp-session.schema';
@@ -33,6 +33,10 @@ import { WhatsappConsent, WhatsappConsentDocument } from './schemas/whatsapp-con
 import { WhatsappBudget, WhatsappBudgetDocument } from './schemas/whatsapp-budget.schema';
 import { decryptWhatsappData, encryptWhatsappData, whatsappEncryptionKey } from './whatsapp.crypto';
 import { ApiKeysService } from '../api-keys/api-keys.service';
+import { AiService } from '../ai/ai.service';
+import { ConversationsService } from '../conversations/conversations.service';
+import { TenantsService } from '../tenants/tenants.service';
+import { WhatsappInbound, WhatsappInboundDocument } from './schemas/whatsapp-inbound.schema';
 
 export type WhatsappMessageInput = {
   to: string;
@@ -54,7 +58,11 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   private readonly qrCodes = new Map<string, { dataUrl: string; expiresAt: Date }>();
   private readonly connectedAt = new Map<string, Date>();
   private dispatching = false;
+  private dispatchRequested = false;
   private shuttingDown = false;
+  private readonly reconnectAttempts = new Map<string, number>();
+  private readonly reconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly reconnectExhausted = new Set<string>();
   private readonly socketFactory = makeWASocket;
 
   constructor(
@@ -64,6 +72,10 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     @InjectModel(WhatsappConsent.name) private readonly consentModel: Model<WhatsappConsentDocument>,
     @InjectModel(WhatsappBudget.name) private readonly budgetModel: Model<WhatsappBudgetDocument>,
     private readonly apiKeysService: ApiKeysService,
+    @InjectModel(WhatsappInbound.name) private readonly inboundModel: Model<WhatsappInboundDocument>,
+    private readonly aiService: AiService,
+    private readonly conversationsService: ConversationsService,
+    private readonly tenantsService: TenantsService,
   ) {}
 
   onModuleInit() {
@@ -72,6 +84,8 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
 
   async onModuleDestroy() {
     this.shuttingDown = true;
+    for (const timer of this.reconnectTimers.values()) clearTimeout(timer);
+    this.reconnectTimers.clear();
     const sockets = [...this.sockets.values()];
     this.sockets.clear();
     for (const socket of sockets) {
@@ -107,11 +121,15 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   }
 
   async startPlatformConnection() {
+    this.reconnectAttempts.delete('platform');
+    this.reconnectExhausted.delete('platform');
     return this.startConnection('platform', 'platform');
   }
 
   async startTenantConnection(tenantId: string) {
     if (!Types.ObjectId.isValid(tenantId)) throw new BadRequestException('A valid tenant is required');
+    this.reconnectAttempts.delete(`tenant:${tenantId}`);
+    this.reconnectExhausted.delete(`tenant:${tenantId}`);
     return this.startConnection(`tenant:${tenantId}`, 'tenant', tenantId);
   }
 
@@ -244,6 +262,11 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       }
 
       if (update.connection === 'open') {
+        this.reconnectAttempts.delete(scopeKey);
+        this.reconnectExhausted.delete(scopeKey);
+        const reconnectTimer = this.reconnectTimers.get(scopeKey);
+        if (reconnectTimer) clearTimeout(reconnectTimer);
+        this.reconnectTimers.delete(scopeKey);
         this.qrCodes.delete(scopeKey);
         const phoneNumber = socket.user?.id?.split(':')[0]?.split('@')[0] || undefined;
         const now = new Date();
@@ -273,6 +296,11 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
           },
         );
         if (loggedOut) await this.authKeyModel.deleteMany({ scopeKey });
+        if (loggedOut) {
+          this.reconnectAttempts.delete(scopeKey);
+          this.reconnectExhausted.delete(scopeKey);
+        }
+        else this.scheduleReconnect(scopeKey, scope, tenantId);
       }
       } catch {
         await this.sessionModel
@@ -310,28 +338,10 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       }
     });
 
-    socket.ev.on('messages.upsert', async ({ messages }) => {
-      try {
-      const tenantId = scopeKey.startsWith('tenant:') ? scopeKey.slice('tenant:'.length) : null;
-      if (!tenantId || !Types.ObjectId.isValid(tenantId)) return;
+    socket.ev.on('messages.upsert', ({ messages, type }) => {
+      if (type !== 'notify') return;
       for (const message of messages) {
-        if (message.key.fromMe || !message.key.remoteJid) continue;
-        const text = message.message?.conversation
-          || message.message?.extendedTextMessage?.text
-          || '';
-        if (!/^\s*(stop|unsubscribe|إلغاء|الغاء)\s*$/i.test(text)) continue;
-        const phoneJid = [message.key.remoteJid, message.key.remoteJidAlt]
-          .find((jid) => jid?.endsWith('@s.whatsapp.net'));
-        if (!phoneJid) continue;
-        const phone = phoneJid.split('@')[0].split(':')[0].replace(/\D/g, '');
-        if (!phone) continue;
-        await this.consentModel.updateOne(
-          { tenantId: new Types.ObjectId(tenantId), phoneNumber: `+${phone}` },
-          { $set: { status: 'revoked', revokedAt: new Date() } },
-        );
-      }
-      } catch {
-        // A failed opt-out write must not crash the Baileys event loop.
+        void this.handleInboundMessage(scopeKey, socket, message).catch(() => undefined);
       }
     });
 
@@ -349,9 +359,12 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     const qr = this.qrCodes.get(scopeKey);
     const qrDataUrl = qr && qr.expiresAt.getTime() > Date.now() ? qr.dataUrl : undefined;
     if (qr && !qrDataUrl) this.qrCodes.delete(scopeKey);
+    const state = session?.connectionState === 'qr_pending' && !qrDataUrl
+      ? 'qr_expired'
+      : session?.connectionState || 'disconnected';
     return {
-      available: session?.connectionState === 'connected' && this.sockets.has(scopeKey),
-      state: session?.connectionState || 'disconnected',
+      available: state === 'connected' && this.sockets.has(scopeKey),
+      state,
       integration: 'baileys',
       phoneNumber: session?.phoneNumber || null,
       lastConnectedAt: session?.lastConnectedAt || null,
@@ -359,15 +372,20 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       qrExpiresAt: qrDataUrl ? qr?.expiresAt : null,
       capabilities: {
         linkSession: true,
-        sendMessages: session?.connectionState === 'connected' && this.sockets.has(scopeKey),
-        sendMedia: session?.connectionState === 'connected' && this.sockets.has(scopeKey),
-        receiveMessages: false,
+        sendMessages: state === 'connected' && this.sockets.has(scopeKey),
+        sendMedia: state === 'connected' && this.sockets.has(scopeKey),
+        receiveMessages: session?.scope === 'tenant' && state === 'connected' && this.sockets.has(scopeKey),
       },
     };
   }
 
   async disconnect(scopeKey: string) {
     if (this.starting.has(scopeKey)) throw new ConflictException('Connection is starting. Try again shortly.');
+    const reconnectTimer = this.reconnectTimers.get(scopeKey);
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    this.reconnectTimers.delete(scopeKey);
+    this.reconnectAttempts.delete(scopeKey);
+    this.reconnectExhausted.delete(scopeKey);
     const socket = this.sockets.get(scopeKey);
     this.sockets.delete(scopeKey);
     this.qrCodes.delete(scopeKey);
@@ -414,6 +432,154 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     if (!sent?.key?.id) {
       throw new ServiceUnavailableException('تعذر تأكيد إرسال رمز WhatsApp.');
     }
+  }
+
+  private scheduleReconnect(scopeKey: string, scope: 'platform' | 'tenant', tenantId?: string) {
+    if (
+      this.shuttingDown
+      || this.reconnectExhausted.has(scopeKey)
+      || this.reconnectTimers.has(scopeKey)
+      || this.sockets.has(scopeKey)
+    ) return;
+    const attempt = (this.reconnectAttempts.get(scopeKey) || 0) + 1;
+    if (attempt > 6) {
+      this.reconnectExhausted.add(scopeKey);
+      void this.sessionModel.updateOne(
+        { scopeKey },
+        { $set: { connectionState: 'reconnect_failed' } },
+      ).catch(() => undefined);
+      return;
+    }
+    this.reconnectAttempts.set(scopeKey, attempt);
+    const delayMs = Math.min(30_000, 1_000 * (2 ** (attempt - 1)));
+    const timer = setTimeout(() => {
+      this.reconnectTimers.delete(scopeKey);
+      if (this.shuttingDown || this.sockets.has(scopeKey)) return;
+      void this.startConnection(scopeKey, scope, tenantId).catch(() => {
+        this.scheduleReconnect(scopeKey, scope, tenantId);
+      });
+    }, delayMs);
+    timer.unref?.();
+    this.reconnectTimers.set(scopeKey, timer);
+  }
+
+  private async handleInboundMessage(scopeKey: string, socket: WASocket, message: any) {
+    const tenantId = scopeKey.startsWith('tenant:') ? scopeKey.slice('tenant:'.length) : null;
+    if (!tenantId || !Types.ObjectId.isValid(tenantId) || message?.key?.fromMe) return;
+    const remoteJid = message?.key?.remoteJid;
+    if (typeof remoteJid !== 'string' || remoteJid.endsWith('@g.us') || remoteJid.endsWith('@broadcast')) return;
+
+    const phoneJid = [remoteJid, message?.key?.remoteJidAlt]
+      .find((jid) => typeof jid === 'string' && jid.endsWith('@s.whatsapp.net'));
+    if (!phoneJid) return;
+    const phone = phoneJid.split('@')[0].split(':')[0].replace(/\D/g, '');
+    const providerMessageId = message?.key?.id;
+    if (!phone || phone.length < 8 || phone.length > 15 || typeof providerMessageId !== 'string') return;
+
+    const text = this.extractInboundText(message);
+    if (!text) return;
+    const tenantObjectId = new Types.ObjectId(tenantId);
+
+    if (/^\s*(stop|unsubscribe|إلغاء|الغاء)\s*$/i.test(text)) {
+      await this.consentModel.updateOne(
+        { tenantId: tenantObjectId, phoneNumber: `+${phone}`, status: 'active' },
+        { $set: { status: 'revoked', revokedAt: new Date() } },
+      );
+      return;
+    }
+    if (text.length > 4096) return;
+
+    try {
+      await this.inboundModel.create({
+        tenantId: tenantObjectId,
+        providerMessageId,
+        status: 'processing',
+      });
+    } catch (error: any) {
+      if (error?.code === 11000) return;
+      throw error;
+    }
+
+    try {
+      const consent = await this.consentModel.findOne({
+        tenantId: tenantObjectId,
+        phoneNumber: `+${phone}`,
+        status: 'active',
+      }).lean();
+      if (!consent) {
+        await this.inboundModel.updateOne(
+          { tenantId: tenantObjectId, providerMessageId },
+          { $set: { status: 'ignored', failureCode: 'WHATSAPP_CONSENT_REQUIRED' } },
+        );
+        return;
+      }
+
+      // The external contact gets a deterministic, non-authenticating identity;
+      // each phone and tenant pair has its own conversation and AI history.
+      const contactHash = createHash('sha256').update(`${tenantId}:${phone}`).digest('hex');
+      const userId = contactHash.slice(0, 24);
+      const conversation = await this.conversationsService.findOrCreateWhatsAppConversation(
+        tenantId,
+        userId,
+        contactHash,
+      );
+      await this.tenantsService.consumeChatUsage(tenantId, false);
+      const answer = await this.aiService.chat({
+        conversationId: conversation._id.toString(),
+        content: text,
+        userId,
+        tenantId,
+        stream: false,
+        inputMode: 'text',
+      });
+      if (answer?.error || typeof answer?.content !== 'string' || !answer.content.trim()) {
+        throw new Error('AI reply unavailable');
+      }
+
+      const stillConsented = await this.consentModel.exists({
+        tenantId: tenantObjectId,
+        phoneNumber: `+${phone}`,
+        status: 'active',
+        reference: consent.reference,
+      });
+      if (!stillConsented || this.sockets.get(scopeKey) !== socket) {
+        await this.inboundModel.updateOne(
+          { tenantId: tenantObjectId, providerMessageId },
+          { $set: { status: 'ignored', failureCode: 'WHATSAPP_CONSENT_REVOKED' } },
+        );
+        return;
+      }
+
+      const replyId = `3EB0${createHash('sha256')
+        .update(`${tenantId}:${providerMessageId}`)
+        .digest('hex')
+        .slice(0, 24)
+        .toUpperCase()}`;
+      const sent = await socket.sendMessage(
+        `${phone}@s.whatsapp.net`,
+        { text: answer.content.slice(0, 4096) },
+        { messageId: replyId },
+      );
+      if (!sent?.key?.id) throw new Error('WhatsApp did not confirm the reply');
+      await this.inboundModel.updateOne(
+        { tenantId: tenantObjectId, providerMessageId },
+        { $set: { status: 'replied', providerReplyId: sent.key.id }, $unset: { failureCode: 1 } },
+      );
+    } catch {
+      await this.inboundModel.updateOne(
+        { tenantId: tenantObjectId, providerMessageId },
+        { $set: { status: 'failed', failureCode: 'WHATSAPP_AUTO_REPLY_FAILED' } },
+      ).catch(() => undefined);
+    }
+  }
+
+  private extractInboundText(message: any): string | null {
+    let content = message?.message;
+    for (let depth = 0; depth < 3 && content?.ephemeralMessage?.message; depth += 1) {
+      content = content.ephemeralMessage.message;
+    }
+    const text = content?.conversation || content?.extendedTextMessage?.text;
+    return typeof text === 'string' && text.trim() ? text.trim() : null;
   }
 
   async enqueueMessage(tenantId: string, input: WhatsappMessageInput, idempotencyKey: string, apiKeyId?: string) {
@@ -474,9 +640,16 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       if (!duplicate || duplicate.payloadHash !== payloadHash) {
         throw new ConflictException({ code: 'IDEMPOTENCY_CONFLICT', message: 'This Idempotency-Key was already used for a different message.' });
       }
+      if (duplicate.status === 'pending') this.requestDispatch();
       return this.publicDelivery(duplicate);
     }
+    this.requestDispatch();
     return this.publicDelivery(delivery);
+  }
+
+  private requestDispatch() {
+    this.dispatchRequested = true;
+    void this.dispatchPendingMessages();
   }
 
   async consumeBudget(scope: string, limit: number, windowSeconds: number): Promise<void> {
@@ -667,6 +840,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     try {
       const enabled = await this.sessionModel.find({ enabled: true }).select('scopeKey scope tenantId').lean();
       for (const session of enabled) {
+        if (this.reconnectExhausted.has(session.scopeKey)) continue;
         if (!this.sockets.has(session.scopeKey)) {
           try {
             await this.startConnection(session.scopeKey, session.scope, session.tenantId?.toString());
@@ -685,8 +859,14 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
 
   @Interval(5_000)
   private async dispatchPendingMessages() {
-    if (this.dispatching || this.shuttingDown) return;
+    if (this.shuttingDown) return;
+    if (this.dispatching) {
+      this.dispatchRequested = true;
+      return;
+    }
     this.dispatching = true;
+    this.dispatchRequested = false;
+    let processed = 0;
     try {
       for (let count = 0; count < 10; count += 1) {
         const now = new Date();
@@ -701,6 +881,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
           { new: true, sort: { createdAt: 1 } },
         ).select('+encryptedPayload');
         if (!delivery) break;
+        processed += 1;
 
         const tenantId = delivery.tenantId.toString();
         const socket = this.sockets.get(`tenant:${tenantId}`);
@@ -778,6 +959,10 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       // Leave claimed deliveries recoverable by the lease timeout.
     } finally {
       this.dispatching = false;
+      if (this.dispatchRequested || processed === 10) {
+        this.dispatchRequested = false;
+        setImmediate(() => void this.dispatchPendingMessages());
+      }
     }
   }
 }

@@ -133,8 +133,12 @@ export default function WhatsAppSettingsPage() {
   const statusLabel = (value?: Readiness | null) => {
     if (value?.available) return 'متصل';
     if (value?.state === 'qr_pending') return 'امسح رمز QR';
+    if (value?.state === 'qr_expired') return 'انتهت صلاحية QR';
     if (value?.state === 'connecting') return 'جارٍ الاتصال';
     if (value?.state === 'reconnecting') return 'جارٍ إعادة الاتصال';
+    if (value?.state === 'reconnect_failed') return 'تعذر الاتصال؛ أعد المحاولة';
+    if (value?.state === 'needs_qr') return 'يلزم ربط QR مجددًا';
+    if (value?.state === 'qr_error' || value?.state === 'storage_error') return 'تعذر إكمال الربط';
     return 'غير متصل';
   };
 
@@ -151,7 +155,7 @@ export default function WhatsAppSettingsPage() {
               </p>
               <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">ربط WhatsApp عبر QR</h1>
               <p className="mt-2 max-w-xl text-sm leading-7 text-[#d5e3d9]">
-                اربط رقم المؤسسة بجلسة Baileys محفوظة ومشفّرة، ثم أرسل النصوص والوسائط عبر API.
+                اربط رقم المؤسسة بجلسة Baileys محفوظة ومشفّرة، وأرسل الرسائل عبر API. يمكن الرد على الرسائل النصية الواردة عند وجود موافقة نشطة.
               </p>
             </div>
             <div className="flex shrink-0 items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3.5 py-2 text-xs">
@@ -250,8 +254,9 @@ export default function WhatsAppSettingsPage() {
                   <CheckCircle2 className="h-4 w-4" /> ما يعنيه هذا لمؤسستك
                 </div>
                 <ul className="mt-3 space-y-2 text-xs leading-6 text-[#596d5f]">
-                  <li>كل مؤسسة تربط رقمها الخاص؛ لا تُشارك الجلسات بين المؤسسات.</li>
+                  <li>كل مؤسسة تربط رقمها الخاص؛ لا تُشارك الجلسات أو سياقات المحادثات بينها.</li>
                   <li>تُشفّر بيانات الجلسة والرسائل المخزنة قبل حفظها.</li>
+                  <li>يرد الذكاء الاصطناعي على النصوص فقط، وبعد تسجيل موافقة المستلم؛ «إلغاء» يوقف الردود.</li>
                   <li>لا تشارك رمز QR أو بيانات الجلسة؛ افصل الرقم فورًا إذا لم تعد تملكه.</li>
                 </ul>
               </aside>

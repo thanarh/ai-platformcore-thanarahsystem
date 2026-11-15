@@ -7,6 +7,10 @@ import { WhatsappDelivery, WhatsappDeliverySchema } from './schemas/whatsapp-del
 import { WhatsappSession, WhatsappSessionSchema } from './schemas/whatsapp-session.schema';
 import { WhatsappConsent, WhatsappConsentSchema } from './schemas/whatsapp-consent.schema';
 import { WhatsappBudget, WhatsappBudgetSchema } from './schemas/whatsapp-budget.schema';
+import { WhatsappInbound, WhatsappInboundSchema } from './schemas/whatsapp-inbound.schema';
+import { AiModule } from '../ai/ai.module';
+import { ConversationsModule } from '../conversations/conversations.module';
+import { TenantsModule } from '../tenants/tenants.module';
 
 @Module({
   imports: [
@@ -16,7 +20,11 @@ import { WhatsappBudget, WhatsappBudgetSchema } from './schemas/whatsapp-budget.
       { name: WhatsappDelivery.name, schema: WhatsappDeliverySchema },
       { name: WhatsappConsent.name, schema: WhatsappConsentSchema },
       { name: WhatsappBudget.name, schema: WhatsappBudgetSchema },
+      { name: WhatsappInbound.name, schema: WhatsappInboundSchema },
     ]),
+    AiModule,
+    ConversationsModule,
+    TenantsModule,
   ],
   controllers: [WhatsappController, TenantWhatsappController],
   providers: [WhatsappService],

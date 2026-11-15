@@ -24,6 +24,34 @@ export class ConversationsService {
     return conversation.save();
   }
 
+  async findOrCreateWhatsAppConversation(
+    tenantId: string,
+    userId: string,
+    contactKey: string,
+  ): Promise<ConversationDocument> {
+    return this.conversationModel.findOneAndUpdate(
+      {
+        tenantId: new Types.ObjectId(tenantId),
+        userId: new Types.ObjectId(userId),
+        'metadata.channel': 'whatsapp',
+        'metadata.whatsappContactKey': contactKey,
+      },
+      {
+        $set: { status: 'active' },
+        $setOnInsert: {
+          tenantId: new Types.ObjectId(tenantId),
+          userId: new Types.ObjectId(userId),
+          title: 'محادثة WhatsApp',
+          messageCount: 0,
+          totalTokens: 0,
+          lastMessageAt: new Date(),
+          metadata: { channel: 'whatsapp', whatsappContactKey: contactKey },
+        },
+      },
+      { upsert: true, new: true },
+    );
+  }
+
   async findByUser(tenantId: string, userId: string): Promise<ConversationDocument[]> {
     return this.conversationModel
       .find({

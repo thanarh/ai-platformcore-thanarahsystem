@@ -51,3 +51,10 @@ export const ConversationSchema = SchemaFactory.createForClass(Conversation);
 
 ConversationSchema.index({ tenantId: 1, userId: 1, isPinned: -1, lastMessageAt: -1 });
 ConversationSchema.index({ tenantId: 1, lastMessageAt: -1 });
+ConversationSchema.index(
+  { tenantId: 1, 'metadata.whatsappContactKey': 1 },
+  {
+    unique: true,
+    partialFilterExpression: { 'metadata.channel': 'whatsapp' },
+  },
+);

@@ -167,17 +167,140 @@ test('Queue stores one encrypted message and returns the same delivery for ident
   const service = new WhatsappService(sessionModel, {}, deliveryModel, consentModel, {});
   service.encryptionKey = () => key;
   service.consumeBudget = async () => undefined;
+  let dispatches = 0;
+  service.requestDispatch = () => { dispatches += 1; };
   const input = { to: '+966501234567', type: 'text', text: 'private payload', consentReference: 'consent-1042' };
   const first = await service.enqueueMessage(tenantId, input, 'operation-1042');
   const second = await service.enqueueMessage(tenantId, input, 'operation-1042');
   assert.equal(first.id, second.id);
   assert.equal(first.status, 'pending');
+  assert.equal(dispatches, 1, 'new deliveries should start dispatch immediately');
   assert.doesNotMatch(row.encryptedPayload, /private payload/);
   assert.equal(JSON.parse(decryptWhatsappData(row.encryptedPayload, key)).text, 'private payload');
   await assert.rejects(
     () => service.enqueueMessage(tenantId, { ...input, text: 'different' }, 'operation-1042'),
     { status: 409 },
   );
+});
+
+test('Incoming WhatsApp text uses a tenant-scoped conversation and replies once', async () => {
+  const rows = [];
+  const sent = [];
+  const consent = { reference: 'consent-2048' };
+  const socket = {
+    sendMessage: async (...args) => {
+      sent.push(args);
+      return { key: { id: args[2].messageId } };
+    },
+  };
+  const inboundModel = {
+    create: async row => {
+      if (rows.some(item => item.providerMessageId === row.providerMessageId)) {
+        const error = new Error('duplicate inbound');
+        error.code = 11000;
+        throw error;
+      }
+      rows.push({ ...row });
+    },
+    updateOne: async (filter, update) => {
+      Object.assign(rows.find(item => item.providerMessageId === filter.providerMessageId), update.$set);
+    },
+  };
+  const consentModel = {
+    findOne: () => ({ lean: async () => consent }),
+    exists: async () => true,
+    updateOne: async () => undefined,
+  };
+  const conversations = {
+    findOrCreateWhatsAppConversation: async (...args) => {
+      assert.equal(args[0], tenantId);
+      return { _id: '555555555555555555555555' };
+    },
+  };
+  const ai = {
+    chat: async data => {
+      assert.equal(data.tenantId, tenantId);
+      assert.equal(data.content, 'ما أوقات العمل؟');
+      return { content: 'نعمل من التاسعة صباحًا.' };
+    },
+  };
+  const service = new WhatsappService(
+    {}, {}, {}, consentModel, {}, {}, inboundModel, ai, conversations,
+    { consumeChatUsage: async () => undefined },
+  );
+  service.sockets.set(`tenant:${tenantId}`, socket);
+  const message = {
+    key: { id: 'incoming-001', remoteJid: '966501234567@s.whatsapp.net' },
+    message: { extendedTextMessage: { text: 'ما أوقات العمل؟' } },
+  };
+
+  await service.handleInboundMessage(`tenant:${tenantId}`, socket, message);
+  await service.handleInboundMessage(`tenant:${tenantId}`, socket, message);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0][0], '966501234567@s.whatsapp.net');
+  assert.equal(sent[0][1].text, 'نعمل من التاسعة صباحًا.');
+  assert.equal(rows[0].status, 'replied');
+});
+
+test('Incoming text without active consent is recorded and never sent to AI', async () => {
+  let status;
+  let aiCalls = 0;
+  const inboundModel = {
+    create: async () => undefined,
+    updateOne: async (_filter, update) => { status = update.$set.status; },
+  };
+  const service = new WhatsappService(
+    {}, {}, {},
+    { findOne: () => ({ lean: async () => null }) },
+    {}, {},
+    inboundModel,
+    { chat: async () => { aiCalls += 1; return { content: 'unexpected' }; } },
+    {},
+    {},
+  );
+  service.sockets.set(`tenant:${tenantId}`, { sendMessage: async () => assert.fail('must not send') });
+  await service.handleInboundMessage(`tenant:${tenantId}`, service.sockets.get(`tenant:${tenantId}`), {
+    key: { id: 'incoming-no-consent', remoteJid: '966501234567@s.whatsapp.net' },
+    message: { conversation: 'مرحبًا' },
+  });
+  assert.equal(status, 'ignored');
+  assert.equal(aiCalls, 0);
+});
+
+test('Expired QR status is explicit and does not claim the session is connected', async () => {
+  const service = new WhatsappService({
+    findOne: () => ({ lean: async () => ({ connectionState: 'qr_pending', scope: 'tenant' }) }),
+  });
+  const result = await service.getSessionStatus(`tenant:${tenantId}`);
+  assert.equal(result.state, 'qr_expired');
+  assert.equal(result.available, false);
+  assert.equal(result.qrDataUrl, null);
+});
+
+test('Automatic WhatsApp reconnect stops after its bounded attempts', async () => {
+  let stateUpdate;
+  const service = new WhatsappService({
+    updateOne: async (_filter, update) => { stateUpdate = update.$set.connectionState; },
+  });
+  const scopeKey = `tenant:${tenantId}`;
+  service.reconnectAttempts.set(scopeKey, 6);
+  service.scheduleReconnect(scopeKey, 'tenant', tenantId);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(service.reconnectExhausted.has(scopeKey), true);
+  assert.equal(stateUpdate, 'reconnect_failed');
+  assert.equal(service.reconnectTimers.has(scopeKey), false);
+});
+
+test('Manual disconnect cancels a pending reconnect', async () => {
+  const service = new WhatsappService(
+    { deleteOne: async () => undefined },
+    { deleteMany: async () => undefined },
+  );
+  const timer = setTimeout(() => assert.fail('reconnect must be cancelled'), 60_000);
+  service.reconnectTimers.set('platform', timer);
+  await service.disconnect('platform');
+  assert.equal(service.reconnectTimers.has('platform'), false);
+  assert.equal(timer._destroyed, true);
 });
 
 test('Unlinked tenants and missing consent cannot enqueue a delivery', async () => {
@@ -287,6 +410,62 @@ test('Session restoration saves the complete encrypted credentials, not a partia
   assert.equal(capturedConfig.auth.creds.registered, true);
   assert.ok(capturedConfig.auth.creds.noiseKey.private instanceof Uint8Array);
   await restarted.onModuleDestroy();
+});
+
+test('QR connect, open, and transient close expose the expected session states', async () => {
+  let row = null;
+  let callbacks = {};
+  let config;
+  const sessionModel = {
+    findOneAndUpdate: (_filter, update) => ({
+      select: async () => {
+        row ??= { ...update.$setOnInsert };
+        return { ...row };
+      },
+    }),
+    updateOne: async (_filter, update) => { Object.assign(row, update.$set || {}); },
+    findOne: () => ({ lean: async () => row }),
+    deleteOne: async () => undefined,
+  };
+  const socket = {
+    user: { id: '966501234567:44@s.whatsapp.net' },
+    ev: {
+      on: (name, callback) => { callbacks[name] = callback; },
+    },
+    end: () => undefined,
+  };
+  const service = new WhatsappService(
+    sessionModel,
+    { deleteMany: async () => undefined },
+    { updateMany: async () => undefined },
+  );
+  service.encryptionKey = () => Buffer.alloc(32, 1);
+  service.socketFactory = value => {
+    config = value;
+    return socket;
+  };
+
+  await service.startTenantConnection(tenantId);
+  await callbacks['connection.update']({ qr: 'test-qr-payload' });
+  let status = await service.getSessionStatus(`tenant:${tenantId}`);
+  assert.equal(status.state, 'qr_pending');
+  assert.match(status.qrDataUrl, /^data:image\/png;base64,/);
+  assert.equal(config.printQRInTerminal, false);
+
+  await callbacks['connection.update']({ connection: 'open' });
+  status = await service.getSessionStatus(`tenant:${tenantId}`);
+  assert.equal(status.state, 'connected');
+  assert.equal(status.available, true);
+  assert.equal(status.capabilities.receiveMessages, true);
+
+  await callbacks['connection.update']({
+    connection: 'close',
+    lastDisconnect: { error: { output: { statusCode: 503 } } },
+  });
+  status = await service.getSessionStatus(`tenant:${tenantId}`);
+  assert.equal(status.state, 'reconnecting');
+  assert.equal(status.available, false);
+  await service.disconnect(`tenant:${tenantId}`);
 });
 
 test('Arabic integration guide JavaScript example is syntactically valid', () => {
