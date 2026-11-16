@@ -1,13 +1,13 @@
 import {
   Controller, Get, Post, Body, Headers, UseGuards,
-  BadRequestException, ForbiddenException, HttpCode, HttpStatus, Param, UseFilters, Header,
+  BadRequestException, ForbiddenException, HttpCode, HttpStatus, Param, UseFilters, Header, Put,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Role, Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ApiKeysService } from '../api-keys/api-keys.service';
-import { WhatsappMessageInput, WhatsappService } from './whatsapp.service';
+import { WhatsappBotSettings, WhatsappMessageInput, WhatsappService } from './whatsapp.service';
 import { WhatsappRateLimitFilter } from './whatsapp-rate-limit.filter';
 
 @Controller('admin/whatsapp')
@@ -26,6 +26,17 @@ export class WhatsappController {
   @Header('Cache-Control', 'no-store')
   getReadiness() {
     return this.whatsappService.getSessionStatus('platform');
+  }
+
+  @Get('platform/settings')
+  @Header('Cache-Control', 'no-store')
+  getPlatformSettings() {
+    return this.whatsappService.getBotSettings('platform');
+  }
+
+  @Put('platform/settings')
+  updatePlatformSettings(@Body() body: WhatsappBotSettings) {
+    return this.whatsappService.updateBotSettings('platform', body);
   }
 
   @Post('platform/connect')
@@ -54,6 +65,21 @@ export class TenantWhatsappController {
   @Roles(Role.ADMIN, Role.OWNER, Role.TENANT_OWNER)
   getTenantReadiness(@CurrentUser() user: any) {
     return this.whatsappService.getSessionStatus(`tenant:${user.tenantId?.toString()}`);
+  }
+
+  @Get('settings')
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN, Role.OWNER, Role.TENANT_OWNER)
+  @Header('Cache-Control', 'no-store')
+  getTenantSettings(@CurrentUser() user: any) {
+    return this.whatsappService.getBotSettings(`tenant:${user.tenantId?.toString()}`);
+  }
+
+  @Put('settings')
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN, Role.OWNER, Role.TENANT_OWNER)
+  updateTenantSettings(@CurrentUser() user: any, @Body() body: WhatsappBotSettings) {
+    return this.whatsappService.updateBotSettings(`tenant:${user.tenantId?.toString()}`, body);
   }
 
   @Post('connect')

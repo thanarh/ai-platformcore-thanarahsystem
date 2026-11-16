@@ -5,6 +5,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { randomBytes, createHash } = require('node:crypto');
 const mongoose = require('../../apps/api/node_modules/mongoose');
+const ADMIN_PHONES = ['+14155550101', '+14155550102'];
+process.env.PLATFORM_ADMIN_PHONES = ADMIN_PHONES.join(',');
 const { PhoneEnrollmentService } = require('../../apps/api/dist/modules/auth/phone-enrollment.service');
 const { UsersService } = require('../../apps/api/dist/modules/users/users.service');
 const { TenantsService } = require('../../apps/api/dist/modules/tenants/tenants.service');
@@ -43,7 +45,7 @@ test('Real MongoDB atomically creates one phone account and workspace, with proo
     const details = { firstName: 'Isolated', lastName: 'Test' };
     const issueProof = async (phone) => {
       await challenges.updateMany({}, { $set: { lastSentAt: new Date(Date.now() - 61_000) } });
-      await service.requestCode(phone, 'register', 'test-runner');
+      await service.requestCode(phone, 'register', 'test-runner', phone.startsWith('+1') ? 'US' : 'SA');
       return service.verifyCode({ phone, code: sentCode, purpose: 'register' });
     };
     const mintProof = async (phoneNumber, expiresAt = new Date(Date.now() + 60_000)) => {
@@ -103,7 +105,7 @@ test('Real MongoDB atomically creates one phone account and workspace, with proo
       await assert.rejects(() => service.completeRegistration({ ...details, enrollmentToken: expired }), { status: 401 });
       const proof = await mintProof('+966501234571');
       await assert.rejects(() => service.completeRegistration({
-        ...details, enrollmentToken: proof, phone: '+966532441566',
+        ...details, enrollmentToken: proof, phone: ADMIN_PHONES[0],
       }), { status: 400 });
       assert.equal(await tenantsModel.countDocuments(), 3);
     });
@@ -111,18 +113,18 @@ test('Real MongoDB atomically creates one phone account and workspace, with proo
     await t.test('The two admin numbers are promoted only after proof, and an existing owner is preserved', async () => {
       const tenant = await tenantsModel.findOne();
       await usersModel.create({
-        ...details, phoneNumber: '+966532441566', isPhoneVerified: false,
+        ...details, phoneNumber: ADMIN_PHONES[0], isPhoneVerified: false,
         role: Role.USER, tenantId: tenant._id,
       });
-      const existing = await issueProof('+966532441566');
+      const existing = await issueProof(ADMIN_PHONES[0]);
       assert.equal(existing.next, 'authenticated');
       assert.equal(existing.user.role, Role.ADMIN);
       assert.equal(existing.user.isPhoneVerified, true);
-      const newAdmin = await issueProof('+966536384171');
+      const newAdmin = await issueProof(ADMIN_PHONES[1]);
       const user = await service.completeRegistration({ ...details, enrollmentToken: newAdmin.enrollmentToken });
       assert.equal(user.role, Role.ADMIN);
       user.role = Role.OWNER; await user.save();
-      const ownerLogin = await issueProof('+966536384171');
+      const ownerLogin = await issueProof(ADMIN_PHONES[1]);
       assert.equal(ownerLogin.user.role, Role.OWNER);
     });
 

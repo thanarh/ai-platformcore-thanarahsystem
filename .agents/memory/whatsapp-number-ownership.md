@@ -15,13 +15,15 @@ explicitly selected an additional platform number for that case.
 from the administrator-managed platform OTP sender. Do not silently use the
 platform number for tenant business messages or change the provider.
 
-For automatic WhatsApp replies, accept only supported direct text messages and
-require an active, tenant-scoped recipient consent. Honor opt-out before any AI
-call or reply. Keep each external contact's conversation isolated by both
-tenant and phone, without creating an authenticated account for that contact.
+For WhatsApp automation, reply only to a direct inbound chat when that number's
+auto-reply setting is enabled. Forward inbound messages only to the configured
+administrator numbers; never initiate follow-up messages. Persist STOP/إلغاء
+opt-outs and honor them before forwarding or calling AI. Keep each external
+contact isolated by tenant and phone, without creating an authenticated account.
 
-**Why:** An incoming message is not blanket permission for future messages, and
-shared or login-capable contact identities could expose another conversation.
+**Why:** The user asked each connected number to answer incoming chats and relay
+their messages to configured administrators, while avoiding unsolicited follow-ups.
 
-**How to apply:** Preserve these boundaries when adding WhatsApp media, voice,
-inbox, or follow-up messaging features.
+**How to apply:** Treat each inbound message as permission to answer that turn
+only. Do not send later messages without a new inbound message or separate
+recorded consent; keep opt-outs and tenant boundaries authoritative.

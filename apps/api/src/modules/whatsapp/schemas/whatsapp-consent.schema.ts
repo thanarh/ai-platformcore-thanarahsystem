@@ -5,8 +5,11 @@ export type WhatsappConsentDocument = WhatsappConsent & Document;
 
 @Schema({ timestamps: true })
 export class WhatsappConsent {
-  @Prop({ type: Types.ObjectId, ref: 'Tenant', required: true })
-  tenantId: Types.ObjectId;
+  @Prop({ type: Types.ObjectId, ref: 'Tenant', default: null })
+  tenantId?: Types.ObjectId | null;
+
+  @Prop()
+  scopeKey?: string;
 
   @Prop({ required: true })
   phoneNumber: string;
@@ -29,4 +32,8 @@ export class WhatsappConsent {
 
 export const WhatsappConsentSchema = SchemaFactory.createForClass(WhatsappConsent);
 WhatsappConsentSchema.index({ tenantId: 1, phoneNumber: 1 }, { unique: true });
+WhatsappConsentSchema.index(
+  { scopeKey: 1, phoneNumber: 1 },
+  { unique: true, partialFilterExpression: { scopeKey: { $type: 'string' } } },
+);
 WhatsappConsentSchema.index({ tenantId: 1, status: 1 });

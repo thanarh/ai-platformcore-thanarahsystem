@@ -5,14 +5,35 @@ export type WhatsappInboundDocument = WhatsappInbound & Document;
 
 @Schema({ timestamps: true })
 export class WhatsappInbound {
-  @Prop({ type: Types.ObjectId, ref: 'Tenant', required: true, index: true })
-  tenantId: Types.ObjectId;
+  @Prop({ type: Types.ObjectId, ref: 'Tenant', index: true })
+  tenantId?: Types.ObjectId;
+
+  @Prop({ index: true })
+  scopeKey?: string;
 
   @Prop({ required: true })
   providerMessageId: string;
 
+  @Prop({ select: false })
+  contactHash?: string;
+
+  @Prop({ select: false })
+  encryptedContent?: string;
+
+  @Prop({ select: false })
+  encryptedReply?: string;
+
   @Prop({ required: true, enum: ['processing', 'replied', 'ignored', 'failed'] })
   status: string;
+
+  @Prop()
+  forwardedAt?: Date;
+
+  @Prop()
+  forwardFailureCount?: number;
+
+  @Prop()
+  leadDetected?: boolean;
 
   @Prop()
   failureCode?: string;
@@ -26,4 +47,12 @@ export class WhatsappInbound {
 
 export const WhatsappInboundSchema = SchemaFactory.createForClass(WhatsappInbound);
 WhatsappInboundSchema.index({ tenantId: 1, providerMessageId: 1 }, { unique: true });
+WhatsappInboundSchema.index(
+  { scopeKey: 1, providerMessageId: 1 },
+  { unique: true, partialFilterExpression: { scopeKey: { $type: 'string' } } },
+);
+WhatsappInboundSchema.index(
+  { scopeKey: 1, contactHash: 1, createdAt: -1 },
+  { partialFilterExpression: { contactHash: { $type: 'string' } } },
+);
 WhatsappInboundSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });

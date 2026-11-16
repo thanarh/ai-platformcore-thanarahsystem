@@ -6,6 +6,7 @@ import { AlertCircle, CheckCircle2, LockKeyhole, RefreshCw, ShieldCheck } from '
 import api from '@/lib/api';
 import { useAuthStore } from '@/store/auth';
 import { cn } from '@/lib/utils';
+import WhatsappAutomationSettings from '@/components/whatsapp/WhatsappAutomationSettings';
 
 type Readiness = {
   available: boolean;
@@ -264,7 +265,10 @@ export default function WhatsAppSettingsPage() {
           </section>
         ) : null}
 
+        <WhatsappAutomationSettings scope="tenant" title="رقم المؤسسة" />
+
         {(user?.role === 'OWNER' || user?.role === 'ADMIN') && (
+          <>
           <section className="rounded-[22px] border border-[#dce5de] bg-[#fbfcf8] p-5 shadow-[0_10px_30px_rgba(29,66,51,.04)] sm:p-6">
             <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
               <div>
@@ -304,6 +308,8 @@ export default function WhatsAppSettingsPage() {
             )}
             <p className="mt-3 text-xs text-[#65756b]">الحالة: {statusLabel(platformReadiness)}</p>
           </section>
+          <WhatsappAutomationSettings scope="platform" title="رقم ثنارة المركزي" />
+          </>
         )}
 
         <section className="rounded-[22px] border border-[#d9e2dc] bg-[#eef3ed] p-5 sm:p-6">

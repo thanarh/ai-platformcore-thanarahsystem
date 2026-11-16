@@ -15,6 +15,7 @@ const {
   encryptWhatsappData,
   whatsappEncryptionKey,
 } = require('../../apps/api/dist/modules/whatsapp/whatsapp.crypto');
+const { quickThanarahReply } = require('../../apps/api/dist/modules/whatsapp/thanarah-profile');
 
 const tenantId = '222222222222222222222222';
 
@@ -62,6 +63,43 @@ test('Tenant message API enforces role, scope, live environment and idempotency'
   await assert.rejects(() => controller.sendMessage({ role: 'USER', tenantId }, 'request-1234', body), { status: 403 });
   await assert.rejects(() => controller.sendMessage({ ...keyUser, apiKeyEnvironment: 'test' }, 'request-1234', body), { status: 403 });
   await assert.rejects(() => controller.sendMessage(keyUser, 'short', body), { status: 400 });
+});
+
+test('WhatsApp routing configuration normalizes recipients and validates the forwarding switch', async () => {
+  let session;
+  const sessionModel = {
+    findOneAndUpdate: (_filter, update) => ({
+      select: async () => {
+        session ??= { ...update.$setOnInsert };
+        return session;
+      },
+    }),
+    updateOne: async (_filter, update) => { Object.assign(session, update.$set); },
+    findOne: () => ({
+      select: () => ({ lean: async () => session }),
+    }),
+  };
+  const service = new WhatsappService(sessionModel, {}, {}, {}, {});
+  const config = await service.updateBotSettings(`tenant:${tenantId}`, {
+    forwardingPhones: ['+966501234567'],
+    forwardIncomingEnabled: true,
+    autoReplyEnabled: true,
+  });
+  assert.deepEqual(config, {
+    forwardingPhones: ['+966501234567'],
+    forwardIncomingEnabled: true,
+    autoReplyEnabled: true,
+  });
+  assert.equal(session.forwardingConfigured, true);
+  assert.deepEqual(await service.getBotSettings(`tenant:${tenantId}`), config);
+  await assert.rejects(
+    () => service.updateBotSettings(`tenant:${tenantId}`, {
+      forwardingPhones: [],
+      forwardIncomingEnabled: true,
+      autoReplyEnabled: false,
+    }),
+    { status: 400 },
+  );
 });
 
 test('API keys reach only messaging, status, and consent routes allowed by scope', async () => {
@@ -186,7 +224,7 @@ test('Queue stores one encrypted message and returns the same delivery for ident
 test('Incoming WhatsApp text uses a tenant-scoped conversation and replies once', async () => {
   const rows = [];
   const sent = [];
-  const consent = { reference: 'consent-2048' };
+  const consent = { status: 'active', reference: 'consent-2048' };
   const socket = {
     sendMessage: async (...args) => {
       sent.push(args);
@@ -225,7 +263,17 @@ test('Incoming WhatsApp text uses a tenant-scoped conversation and replies once'
     },
   };
   const service = new WhatsappService(
-    {}, {}, {}, consentModel, {}, {}, inboundModel, ai, conversations,
+    {
+      findOne: () => ({
+        select: () => ({
+          lean: async () => ({
+            forwardingPhones: [],
+            forwardIncomingEnabled: false,
+            autoReplyEnabled: true,
+          }),
+        }),
+      }),
+    }, {}, {}, consentModel, {}, {}, inboundModel, ai, conversations,
     { consumeChatUsage: async () => undefined },
   );
   service.sockets.set(`tenant:${tenantId}`, socket);
@@ -238,22 +286,22 @@ test('Incoming WhatsApp text uses a tenant-scoped conversation and replies once'
   await service.handleInboundMessage(`tenant:${tenantId}`, socket, message);
   assert.equal(sent.length, 1);
   assert.equal(sent[0][0], '966501234567@s.whatsapp.net');
-  assert.equal(sent[0][1].text, 'نعمل من التاسعة صباحًا.');
+  assert.ok(sent[0][1].text.endsWith('نعمل من التاسعة صباحًا.'));
+  assert.match(sent[0][1].text, /مساعد آلي/);
   assert.equal(rows[0].status, 'replied');
 });
 
-test('Incoming text without active consent is recorded and never sent to AI', async () => {
-  let status;
+test('STOP persists an opt-out before AI processing or administrator forwarding', async () => {
   let aiCalls = 0;
-  const inboundModel = {
-    create: async () => undefined,
-    updateOne: async (_filter, update) => { status = update.$set.status; },
-  };
+  let savedConsent;
   const service = new WhatsappService(
     {}, {}, {},
-    { findOne: () => ({ lean: async () => null }) },
+    {
+      findOne: () => ({ lean: async () => null }),
+      findOneAndUpdate: async (_filter, update) => { savedConsent = update.$set; },
+    },
     {}, {},
-    inboundModel,
+    { create: async () => assert.fail('opt-out must not be forwarded') },
     { chat: async () => { aiCalls += 1; return { content: 'unexpected' }; } },
     {},
     {},
@@ -261,10 +309,124 @@ test('Incoming text without active consent is recorded and never sent to AI', as
   service.sockets.set(`tenant:${tenantId}`, { sendMessage: async () => assert.fail('must not send') });
   await service.handleInboundMessage(`tenant:${tenantId}`, service.sockets.get(`tenant:${tenantId}`), {
     key: { id: 'incoming-no-consent', remoteJid: '966501234567@s.whatsapp.net' },
-    message: { conversation: 'مرحبًا' },
+    message: { conversation: 'إلغاء' },
   });
-  assert.equal(status, 'ignored');
+  assert.equal(savedConsent.status, 'revoked');
+  assert.equal(savedConsent.source, 'inbound-stop');
   assert.equal(aiCalls, 0);
+});
+
+test('Platform WhatsApp answers company questions and flags interested contacts for admins', async () => {
+  const sent = [];
+  const rows = [];
+  let fallbackAiCalls = 0;
+  const sessionModel = {
+    findOne: () => ({
+      select: () => ({
+        lean: async () => ({
+          forwardingPhones: ['+966501111111'],
+          forwardIncomingEnabled: true,
+          autoReplyEnabled: true,
+        }),
+      }),
+    }),
+  };
+  const inboundModel = {
+    create: async row => { rows.push({ ...row }); },
+    find: () => ({
+      select: () => ({
+        sort: () => ({
+          limit: () => ({ lean: async () => [] }),
+        }),
+      }),
+    }),
+    updateOne: async (_filter, update) => {
+      const row = rows[0];
+      Object.assign(row, update.$set || {});
+    },
+  };
+  const socket = {
+    user: { id: '966500000000:2@s.whatsapp.net' },
+    sendMessage: async (...args) => {
+      sent.push(args);
+      return { key: { id: `sent-${sent.length}` } };
+    },
+  };
+  const service = new WhatsappService(
+    sessionModel, {}, {}, { findOne: () => ({ lean: async () => null }) }, {}, {},
+    inboundModel,
+    { chatStateless: async () => { fallbackAiCalls += 1; return { content: 'unexpected' }; } },
+    {}, {},
+  );
+  service.encryptionKey = () => whatsappEncryptionKey('platform-whatsapp-test-key-that-is-long-enough');
+  service.sockets.set('platform', socket);
+
+  await service.handleInboundMessage('platform', socket, {
+    key: { id: 'platform-inbound-01', remoteJid: '966501234567@s.whatsapp.net' },
+    message: { conversation: 'أنا مهتم بخدمات ثنارة' },
+  });
+
+  assert.equal(sent.length, 3, 'send an admin notice, forward the original and reply to the contact');
+  assert.match(sent[0][1].text, /عميل مهتم بخدمات ثنارة/);
+  assert.match(sent[0][1].text, /\+966501234567/);
+  assert.deepEqual(sent[1][1], {
+    forward: {
+      key: { id: 'platform-inbound-01', remoteJid: '966501234567@s.whatsapp.net' },
+      message: { conversation: 'أنا مهتم بخدمات ثنارة' },
+    },
+    force: true,
+  });
+  assert.match(sent[2][1].text, /يسعدنا اهتمامك بثنارة/);
+  assert.equal(fallbackAiCalls, 0, 'common Thanarah questions use the immediate verified answer');
+  assert.match(quickThanarahReply('مين انتم؟'), /ثنارة شركة تقنية/);
+  assert.equal(rows[0].status, 'replied');
+  assert.equal(rows[0].forwardFailureCount, 0);
+  assert.ok(rows[0].forwardedAt);
+  assert.ok(rows[0].encryptedContent);
+  assert.ok(rows[0].encryptedReply);
+});
+
+test('Platform forwards non-text media without sending it to the AI engine', async () => {
+  const sent = [];
+  const inboundRows = [];
+  let aiCalls = 0;
+  const socket = {
+    sendMessage: async (...args) => {
+      sent.push(args);
+      return { key: { id: `forward-${sent.length}` } };
+    },
+  };
+  const service = new WhatsappService(
+    {
+      findOne: () => ({
+        select: () => ({
+          lean: async () => ({
+            forwardingPhones: ['+966501111111'],
+            forwardIncomingEnabled: true,
+            autoReplyEnabled: true,
+          }),
+        }),
+      }),
+    }, {}, {}, { findOne: () => ({ lean: async () => null }) }, {}, {},
+    {
+      create: async row => { inboundRows.push(row); },
+      updateOne: async (_filter, update) => Object.assign(inboundRows[0], update.$set),
+    },
+    { chatStateless: async () => { aiCalls += 1; return { content: 'unexpected' }; } },
+    {}, {},
+  );
+  service.sockets.set('platform', socket);
+  const mediaMessage = {
+    key: { id: 'platform-media-01', remoteJid: '966501234567@s.whatsapp.net' },
+    message: { imageMessage: { mimetype: 'image/jpeg', caption: 'صورة' } },
+  };
+
+  await service.handleInboundMessage('platform', socket, mediaMessage);
+
+  assert.equal(sent.length, 2);
+  assert.deepEqual(sent[1][1], { forward: mediaMessage, force: true });
+  assert.equal(aiCalls, 0, 'non-text messages are forwarded but do not enter text generation');
+  assert.equal(inboundRows[0].status, 'ignored');
 });
 
 test('Expired QR status is explicit and does not claim the session is connected', async () => {
@@ -292,8 +454,9 @@ test('Automatic WhatsApp reconnect stops after its bounded attempts', async () =
 });
 
 test('Manual disconnect cancels a pending reconnect', async () => {
+  let savedSessionFields;
   const service = new WhatsappService(
-    { deleteOne: async () => undefined },
+    { updateOne: async (_filter, update) => { savedSessionFields = update.$set; } },
     { deleteMany: async () => undefined },
   );
   const timer = setTimeout(() => assert.fail('reconnect must be cancelled'), 60_000);
@@ -301,6 +464,9 @@ test('Manual disconnect cancels a pending reconnect', async () => {
   await service.disconnect('platform');
   assert.equal(service.reconnectTimers.has('platform'), false);
   assert.equal(timer._destroyed, true);
+  assert.equal(savedSessionFields.connectionState, 'disconnected');
+  assert.equal(savedSessionFields.encryptedCreds, null);
+  assert.equal(savedSessionFields.forwardingPhones, undefined, 'disconnecting retains administrator routing settings');
 });
 
 test('Unlinked tenants and missing consent cannot enqueue a delivery', async () => {

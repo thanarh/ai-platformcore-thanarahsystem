@@ -28,6 +28,18 @@ export class WhatsappSession {
 
   @Prop()
   lastConnectedAt?: Date;
+
+  @Prop({ type: [String], default: [] })
+  forwardingPhones?: string[];
+
+  @Prop({ default: false })
+  forwardingConfigured?: boolean;
+
+  @Prop({ default: false })
+  forwardIncomingEnabled?: boolean;
+
+  @Prop({ default: false })
+  autoReplyEnabled?: boolean;
 }
 
 export const WhatsappSessionSchema = SchemaFactory.createForClass(WhatsappSession);

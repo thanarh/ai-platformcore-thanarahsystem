@@ -1,6 +1,8 @@
 require('../../apps/api/node_modules/reflect-metadata');
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const ADMIN_PHONES = ['+14155550101', '+14155550102'];
+process.env.PLATFORM_ADMIN_PHONES = ADMIN_PHONES.join(',');
 const { PhoneEnrollmentService } = require('../../apps/api/dist/modules/auth/phone-enrollment.service');
 const { AuthService } = require('../../apps/api/dist/modules/auth/auth.service');
 const { normalizeAuthPhone } = require('../../apps/api/dist/modules/auth/phone-number');
@@ -68,7 +70,7 @@ test('Country normalization handles national numbers, Arabic digits, and shared 
 });
 
 test('Only exact verified admin phones are promoted, while owners and existing roles stay intact', () => {
-  for (const phone of ['+966532441566', '+966536384171']) {
+  for (const phone of ADMIN_PHONES) {
     assert.equal(roleAfterPhoneVerification(phone, Role.TENANT_OWNER), Role.ADMIN);
     assert.equal(roleAfterPhoneVerification(phone, Role.OWNER), Role.OWNER);
   }
@@ -151,10 +153,11 @@ test('Sender failures are explicit, remove the unsent challenge, and never claim
 
 test('Admin promotion requires correct OTP and never reactivates disabled accounts', async () => {
   const { service, state } = harness({ isActive: true, role: Role.USER });
-  await service.requestCode('+966532441566', 'login', 'ip');
-  await assert.rejects(() => service.verifyCode({ phone: '+966532441566', code: 'bad', purpose: 'login' }), { status: 400 });
+  const [adminPhone] = ADMIN_PHONES;
+  await service.requestCode(adminPhone, 'login', 'ip', 'US');
+  await assert.rejects(() => service.verifyCode({ phone: adminPhone, code: 'bad', purpose: 'login' }), { status: 400 });
   assert.equal(state.confirmations, 0);
-  const result = await service.verifyCode({ phone: '+966532441566', code: state.sent[0].code, purpose: 'login' });
+  const result = await service.verifyCode({ phone: adminPhone, code: state.sent[0].code, purpose: 'login' });
   assert.equal(result.user.role, Role.ADMIN);
   const disabled = harness({ isActive: false, role: Role.ADMIN });
   await disabled.service.requestCode(PHONE, 'login', 'ip');

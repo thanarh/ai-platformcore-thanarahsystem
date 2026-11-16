@@ -36,6 +36,7 @@ export class AiService {
     inputMode?: 'text' | 'voice';
     voiceMetadata?: Record<string, unknown>;
     skillId?: string;
+    fastMode?: boolean;
   }) {
     const requestId = uuidv4();
     const startTime = Date.now();
@@ -56,6 +57,13 @@ export class AiService {
         .catch(() => ({}));
       tenantConfig = {
         ...(tenant.aiConfig || {}),
+        ...(data.fastMode ? {
+          responseProfile: 'fast',
+          webSearchEnabled: false,
+          openaiWebSearchEnabled: false,
+          historyWindow: 4,
+          maxHistoryChars: 3000,
+        } : {}),
         industry: tenant.industry || tenant.type || 'general',
         medicalMode: tenant.medicalMode || {},
         contextProfile,
@@ -118,7 +126,7 @@ export class AiService {
         `${this.aiEngineUrl}/chat`,
         aiRequest,
         {
-          timeout: 120000,
+          timeout: data.fastMode ? 15_000 : 120000,
           headers: { 'Content-Type': 'application/json' },
         },
       );
@@ -224,6 +232,54 @@ export class AiService {
         requestId,
       };
     }
+  }
+
+  /**
+   * Lightweight, stateless generation for the public Thanarah WhatsApp assistant.
+   * It deliberately disables tenant RAG, memory, and web search so platform
+   * inquiries do not touch customer data and can use the fast response profile.
+   */
+  async chatStateless(data: {
+    conversationId: string;
+    userId: string;
+    tenantId: string;
+    messages: Array<{ role: 'user' | 'assistant'; content: string }>;
+    systemPrompt: string;
+  }) {
+    const requestId = uuidv4();
+    const response = await axios.post(
+      `${this.aiEngineUrl}/chat`,
+      {
+        requestId,
+        conversationId: data.conversationId,
+        tenantId: data.tenantId,
+        userId: data.userId,
+        messages: data.messages,
+        tenantConfig: {
+          systemPrompt: data.systemPrompt,
+          industry: 'technology',
+          responseProfile: 'fast',
+          ragEnabled: false,
+          memoryEnabled: false,
+          webSearchEnabled: false,
+          openaiWebSearchEnabled: false,
+          cacheEnabled: true,
+          historyWindow: 4,
+          maxHistoryChars: 3000,
+        },
+        runtimeContext: { language: 'ar', channel: 'whatsapp' },
+        inputMode: 'text',
+        stream: false,
+      },
+      {
+        timeout: 12_000,
+        headers: { 'Content-Type': 'application/json' },
+      },
+    );
+    return {
+      content: typeof response.data?.content === 'string' ? response.data.content : '',
+      requestId,
+    };
   }
 
   async streamChat(data: {
