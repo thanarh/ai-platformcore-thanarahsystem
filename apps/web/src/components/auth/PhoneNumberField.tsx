@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { getCountries, getCountryCallingCode, parsePhoneNumberFromString, type CountryCode } from 'libphonenumber-js/max';
 
 export type PhoneValue = { country: CountryCode; nationalNumber: string };
@@ -21,17 +21,26 @@ export function PhoneNumberField({
   value: PhoneValue; onChange: (value: PhoneValue) => void; disabled?: boolean; id: string;
 }) {
   const [search, setSearch] = useState('');
+  const [localizedCountryNames, setLocalizedCountryNames] = useState(false);
   const details = useRef<HTMLDetailsElement>(null);
+  useEffect(() => setLocalizedCountryNames(true), []);
   const countries = useMemo(() => {
-    const arabic = new Intl.DisplayNames(['ar'], { type: 'region' });
-    const english = new Intl.DisplayNames(['en'], { type: 'region' });
+    const arabic = localizedCountryNames
+      ? new Intl.DisplayNames(['ar'], { type: 'region' })
+      : null;
+    const english = localizedCountryNames
+      ? new Intl.DisplayNames(['en'], { type: 'region' })
+      : null;
     return getCountries().map((country) => ({
       country,
-      name: arabic.of(country) || country,
-      englishName: english.of(country) || country,
+      name: arabic?.of(country) || country,
+      englishName: english?.of(country) || country,
       dial: `+${getCountryCallingCode(country)}`,
-    })).sort((a, b) => a.name.localeCompare(b.name, 'ar'));
-  }, []);
+    })).sort((a, b) => {
+      if (!localizedCountryNames) return a.country < b.country ? -1 : a.country > b.country ? 1 : 0;
+      return a.name.localeCompare(b.name, 'ar');
+    });
+  }, [localizedCountryNames]);
   const selected = countries.find((country) => country.country === value.country)!;
   const filtered = countries.filter((country) =>
     `${country.name} ${country.englishName} ${country.country} ${country.dial}`.toLowerCase().includes(search.toLowerCase().trim()),
