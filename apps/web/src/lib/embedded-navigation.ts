@@ -1,5 +1,6 @@
 'use client';
 
+import { useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { getEmbeddedBrowserContext } from '@/store/auth';
 
@@ -16,9 +17,14 @@ export function embeddedPath(href: string) {
 
 export function useEmbeddedRouter() {
   const router = useRouter();
-  return {
-    ...router,
-    push: (href: string, options?: Parameters<typeof router.push>[1]) => router.push(embeddedPath(href), options),
-    replace: (href: string, options?: Parameters<typeof router.replace>[1]) => router.replace(embeddedPath(href), options),
-  };
+  const push = useCallback(
+    (href: string, options?: Parameters<typeof router.push>[1]) => router.push(embeddedPath(href), options),
+    [router],
+  );
+  const replace = useCallback(
+    (href: string, options?: Parameters<typeof router.replace>[1]) => router.replace(embeddedPath(href), options),
+    [router],
+  );
+
+  return useMemo(() => ({ ...router, push, replace }), [router, push, replace]);
 }
