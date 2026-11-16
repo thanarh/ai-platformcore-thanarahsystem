@@ -13,6 +13,7 @@ from app.streaming.events import event_frame, legacy_delta_frame, StreamEventTyp
 
 logger = logging.getLogger(__name__)
 STREAM_HEARTBEAT_SECONDS = 15.0
+STREAM_DISCONNECT_POLL_SECONDS = 0.25
 router = APIRouter()
 
 
@@ -84,9 +85,18 @@ async def chat_stream(request: Request, chat_request: ChatRequest):
                         done, _ = await asyncio.wait(
                             {route_task, event_task},
                             return_when=asyncio.FIRST_COMPLETED,
+                            timeout=STREAM_DISCONNECT_POLL_SECONDS,
                         )
                         if event_task in done:
                             event = event_task.result()
+                        elif route_task not in done:
+                            event_task.cancel()
+                            await asyncio.gather(event_task, return_exceptions=True)
+                            if await request.is_disconnected():
+                                route_task.cancel()
+                                await asyncio.gather(route_task, return_exceptions=True)
+                                return
+                            continue
                         else:
                             event_task.cancel()
                             await asyncio.gather(event_task, return_exceptions=True)
@@ -116,21 +126,25 @@ async def chat_stream(request: Request, chat_request: ChatRequest):
             first_delta = False
             token_iterator = stream_gen.__aiter__()
             next_token_task = asyncio.create_task(token_iterator.__anext__())
+            loop = asyncio.get_running_loop()
+            last_heartbeat = loop.time()
             try:
                 while True:
                     done, _ = await asyncio.wait(
                         {next_token_task},
-                        timeout=STREAM_HEARTBEAT_SECONDS,
+                        timeout=min(STREAM_DISCONNECT_POLL_SECONDS, STREAM_HEARTBEAT_SECONDS),
                     )
                     if not done:
                         if await request.is_disconnected():
                             next_token_task.cancel()
                             await asyncio.gather(next_token_task, return_exceptions=True)
                             return
-                        yield event_frame(
-                            StreamEventType.STATUS,
-                            {"state": "generating", "keepalive": True},
-                        )
+                        if loop.time() - last_heartbeat >= STREAM_HEARTBEAT_SECONDS:
+                            yield event_frame(
+                                StreamEventType.STATUS,
+                                {"state": "generating", "keepalive": True},
+                            )
+                            last_heartbeat = loop.time()
                         continue
                     try:
                         token = next_token_task.result()
