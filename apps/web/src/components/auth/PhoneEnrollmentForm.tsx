@@ -4,6 +4,7 @@ import { useEffect, useId, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/auth';
 import { authApi } from '@/lib/api';
+import { getSafePostLoginPath } from '@/lib/auth-navigation';
 import { canonicalPhone, PhoneNumberField, type PhoneValue } from './PhoneNumberField';
 import { AccountDetailsForm, type AccountDetails } from './AccountDetailsForm';
 
@@ -40,7 +41,7 @@ export function PhoneEnrollmentForm({ purpose }: { purpose: 'register' | 'login'
   const authenticate = (data: any) => {
     if (!data.user || !data.accessToken || !data.refreshToken) throw new Error('استجابة الدخول غير مكتملة.');
     setAuth(data.user, data.accessToken, data.refreshToken);
-    router.push('/chat');
+    router.replace(getSafePostLoginPath(window.location.search));
   };
   const resetPhone = () => {
     setStep('phone'); setCode(''); setEnrollmentToken(''); setVerifiedPhone('');

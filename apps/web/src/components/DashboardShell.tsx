@@ -58,7 +58,10 @@ export default function DashboardShell({ children }: { children: React.ReactNode
   useEffect(() => {
     if (!_hasHydrated) return;
     if (!token) {
-      if (!embedded) router.replace('/login');
+      if (!embedded) {
+        const returnTo = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+        router.replace(`/login?returnTo=${encodeURIComponent(returnTo)}`);
+      }
       return;
     }
     Promise.all([

@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/auth';
 import { authApi } from '@/lib/api';
+import { getSafePostLoginPath } from '@/lib/auth-navigation';
 import { PhoneEnrollmentForm } from './PhoneEnrollmentForm';
 
 export function LoginForm() {
@@ -37,7 +38,7 @@ export function LoginForm() {
           try {
             const data = await authApi.login(form.email, form.password);
             setAuth(data.user, data.accessToken, data.refreshToken);
-            router.push('/chat');
+            router.replace(getSafePostLoginPath(window.location.search));
           } catch {
             setError('البريد الإلكتروني أو كلمة المرور غير صحيحة، أو تعذّر الاتصال بالخادم.');
           } finally { setLoading(false); }

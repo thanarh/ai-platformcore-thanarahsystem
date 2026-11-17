@@ -62,10 +62,6 @@ export default function WhatsAppSettingsPage() {
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    if (hydrated && !allowed) router.replace('/chat');
-  }, [allowed, hydrated, router]);
-
   const loadReadiness = useCallback(async (showLoading = false) => {
     if (showLoading) setLoading(true);
     setError('');
@@ -129,8 +125,29 @@ export default function WhatsAppSettingsPage() {
     }
   };
 
-  if (!hydrated || !allowed) {
+  if (!hydrated || !user) {
     return <div className="flex min-h-[50vh] items-center justify-center" dir="rtl"><div className="h-5 w-5 animate-pulse rounded-full bg-[#6e987b]" /></div>;
+  }
+
+  if (!allowed) {
+    return (
+      <main className="flex min-h-[70vh] flex-1 items-center justify-center bg-[#f3f6f3] px-4" dir="rtl">
+        <section className="max-w-lg rounded-2xl border border-amber-200 bg-white p-6 text-center shadow-sm">
+          <AlertCircle className="mx-auto h-9 w-9 text-amber-600" aria-hidden="true" />
+          <h1 className="mt-3 text-lg font-semibold text-[#24332f]">لا توجد صلاحية لربط WhatsApp</h1>
+          <p className="mt-2 text-sm leading-6 text-gray-600">
+            يلزم الدخول بحساب مالك المؤسسة أو مسؤولها. لم نغيّر إعدادات الربط.
+          </p>
+          <button
+            type="button"
+            onClick={() => router.push('/chat')}
+            className="mt-5 rounded-xl bg-[#173d35] px-4 py-2 text-sm font-medium text-white"
+          >
+            العودة إلى المحادثات
+          </button>
+        </section>
+      </main>
+    );
   }
 
   const blocked = readiness?.available === false || readiness?.state === 'blocked';
