@@ -63,7 +63,15 @@ api.interceptors.response.use(
       useAuthStore.getState().clearAuth();
       if (typeof window !== 'undefined') {
         const embedded = getEmbeddedBrowserContext();
-        window.location.href = embedded ? `/embed/${embedded.id}${embedded.origin ? `?origin=${encodeURIComponent(embedded.origin)}` : ''}` : '/login';
+        if (embedded) {
+          window.location.href = `/embed/${embedded.id}${embedded.origin ? `?origin=${encodeURIComponent(embedded.origin)}` : ''}`;
+        } else {
+          const returnTo = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+          const loginUrl = window.location.pathname === '/login' || window.location.pathname === '/register'
+            ? '/login'
+            : `/login?returnTo=${encodeURIComponent(returnTo)}`;
+          window.location.href = loginUrl;
+        }
       }
     }
     return Promise.reject(error);
