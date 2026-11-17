@@ -40,6 +40,9 @@ export class WhatsappSession {
 
   @Prop({ default: false })
   autoReplyEnabled?: boolean;
+
+  @Prop({ default: false })
+  autoReplyConfigured?: boolean;
 }
 
 export const WhatsappSessionSchema = SchemaFactory.createForClass(WhatsappSession);

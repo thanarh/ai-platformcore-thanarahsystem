@@ -44,6 +44,11 @@ export class WhatsappController {
     return this.whatsappService.startPlatformConnection();
   }
 
+  @Post('platform/relink')
+  relinkPlatform() {
+    return this.whatsappService.relinkPlatformWithQr();
+  }
+
   @Post('platform/disconnect')
   disconnectPlatform() {
     return this.whatsappService.disconnect('platform');
@@ -89,11 +94,49 @@ export class TenantWhatsappController {
     return this.whatsappService.startTenantConnection(user.tenantId?.toString());
   }
 
+  @Post('relink')
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN, Role.OWNER, Role.TENANT_OWNER)
+  relinkTenant(@CurrentUser() user: any) {
+    return this.whatsappService.relinkTenantWithQr(user.tenantId?.toString());
+  }
+
   @Post('disconnect')
   @UseGuards(RolesGuard)
   @Roles(Role.ADMIN, Role.OWNER, Role.TENANT_OWNER)
   disconnectTenant(@CurrentUser() user: any) {
     return this.whatsappService.disconnect(`tenant:${user.tenantId?.toString()}`);
+  }
+
+  @Get('inbox')
+  @Header('Cache-Control', 'no-store')
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN, Role.OWNER, Role.TENANT_OWNER)
+  getInbox(@CurrentUser() user: any) {
+    return this.whatsappService.getTenantInbox(user.tenantId?.toString());
+  }
+
+  @Get('inbox/:conversationId')
+  @Header('Cache-Control', 'no-store')
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN, Role.OWNER, Role.TENANT_OWNER)
+  getInboxThread(@CurrentUser() user: any, @Param('conversationId') conversationId: string) {
+    return this.whatsappService.getTenantInboxThread(user.tenantId?.toString(), conversationId);
+  }
+
+  @Post('inbox/:conversationId/reply')
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN, Role.OWNER, Role.TENANT_OWNER)
+  replyToInbox(
+    @CurrentUser() user: any,
+    @Param('conversationId') conversationId: string,
+    @Body() body: { text?: string },
+  ) {
+    return this.whatsappService.replyToTenantInbox(
+      user.tenantId?.toString(),
+      conversationId,
+      body?.text || '',
+    );
   }
 
   @Post('messages')

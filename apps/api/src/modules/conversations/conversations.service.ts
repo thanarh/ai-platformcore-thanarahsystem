@@ -28,6 +28,7 @@ export class ConversationsService {
     tenantId: string,
     userId: string,
     contactKey: string,
+    encryptedPhone?: string,
   ): Promise<ConversationDocument> {
     return this.conversationModel.findOneAndUpdate(
       {
@@ -37,19 +38,49 @@ export class ConversationsService {
         'metadata.whatsappContactKey': contactKey,
       },
       {
-        $set: { status: 'active' },
+        $set: {
+          status: 'active',
+          lastMessageAt: new Date(),
+          ...(encryptedPhone ? { 'metadata.whatsappContactPhoneEncrypted': encryptedPhone } : {}),
+        },
         $setOnInsert: {
           tenantId: new Types.ObjectId(tenantId),
           userId: new Types.ObjectId(userId),
           title: 'محادثة WhatsApp',
           messageCount: 0,
           totalTokens: 0,
-          lastMessageAt: new Date(),
-          metadata: { channel: 'whatsapp', whatsappContactKey: contactKey },
+          'metadata.channel': 'whatsapp',
+          'metadata.whatsappContactKey': contactKey,
         },
       },
       { upsert: true, new: true },
     );
+  }
+
+  async findWhatsAppByTenant(tenantId: string, limit = 50): Promise<ConversationDocument[]> {
+    return this.conversationModel
+      .find({
+        tenantId: new Types.ObjectId(tenantId),
+        status: { $ne: 'deleted' },
+        'metadata.channel': 'whatsapp',
+      })
+      .sort({ lastMessageAt: -1 })
+      .limit(Math.max(1, Math.min(limit, 100)));
+  }
+
+  async findWhatsAppConversationByTenant(
+    tenantId: string,
+    conversationId: string,
+  ): Promise<ConversationDocument> {
+    if (!Types.ObjectId.isValid(conversationId)) throw new NotFoundException('WhatsApp conversation not found');
+    const conversation = await this.conversationModel.findOne({
+      _id: new Types.ObjectId(conversationId),
+      tenantId: new Types.ObjectId(tenantId),
+      status: { $ne: 'deleted' },
+      'metadata.channel': 'whatsapp',
+    });
+    if (!conversation) throw new NotFoundException('WhatsApp conversation not found');
+    return conversation;
   }
 
   async findByUser(tenantId: string, userId: string): Promise<ConversationDocument[]> {

@@ -11,6 +11,7 @@ import { WhatsappInbound, WhatsappInboundSchema } from './schemas/whatsapp-inbou
 import { AiModule } from '../ai/ai.module';
 import { ConversationsModule } from '../conversations/conversations.module';
 import { TenantsModule } from '../tenants/tenants.module';
+import { MessagesModule } from '../messages/messages.module';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { TenantsModule } from '../tenants/tenants.module';
     ]),
     AiModule,
     ConversationsModule,
+    MessagesModule,
     TenantsModule,
   ],
   controllers: [WhatsappController, TenantWhatsappController],

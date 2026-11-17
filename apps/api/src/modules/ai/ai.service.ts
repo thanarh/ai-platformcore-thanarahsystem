@@ -126,7 +126,10 @@ export class AiService {
         `${this.aiEngineUrl}/chat`,
         aiRequest,
         {
-          timeout: data.fastMode ? 15_000 : 120000,
+          // WhatsApp uses fastMode but may still need a cold local model load.
+          // Allow that single warm-up to finish instead of returning the
+          // generic AI error before the local model can answer.
+          timeout: data.fastMode ? 45_000 : 120000,
           headers: { 'Content-Type': 'application/json' },
         },
       );
@@ -217,14 +220,16 @@ export class AiService {
 
       // Return graceful error message in Arabic
       const errorContent = 'تعذر إكمال الطلب حاليًا. حاول مرة أخرى.';
-      await this.messagesService.create({
-        tenantId: data.tenantId,
-        userId: data.userId,
-        conversationId: data.conversationId,
-        role: 'assistant',
-        content: errorContent,
-        aiMetadata: { requestId, latency: latencyMs },
-      });
+      if (!data.fastMode) {
+        await this.messagesService.create({
+          tenantId: data.tenantId,
+          userId: data.userId,
+          conversationId: data.conversationId,
+          role: 'assistant',
+          content: errorContent,
+          aiMetadata: { requestId, latency: latencyMs },
+        });
+      }
 
       return {
         content: errorContent,

@@ -20,6 +20,9 @@ export class Message {
   @Prop({ required: true })
   content: string;
 
+  @Prop({ default: false })
+  contentEncrypted: boolean;
+
   @Prop({ type: String, enum: ['text', 'voice'], default: 'text' })
   inputMode: 'text' | 'voice';
 

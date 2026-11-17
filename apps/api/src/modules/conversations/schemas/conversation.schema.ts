@@ -32,6 +32,9 @@ export class Conversation {
     backend?: string;
     language?: string;
     tags?: string[];
+    channel?: string;
+    whatsappContactKey?: string;
+    whatsappContactPhoneEncrypted?: string;
   };
 
   @Prop({ default: false })
@@ -58,3 +61,4 @@ ConversationSchema.index(
     partialFilterExpression: { 'metadata.channel': 'whatsapp' },
   },
 );
+ConversationSchema.index({ tenantId: 1, 'metadata.channel': 1, lastMessageAt: -1 });

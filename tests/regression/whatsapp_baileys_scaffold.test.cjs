@@ -8,6 +8,7 @@ const read = file => fs.readFileSync(path.join(root, file), 'utf8');
 const { WhatsappController, TenantWhatsappController } =
   require('../../apps/api/dist/modules/whatsapp/whatsapp.controller');
 const { WhatsappService } = require('../../apps/api/dist/modules/whatsapp/whatsapp.service');
+const { MessagesService } = require('../../apps/api/dist/modules/messages/messages.service');
 const { JwtAuthGuard } = require('../../apps/api/dist/common/guards/jwt-auth.guard');
 const { AuthService } = require('../../apps/api/dist/modules/auth/auth.service');
 const {
@@ -102,6 +103,20 @@ test('WhatsApp routing configuration normalizes recipients and validates the for
   );
 });
 
+test('Tenant auto-replies are enabled by default until an administrator saves a choice', async () => {
+  const service = new WhatsappService({
+    findOne: () => ({
+      select: () => ({
+        lean: async () => ({ autoReplyEnabled: false, autoReplyConfigured: false }),
+      }),
+    }),
+  });
+  const tenantSettings = await service.getBotSettings(`tenant:${tenantId}`);
+  const platformSettings = await service.getBotSettings('platform');
+  assert.equal(tenantSettings.autoReplyEnabled, true);
+  assert.equal(platformSettings.autoReplyEnabled, false);
+});
+
 test('API keys reach only messaging, status, and consent routes allowed by scope', async () => {
   const keyService = { validateKey: async () => ({
     scopes: ['whatsapp:send'], createdBy: '111111111111111111111111',
@@ -168,6 +183,54 @@ test('Stored WhatsApp data uses authenticated encryption with fresh nonces', () 
   assert.doesNotMatch(first, /credential material/);
   assert.equal(decryptWhatsappData(first, key), 'credential material');
   assert.throws(() => decryptWhatsappData(first, whatsappEncryptionKey('different-unit-test-secret-long-enough')));
+});
+
+test('WhatsApp transcript messages are encrypted at rest and decrypted for authorized reads', async () => {
+  const previousSecret = process.env.SESSION_SECRET;
+  process.env.SESSION_SECRET = 'messages-encryption-test-secret-long-enough-123';
+  let stored;
+  class FakeMessage {
+    constructor(data) {
+      Object.assign(this, data);
+      this._id = '444444444444444444444444';
+      this.createdAt = new Date();
+      this.save = async () => {
+        stored = this;
+        return this;
+      };
+    }
+  }
+  FakeMessage.find = () => ({
+    sort: () => ({
+      limit: () => ({
+        lean: async () => [{
+          ...stored,
+          save: undefined,
+        }],
+      }),
+    }),
+  });
+  const service = new MessagesService(
+    FakeMessage,
+    { findById: async () => ({ metadata: { channel: 'whatsapp' } }) },
+  );
+  try {
+    await service.create({
+      tenantId,
+      userId: '555555555555555555555555',
+      conversationId: '666666666666666666666666',
+      role: 'user',
+      content: 'رسالة واتساب سرية',
+    });
+    assert.equal(stored.contentEncrypted, true);
+    assert.notEqual(stored.content, 'رسالة واتساب سرية');
+    const messages = await service.findByConversation('666666666666666666666666', 10);
+    assert.equal(messages[0].content, 'رسالة واتساب سرية');
+    assert.equal(messages[0].contentEncrypted, false);
+  } finally {
+    if (previousSecret === undefined) delete process.env.SESSION_SECRET;
+    else process.env.SESSION_SECRET = previousSecret;
+  }
 });
 
 test('Phone OTP, opt-out, encryption and queue contracts are present without a Cloud fallback', () => {
@@ -276,6 +339,7 @@ test('Incoming WhatsApp text uses a tenant-scoped conversation and replies once'
     }, {}, {}, consentModel, {}, {}, inboundModel, ai, conversations,
     { consumeChatUsage: async () => undefined },
   );
+  service.encryptionKey = () => Buffer.alloc(32, 3);
   service.sockets.set(`tenant:${tenantId}`, socket);
   const message = {
     key: { id: 'incoming-001', remoteJid: '966501234567@s.whatsapp.net' },
@@ -289,6 +353,62 @@ test('Incoming WhatsApp text uses a tenant-scoped conversation and replies once'
   assert.ok(sent[0][1].text.endsWith('نعمل من التاسعة صباحًا.'));
   assert.match(sent[0][1].text, /مساعد آلي/);
   assert.equal(rows[0].status, 'replied');
+});
+
+test('Tenant inbound messages are saved to the WhatsApp inbox when AI replies are off', async () => {
+  const rows = [];
+  const messages = [];
+  let encryptedPhone;
+  const key = whatsappEncryptionKey('tenant-inbox-test-secret-long-enough-123');
+  const service = new WhatsappService(
+    {
+      findOne: () => ({
+        select: () => ({
+          lean: async () => ({
+            forwardingPhones: [],
+            forwardIncomingEnabled: false,
+            autoReplyEnabled: false,
+            autoReplyConfigured: true,
+          }),
+        }),
+      }),
+    },
+    {},
+    {},
+    { findOne: () => ({ lean: async () => null }) },
+    {},
+    {},
+    {
+      create: async row => { rows.push({ ...row }); },
+      updateOne: async (_filter, update) => Object.assign(rows[0], update.$set),
+    },
+    {},
+    {
+      findOrCreateWhatsAppConversation: async (...args) => {
+        encryptedPhone = args[3];
+        return { _id: '555555555555555555555555', messageCount: 0 };
+      },
+      incrementMessageCount: async () => undefined,
+    },
+    {},
+    {
+      create: async message => { messages.push(message); },
+    },
+  );
+  service.encryptionKey = () => key;
+  const socket = { sendMessage: async () => assert.fail('AI is disabled; do not send a reply') };
+  service.sockets.set(`tenant:${tenantId}`, socket);
+  await service.handleInboundMessage(`tenant:${tenantId}`, socket, {
+    key: { id: 'inbox-only-01', remoteJid: '966501234567@s.whatsapp.net' },
+    message: { conversation: 'أريد معرفة الأسعار' },
+  });
+
+  assert.equal(rows[0].status, 'received');
+  assert.ok(rows[0].contactHash);
+  assert.equal(decryptWhatsappData(rows[0].encryptedContent, key), 'أريد معرفة الأسعار');
+  assert.equal(decryptWhatsappData(encryptedPhone, key), '+966501234567');
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].content, 'أريد معرفة الأسعار');
 });
 
 test('STOP persists an opt-out before AI processing or administrator forwarding', async () => {
@@ -327,6 +447,7 @@ test('Platform WhatsApp answers company questions and flags interested contacts 
           forwardingPhones: ['+966501111111'],
           forwardIncomingEnabled: true,
           autoReplyEnabled: true,
+          autoReplyConfigured: true,
         }),
       }),
     }),
@@ -404,6 +525,7 @@ test('Platform forwards non-text media without sending it to the AI engine', asy
             forwardingPhones: ['+966501111111'],
             forwardIncomingEnabled: true,
             autoReplyEnabled: true,
+            autoReplyConfigured: true,
           }),
         }),
       }),
@@ -576,6 +698,48 @@ test('Session restoration saves the complete encrypted credentials, not a partia
   assert.equal(capturedConfig.auth.creds.registered, true);
   assert.ok(capturedConfig.auth.creds.noiseKey.private instanceof Uint8Array);
   await restarted.onModuleDestroy();
+});
+
+test('Unreadable WhatsApp credentials require explicit QR relinking without deleting them automatically', async () => {
+  const oldKey = whatsappEncryptionKey('previous-session-secret-is-not-current-123');
+  const currentKey = whatsappEncryptionKey('current-session-secret-is-different-1234');
+  const encryptedCreds = encryptWhatsappData(JSON.stringify({ registered: true }), oldKey);
+  const row = {
+    scopeKey: `tenant:${tenantId}`,
+    scope: 'tenant',
+    enabled: true,
+    encryptedCreds,
+  };
+  let deletedAuthKeys = 0;
+  let relinkStarted = false;
+  const sessionModel = {
+    findOneAndUpdate: () => ({ select: async () => row }),
+    updateOne: async (_filter, update) => Object.assign(row, update.$set),
+  };
+  const service = new WhatsappService(
+    sessionModel,
+    { deleteMany: async () => { deletedAuthKeys += 1; } },
+    {},
+    {},
+    {},
+  );
+  service.encryptionKey = () => currentKey;
+
+  const failed = await service.startTenantConnection(tenantId);
+  assert.equal(failed.state, 'session_key_mismatch');
+  assert.equal(row.enabled, false);
+  assert.equal(row.encryptedCreds, encryptedCreds, 'do not delete the saved session before user approval');
+  assert.equal(deletedAuthKeys, 0);
+
+  service.startConnection = async () => {
+    relinkStarted = true;
+    return { state: 'connecting' };
+  };
+  const relinked = await service.relinkTenantWithQr(tenantId);
+  assert.deepEqual(relinked, { state: 'connecting' });
+  assert.equal(relinkStarted, true);
+  assert.equal(row.encryptedCreds, null);
+  assert.equal(deletedAuthKeys, 1);
 });
 
 test('QR connect, open, and transient close expose the expected session states', async () => {

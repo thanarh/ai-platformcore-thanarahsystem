@@ -1,12 +1,29 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
-import { createHash } from 'crypto';
+import { createHash, createHmac } from 'crypto';
 import { Message, MessageDocument } from './schemas/message.schema';
+import { ConversationsService } from '../conversations/conversations.service';
+import { decryptWhatsappData, encryptWhatsappData, whatsappEncryptionKey } from '../whatsapp/whatsapp.crypto';
 
 @Injectable()
 export class MessagesService {
-  constructor(@InjectModel(Message.name) private messageModel: Model<MessageDocument>) {}
+  constructor(
+    @InjectModel(Message.name) private messageModel: Model<MessageDocument>,
+    private readonly conversationsService: ConversationsService,
+  ) {}
+
+  private decodeContent<T extends Record<string, any>>(message: T): T {
+    if (message?.contentEncrypted !== true) return message;
+    return {
+      ...message,
+      content: decryptWhatsappData(
+        message.content,
+        whatsappEncryptionKey(process.env.SESSION_SECRET || ''),
+      ),
+      contentEncrypted: false,
+    };
+  }
 
   async create(data: {
     tenantId: string;
@@ -18,23 +35,38 @@ export class MessagesService {
     voiceMetadata?: object;
     aiMetadata?: object;
   }): Promise<MessageDocument> {
+    const conversation = await this.conversationsService.findById(
+      data.conversationId,
+      data.userId,
+      data.tenantId,
+    );
+    const contentEncrypted = conversation.metadata?.channel === 'whatsapp';
+    const encryptionKey = contentEncrypted
+      ? whatsappEncryptionKey(process.env.SESSION_SECRET || '')
+      : null;
     const normalizedContent = data.content.trim().replace(/\s+/g, ' ').toLowerCase();
     const message = new this.messageModel({
       tenantId: new Types.ObjectId(data.tenantId),
       userId: new Types.ObjectId(data.userId),
       conversationId: new Types.ObjectId(data.conversationId),
       role: data.role,
-      content: data.content,
+      content: encryptionKey
+        ? encryptWhatsappData(data.content, encryptionKey)
+        : data.content,
+      contentEncrypted,
       inputMode: data.inputMode || 'text',
       voiceMetadata: data.voiceMetadata || {},
-      contentHash: createHash('sha256').update(normalizedContent).digest('hex'),
+      contentHash: encryptionKey
+        ? createHmac('sha256', encryptionKey).update(normalizedContent).digest('hex')
+        : createHash('sha256').update(normalizedContent).digest('hex'),
       aiMetadata: data.aiMetadata || {},
     });
     return message.save();
   }
 
   async findById(messageId: string): Promise<MessageDocument | null> {
-    return this.messageModel.findById(new Types.ObjectId(messageId));
+    const message = await this.messageModel.findById(new Types.ObjectId(messageId)).lean();
+    return message ? this.decodeContent(message) as unknown as MessageDocument : null;
   }
 
   async addFeedback(
@@ -66,26 +98,38 @@ export class MessagesService {
   }
 
   async findPreviousUserMessage(message: MessageDocument): Promise<MessageDocument | null> {
-    return this.messageModel.findOne({
+    const previous = await this.messageModel.findOne({
       conversationId: message.conversationId,
       role: 'user',
       createdAt: { $lt: message.createdAt },
-    }).sort({ createdAt: -1 });
+    }).sort({ createdAt: -1 }).lean();
+    return previous ? this.decodeContent(previous) as unknown as MessageDocument : null;
   }
 
   async findByConversation(conversationId: string, limit = 50): Promise<MessageDocument[]> {
-    return this.messageModel
+    const messages = await this.messageModel
       .find({ conversationId: new Types.ObjectId(conversationId) })
       .sort({ createdAt: 1 })
-      .limit(limit);
+      .limit(limit)
+      .lean();
+    return messages.map((message) => this.decodeContent(message) as unknown as MessageDocument);
+  }
+
+  async findLatestByConversation(conversationId: string): Promise<MessageDocument | null> {
+    const message = await this.messageModel
+      .findOne({ conversationId: new Types.ObjectId(conversationId) })
+      .sort({ createdAt: -1 })
+      .lean();
+    return message ? this.decodeContent(message) as unknown as MessageDocument : null;
   }
 
   async getRecentMessages(conversationId: string, count = 20): Promise<MessageDocument[]> {
-    return this.messageModel
+    const messages = await this.messageModel
       .find({ conversationId: new Types.ObjectId(conversationId) })
       .sort({ createdAt: -1 })
       .limit(count)
-      .then((msgs) => msgs.reverse());
+      .lean();
+    return messages.reverse().map((message) => this.decodeContent(message) as unknown as MessageDocument);
   }
 
   async countToday(): Promise<number> {

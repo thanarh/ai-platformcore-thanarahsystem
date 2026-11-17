@@ -23,8 +23,11 @@ export class WhatsappInbound {
   @Prop({ select: false })
   encryptedReply?: string;
 
-  @Prop({ required: true, enum: ['processing', 'replied', 'ignored', 'failed'] })
+  @Prop({ required: true, enum: ['received', 'processing', 'replied', 'ignored', 'failed'] })
   status: string;
+
+  @Prop()
+  messageKind?: string;
 
   @Prop()
   forwardedAt?: Date;
@@ -43,6 +46,9 @@ export class WhatsappInbound {
 
   @Prop({ default: () => new Date(Date.now() + 30 * 86_400_000) })
   expiresAt: Date;
+
+  createdAt?: Date;
+  updatedAt?: Date;
 }
 
 export const WhatsappInboundSchema = SchemaFactory.createForClass(WhatsappInbound);

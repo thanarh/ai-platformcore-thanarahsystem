@@ -5,6 +5,7 @@ import {
   HttpException,
   HttpStatus,
   Injectable,
+  Logger,
   NotFoundException,
   OnModuleDestroy,
   OnModuleInit,
@@ -36,6 +37,7 @@ import { ApiKeysService } from '../api-keys/api-keys.service';
 import { AiService } from '../ai/ai.service';
 import { ConversationsService } from '../conversations/conversations.service';
 import { TenantsService } from '../tenants/tenants.service';
+import { MessagesService } from '../messages/messages.service';
 import { WhatsappInbound, WhatsappInboundDocument } from './schemas/whatsapp-inbound.schema';
 import { PLATFORM_ADMIN_PHONES } from '../auth/phone-admin-policy';
 import {
@@ -65,6 +67,7 @@ export type WhatsappBotSettings = {
 
 @Injectable()
 export class WhatsappService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(WhatsappService.name);
   private readonly sockets = new Map<string, WASocket>();
   private readonly starting = new Set<string>();
   private readonly qrCodes = new Map<string, { dataUrl: string; expiresAt: Date }>();
@@ -89,6 +92,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     private readonly aiService: AiService,
     private readonly conversationsService: ConversationsService,
     private readonly tenantsService: TenantsService,
+    private readonly messagesService: MessagesService,
   ) {}
 
   onModuleInit() {
@@ -120,7 +124,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
 
   async getBotSettings(scopeKey: string): Promise<WhatsappBotSettings> {
     const session = await this.sessionModel.findOne({ scopeKey })
-      .select('forwardingPhones forwardIncomingEnabled autoReplyEnabled')
+      .select('forwardingPhones forwardIncomingEnabled autoReplyEnabled autoReplyConfigured')
       .lean();
     return {
       forwardingPhones: session?.forwardingConfigured === true
@@ -129,7 +133,9 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
           ? session?.forwardingPhones?.length ? session.forwardingPhones : [...PLATFORM_ADMIN_PHONES]
           : session?.forwardingPhones || [],
       forwardIncomingEnabled: session?.forwardIncomingEnabled === true,
-      autoReplyEnabled: session?.autoReplyEnabled === true,
+      autoReplyEnabled: session?.autoReplyConfigured === true
+        ? session.autoReplyEnabled === true
+        : scopeKey !== 'platform',
     };
   }
 
@@ -161,6 +167,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
           forwardingConfigured: true,
           forwardIncomingEnabled: input.forwardIncomingEnabled,
           autoReplyEnabled: input.autoReplyEnabled,
+          autoReplyConfigured: true,
         },
       },
     );
@@ -221,15 +228,27 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     this.encryptionKey();
 
     const session = await this.ensureSession(scopeKey, scope, tenantId);
+    let creds;
+    try {
+      creds = session?.encryptedCreds
+        ? JSON.parse(decryptWhatsappData(session.encryptedCreds, this.encryptionKey()), BufferJSON.reviver)
+        : initAuthCreds();
+    } catch {
+      await this.sessionModel.updateOne(
+        { scopeKey },
+        { $set: { enabled: false, connectionState: 'session_key_mismatch' } },
+      );
+      return {
+        state: 'session_key_mismatch',
+        reason: 'WHATSAPP_SESSION_KEY_MISMATCH',
+      };
+    }
     await this.sessionModel.updateOne(
       { scopeKey },
       { $set: { enabled: true, connectionState: 'connecting' } },
     );
     this.qrCodes.delete(scopeKey);
 
-    const creds = session?.encryptedCreds
-      ? JSON.parse(decryptWhatsappData(session.encryptedCreds, this.encryptionKey()), BufferJSON.reviver)
-      : initAuthCreds();
     const auth = {
       creds,
       keys: {
@@ -437,6 +456,9 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       integration: 'baileys',
       phoneNumber: session?.phoneNumber || null,
       lastConnectedAt: session?.lastConnectedAt || null,
+      reason: state === 'session_key_mismatch'
+        ? 'The saved WhatsApp session cannot be decrypted with the current SESSION_SECRET.'
+        : undefined,
       qrDataUrl: qrDataUrl || null,
       qrExpiresAt: qrDataUrl ? qr?.expiresAt : null,
       capabilities: {
@@ -445,6 +467,144 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
         sendMedia: state === 'connected' && this.sockets.has(scopeKey),
         receiveMessages: state === 'connected' && this.sockets.has(scopeKey),
       },
+    };
+  }
+
+  async relinkTenantWithQr(tenantId: string) {
+    if (!Types.ObjectId.isValid(tenantId)) throw new BadRequestException('A valid tenant is required');
+    return this.relinkWithQr(`tenant:${tenantId}`, 'tenant', tenantId);
+  }
+
+  async relinkPlatformWithQr() {
+    return this.relinkWithQr('platform', 'platform');
+  }
+
+  private async relinkWithQr(scopeKey: string, scope: 'platform' | 'tenant', tenantId?: string) {
+    if (this.starting.has(scopeKey)) throw new ConflictException('Connection is starting. Try again shortly.');
+    const reconnectTimer = this.reconnectTimers.get(scopeKey);
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    this.reconnectTimers.delete(scopeKey);
+    this.reconnectAttempts.delete(scopeKey);
+    this.reconnectExhausted.delete(scopeKey);
+    const socket = this.sockets.get(scopeKey);
+    this.sockets.delete(scopeKey);
+    this.qrCodes.delete(scopeKey);
+    this.connectedAt.delete(scopeKey);
+    if (socket) socket.end(new Error('Replacing unreadable WhatsApp session'));
+    await this.ensureSession(scopeKey, scope, tenantId);
+    await Promise.all([
+      this.authKeyModel.deleteMany({ scopeKey }),
+      this.sessionModel.updateOne(
+        { scopeKey },
+        {
+          $set: {
+            enabled: false,
+            connectionState: 'disconnected',
+            encryptedCreds: null,
+            phoneNumber: null,
+            lastConnectedAt: null,
+          },
+        },
+      ),
+    ]);
+    return this.startConnection(scopeKey, scope, tenantId);
+  }
+
+  async getTenantInbox(tenantId: string) {
+    if (!Types.ObjectId.isValid(tenantId)) throw new BadRequestException('A valid tenant is required');
+    const conversations = await this.conversationsService.findWhatsAppByTenant(tenantId);
+    return Promise.all(conversations.map(async (conversation) => {
+      const conversationId = conversation._id.toString();
+      const latest = await this.messagesService?.findLatestByConversation(conversationId);
+      let phoneNumber: string | null = null;
+      try {
+        const encryptedPhone = conversation.metadata?.whatsappContactPhoneEncrypted;
+        if (encryptedPhone) phoneNumber = decryptWhatsappData(encryptedPhone, this.encryptionKey());
+      } catch {
+        phoneNumber = null;
+      }
+      return {
+        conversationId,
+        phoneNumber,
+        lastMessageAt: conversation.lastMessageAt || latest?.createdAt || conversation.updatedAt,
+        messageCount: conversation.messageCount || 0,
+        preview: latest?.content || '',
+      };
+    }));
+  }
+
+  async getTenantInboxThread(tenantId: string, conversationId: string) {
+    if (!Types.ObjectId.isValid(tenantId)) throw new BadRequestException('A valid tenant is required');
+    const conversation = await this.conversationsService.findWhatsAppConversationByTenant(tenantId, conversationId);
+    let phoneNumber: string | null = null;
+    try {
+      const encryptedPhone = conversation.metadata?.whatsappContactPhoneEncrypted;
+      if (encryptedPhone) phoneNumber = decryptWhatsappData(encryptedPhone, this.encryptionKey());
+    } catch {
+      phoneNumber = null;
+    }
+    const messages = await this.messagesService.findByConversation(conversationId, 100);
+    const latestInbound = await this.inboundModel.findOne({
+      scopeKey: `tenant:${tenantId}`,
+      contactHash: conversation.metadata?.whatsappContactKey,
+    }).sort({ createdAt: -1 }).lean();
+    return {
+      conversationId,
+      phoneNumber,
+      messages: messages.map((message) => ({
+        id: message._id.toString(),
+        role: message.role,
+        content: message.content,
+        createdAt: message.createdAt,
+      })),
+      latestInbound: latestInbound ? {
+        status: latestInbound.status,
+        failureCode: latestInbound.failureCode || null,
+        createdAt: latestInbound.createdAt,
+      } : null,
+    };
+  }
+
+  async replyToTenantInbox(tenantId: string, conversationId: string, text: string) {
+    if (!Types.ObjectId.isValid(tenantId)) throw new BadRequestException('A valid tenant is required');
+    const content = typeof text === 'string' ? text.trim() : '';
+    if (!content || content.length > 4096) {
+      throw new BadRequestException('Reply must contain 1–4096 characters');
+    }
+    const conversation = await this.conversationsService.findWhatsAppConversationByTenant(tenantId, conversationId);
+    const scopeKey = `tenant:${tenantId}`;
+    const socket = this.sockets.get(scopeKey);
+    if (!socket || !(await this.getSessionStatus(scopeKey)).available) {
+      throw new ServiceUnavailableException({
+        code: 'WHATSAPP_SESSION_DISCONNECTED',
+        message: 'اربط رقم المؤسسة عبر QR قبل إرسال الردود.',
+      });
+    }
+    let phoneNumber: string;
+    try {
+      const encryptedPhone = conversation.metadata?.whatsappContactPhoneEncrypted;
+      if (!encryptedPhone) throw new Error('Contact number is missing');
+      phoneNumber = decryptWhatsappData(encryptedPhone, this.encryptionKey()).replace(/\D/g, '');
+    } catch {
+      throw new ConflictException('رقم جهة الاتصال غير متوفر لهذه المحادثة القديمة.');
+    }
+    const sent = await socket.sendMessage(`${phoneNumber}@s.whatsapp.net`, { text: content });
+    if (!sent?.key?.id) throw new ServiceUnavailableException('تعذر تأكيد إرسال الرسالة عبر WhatsApp.');
+    if (!this.messagesService) throw new ServiceUnavailableException('Chat history is unavailable.');
+    const saved = await this.messagesService.create({
+      tenantId,
+      userId: conversation.userId.toString(),
+      conversationId,
+      role: 'assistant',
+      content,
+      aiMetadata: { backend: 'whatsapp-admin-reply', providerMessageId: sent.key.id },
+    });
+    await this.conversationsService.incrementMessageCount(conversationId);
+    return {
+      id: saved._id.toString(),
+      role: saved.role,
+      content: saved.content,
+      createdAt: saved.createdAt,
     };
   }
 
@@ -588,7 +748,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     const existingConsent = await this.consentModel.findOne(consentFilter).lean();
     if (existingConsent?.status === 'revoked') return;
     const settings = await this.getBotSettings(scopeKey);
-    if (!settings.forwardIncomingEnabled && !settings.autoReplyEnabled) return;
+    if (isPlatform && !settings.forwardIncomingEnabled && !settings.autoReplyEnabled) return;
 
     const contactHash = createHash('sha256').update(`${scopeKey}:${phone}`).digest('hex');
     const leadDetected = Boolean(isPlatform && text && isThanarahLead(text));
@@ -599,13 +759,11 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
         ...(tenantObjectId ? { tenantId: tenantObjectId } : {}),
         scopeKey,
         providerMessageId,
-        ...(isPlatform ? {
-          contactHash,
-          ...(canReply ? { encryptedContent: encryptWhatsappData(text, this.encryptionKey()) } : {}),
-        } : {}),
+        contactHash,
+        ...(text ? { encryptedContent: encryptWhatsappData(text, this.encryptionKey()) } : {}),
         leadDetected,
-        status: canReply ? 'processing' : 'ignored',
-        ...(!text ? { failureCode: 'WHATSAPP_MEDIA_FORWARDED_NO_AUTO_REPLY' } : {}),
+        messageKind: text ? 'text' : 'media',
+        status: canReply ? 'processing' : isPlatform ? 'ignored' : 'received',
       });
     } catch (error: any) {
       if (error?.code === 11000) return;
@@ -629,6 +787,38 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
         })
       : Promise.resolve();
 
+    let conversation: any = null;
+    let userId: string | null = null;
+    if (!isPlatform) {
+      userId = contactHash.slice(0, 24);
+      try {
+        conversation = await this.conversationsService.findOrCreateWhatsAppConversation(
+          tenantId!,
+          userId,
+          contactHash,
+          encryptWhatsappData(phoneNumber, this.encryptionKey()),
+        );
+        if (!canReply) {
+          if (!this.messagesService) throw new Error('WhatsApp message storage is unavailable');
+          await this.messagesService.create({
+            tenantId: tenantId!,
+            userId,
+            conversationId: conversation._id.toString(),
+            role: 'user',
+            content: text || 'وصلت رسالة وسائط عبر WhatsApp.',
+          });
+          await this.conversationsService.incrementMessageCount(conversation._id.toString());
+        }
+      } catch {
+        await this.inboundModel.updateOne(
+          inboundFilter,
+          { $set: { status: 'failed', failureCode: 'WHATSAPP_INBOX_SAVE_FAILED' } },
+        ).catch(() => undefined);
+        await forwardPromise;
+        return;
+      }
+    }
+
     if (!canReply) {
       await forwardPromise;
       return;
@@ -637,6 +827,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     try {
       let answerText: string;
       let firstContact = false;
+      let aiFailed = false;
       if (isPlatform) {
         const previousMessages = await this.getPlatformHistory(scopeKey, contactHash, providerMessageId);
         firstContact = previousMessages.length === 0;
@@ -653,18 +844,13 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
             answerText = answer.content.trim();
           } catch {
             answerText = '';
+            aiFailed = true;
           }
         }
       } else {
         // External contacts have isolated, non-authenticating identities. A
         // user-initiated inbound message can receive one direct reply; STOP
         // is persisted and prevents any further processing.
-        const userId = contactHash.slice(0, 24);
-        const conversation = await this.conversationsService.findOrCreateWhatsAppConversation(
-          tenantId!,
-          userId,
-          contactHash,
-        );
         firstContact = Number(conversation.messageCount || 0) === 0;
         await this.tenantsService.consumeChatUsage(tenantId!, false);
         try {
@@ -677,15 +863,20 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
             inputMode: 'text',
             fastMode: true,
           });
-          answerText = answer?.error ? '' : (answer?.content || '').trim();
+          aiFailed = answer?.error === true;
+          answerText = aiFailed ? '' : (answer?.content || '').trim();
         } catch {
           answerText = '';
+          aiFailed = true;
         }
       }
 
-      if (!answerText) answerText = isPlatform
-        ? 'وصلت رسالتك إلى فريق ثنارة، وسيتابع معك قريبًا.'
-        : 'وصلت رسالتك إلى فريق المؤسسة، وسيتابع معك قريبًا.';
+      if (!answerText) {
+        answerText = isPlatform
+          ? 'وصلت رسالتك إلى فريق ثنارة، وسيتابع معك قريبًا.'
+          : 'وصلت رسالتك، لكن تعذّر إنشاء رد آلي الآن. جرّب مرة أخرى بعد قليل.';
+        aiFailed = true;
+      }
       if (firstContact) {
         const disclosure = isPlatform
           ? 'تنويه: أنا مساعد آلي وقد يطلع فريق ثنارة على رسالتك للمتابعة.\n'
@@ -713,18 +904,31 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
         { messageId: replyId },
       );
       if (!sent?.key?.id) throw new Error('WhatsApp did not confirm the reply');
+      if (!isPlatform && aiFailed && this.messagesService) {
+        await this.messagesService.create({
+          tenantId: tenantId!,
+          userId: userId!,
+          conversationId: conversation._id.toString(),
+          role: 'assistant',
+          content: answerText,
+          aiMetadata: { backend: 'whatsapp-fallback', failureCode: 'AI_RESPONSE_FAILED' },
+        });
+        await this.conversationsService.incrementMessageCount(conversation._id.toString());
+      }
       await this.inboundModel.updateOne(
         inboundFilter,
         {
           $set: {
-            status: 'replied',
+            status: aiFailed ? 'failed' : 'replied',
             providerReplyId: sent.key.id,
-            ...(isPlatform ? { encryptedReply: encryptWhatsappData(answerText, this.encryptionKey()) } : {}),
+            encryptedReply: encryptWhatsappData(answerText, this.encryptionKey()),
+            ...(aiFailed ? { failureCode: 'AI_RESPONSE_FAILED' } : {}),
           },
-          $unset: { failureCode: 1 },
+          ...(aiFailed ? {} : { $unset: { failureCode: 1 } }),
         },
       );
     } catch {
+      this.logger.warn(`WhatsApp auto-reply failed (${scopeKey.startsWith('tenant:') ? 'tenant' : 'platform'})`);
       await this.inboundModel.updateOne(
         inboundFilter,
         { $set: { status: 'failed', failureCode: 'WHATSAPP_AUTO_REPLY_FAILED' } },

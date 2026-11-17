@@ -7,6 +7,7 @@ import api from '@/lib/api';
 import { useAuthStore } from '@/store/auth';
 import { cn } from '@/lib/utils';
 import WhatsappAutomationSettings from '@/components/whatsapp/WhatsappAutomationSettings';
+import WhatsappInboxPanel from '@/components/whatsapp/WhatsappInboxPanel';
 
 type Readiness = {
   available: boolean;
@@ -103,11 +104,14 @@ export default function WhatsAppSettingsPage() {
     return () => window.clearInterval(timer);
   }, [allowed, loadReadiness, platformReadiness?.state, readiness?.state]);
 
-  const runConnectionAction = async (kind: 'tenant' | 'platform', action: 'connect' | 'disconnect') => {
+  const runConnectionAction = async (kind: 'tenant' | 'platform', action: 'connect' | 'disconnect' | 'relink') => {
     if (action === 'disconnect' && !window.confirm(
       kind === 'platform'
         ? 'سيُفصل رقم المنصة وتتوقف رموز WhatsApp حتى ربطه مجددًا. هل تريد المتابعة؟'
         : 'سيُحذف ربط الرقم وتُلغى الرسائل المنتظرة. هل تريد المتابعة؟',
+    )) return;
+    if (action === 'relink' && !window.confirm(
+      'سيتم حذف بيانات جلسة WhatsApp القديمة غير القابلة للقراءة فقط، ثم إنشاء QR جديد. سجل المحادثات وإعدادات التوجيه لن تُحذف. هل تريد المتابعة؟',
     )) return;
     const key = `${kind}:${action}`;
     setBusy(key);
@@ -139,6 +143,7 @@ export default function WhatsAppSettingsPage() {
     if (value?.state === 'reconnecting') return 'جارٍ إعادة الاتصال';
     if (value?.state === 'reconnect_failed') return 'تعذر الاتصال؛ أعد المحاولة';
     if (value?.state === 'needs_qr') return 'يلزم ربط QR مجددًا';
+    if (value?.state === 'session_key_mismatch') return 'يلزم إعادة الربط عبر QR';
     if (value?.state === 'qr_error' || value?.state === 'storage_error') return 'تعذر إكمال الربط';
     return 'غير متصل';
   };
@@ -156,7 +161,7 @@ export default function WhatsAppSettingsPage() {
               </p>
               <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">ربط WhatsApp عبر QR</h1>
               <p className="mt-2 max-w-xl text-sm leading-7 text-[#d5e3d9]">
-                اربط رقم المؤسسة بجلسة Baileys محفوظة ومشفّرة، وأرسل الرسائل عبر API. يمكن الرد على الرسائل النصية الواردة عند وجود موافقة نشطة.
+                اربط رقم المؤسسة عبر QR لتظهر المحادثات الواردة هنا، ويرد الذكاء الاصطناعي على الرسائل النصية المباشرة عند تفعيل الرد الآلي.
               </p>
             </div>
             <div className="flex shrink-0 items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3.5 py-2 text-xs">
@@ -205,10 +210,17 @@ export default function WhatsAppSettingsPage() {
                   <button
                     type="button"
                     disabled={Boolean(busy)}
-                    onClick={() => void runConnectionAction('tenant', 'connect')}
+                    onClick={() => void runConnectionAction(
+                      'tenant',
+                      readiness.state === 'session_key_mismatch' ? 'relink' : 'connect',
+                    )}
                     className="rounded-xl bg-[#1c5944] px-4 py-2.5 text-xs font-bold text-white disabled:opacity-50"
                   >
-                    {busy === 'tenant:connect' ? 'جارٍ بدء الربط…' : readiness.available ? 'تحديث الاتصال' : 'ربط رقم المؤسسة'}
+                    {busy === 'tenant:connect' || busy === 'tenant:relink'
+                      ? 'جارٍ بدء الربط…'
+                      : readiness.state === 'session_key_mismatch'
+                        ? 'إعادة الربط وإظهار QR'
+                        : readiness.available ? 'تحديث الاتصال' : 'ربط رقم المؤسسة'}
                   </button>
                   {readiness.state !== 'disconnected' && (
                     <button
@@ -221,6 +233,11 @@ export default function WhatsAppSettingsPage() {
                     </button>
                   )}
                 </div>
+                {readiness.state === 'session_key_mismatch' && (
+                  <p role="alert" className="mt-3 rounded-xl border border-[#e5c7bd] bg-[#fff7f3] px-3 py-2 text-xs leading-6 text-[#8b3f2e]">
+                    تعذر فك تشفير الجلسة القديمة بالمفتاح الحالي. أعد ربط الرقم برمز QR؛ سيُستبدل تخزين الجلسة فقط، ولن تُحذف المحادثات أو إعدادات التوجيه.
+                  </p>
+                )}
                 {readiness.qrDataUrl && (
                   <div className="mt-4 inline-flex flex-col items-center gap-2 rounded-2xl border border-[#dce5de] bg-white p-4">
                     <img src={readiness.qrDataUrl} alt="رمز QR لربط WhatsApp" className="h-56 w-56" />
@@ -257,13 +274,15 @@ export default function WhatsAppSettingsPage() {
                 <ul className="mt-3 space-y-2 text-xs leading-6 text-[#596d5f]">
                   <li>كل مؤسسة تربط رقمها الخاص؛ لا تُشارك الجلسات أو سياقات المحادثات بينها.</li>
                   <li>تُشفّر بيانات الجلسة والرسائل المخزنة قبل حفظها.</li>
-                  <li>يرد الذكاء الاصطناعي على النصوص فقط، وبعد تسجيل موافقة المستلم؛ «إلغاء» يوقف الردود.</li>
+                  <li>يرد الذكاء الاصطناعي على الرسالة النصية المباشرة بعد وصولها؛ «إلغاء» أو STOP يوقف الردود لهذا الرقم.</li>
                   <li>لا تشارك رمز QR أو بيانات الجلسة؛ افصل الرقم فورًا إذا لم تعد تملكه.</li>
                 </ul>
               </aside>
             </div>
           </section>
         ) : null}
+
+        {readiness && <WhatsappInboxPanel connected={readiness.available} />}
 
         <WhatsappAutomationSettings scope="tenant" title="رقم المؤسسة" />
 
@@ -283,10 +302,17 @@ export default function WhatsAppSettingsPage() {
                 <button
                   type="button"
                   disabled={Boolean(busy)}
-                  onClick={() => void runConnectionAction('platform', 'connect')}
+                  onClick={() => void runConnectionAction(
+                    'platform',
+                    platformReadiness?.state === 'session_key_mismatch' ? 'relink' : 'connect',
+                  )}
                   className="rounded-xl bg-[#1c5944] px-4 py-2.5 text-xs font-bold text-white disabled:opacity-50"
                 >
-                  {busy === 'platform:connect' ? 'جارٍ بدء الربط…' : platformReadiness?.available ? 'تحديث الاتصال' : 'ربط رقم المنصة'}
+                  {busy === 'platform:connect' || busy === 'platform:relink'
+                    ? 'جارٍ بدء الربط…'
+                    : platformReadiness?.state === 'session_key_mismatch'
+                      ? 'إعادة الربط وإظهار QR'
+                      : platformReadiness?.available ? 'تحديث الاتصال' : 'ربط رقم المنصة'}
                 </button>
                 {platformReadiness && platformReadiness.state !== 'disconnected' && (
                   <button
@@ -300,6 +326,11 @@ export default function WhatsAppSettingsPage() {
                 )}
               </div>
             </div>
+            {platformReadiness?.state === 'session_key_mismatch' && (
+              <p role="alert" className="mt-3 rounded-xl border border-[#e5c7bd] bg-[#fff7f3] px-3 py-2 text-xs leading-6 text-[#8b3f2e]">
+                جلسة رقم المنصة لا تُقرأ بالمفتاح الحالي. أعد ربطها برمز QR لإعادة تفعيل رموز التحقق؛ سجل المحادثات لا يتأثر.
+              </p>
+            )}
             {platformReadiness?.qrDataUrl && (
               <div className="mt-4 inline-flex flex-col items-center gap-2 rounded-2xl border border-[#dce5de] bg-white p-4">
                 <img src={platformReadiness.qrDataUrl} alt="رمز QR لرقم المنصة" className="h-56 w-56" />
