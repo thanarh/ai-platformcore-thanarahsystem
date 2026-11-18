@@ -20,3 +20,5 @@
 - [WhatsApp number ownership](whatsapp-number-ownership.md) — Baileys QR, isolated tenant numbers, inbound replies/forwarding, and a separate platform OTP number
 - [Phone and embedded product scope](phone-and-embedded-product-scope.md) — verify mobile before account fields; embed the full tenant product with independent institutional identities
 - [Next.js browser assertions](nextjs-browser-assertions.md) — scope form-error assertions; the framework adds its own accessibility alert
+- [Python native test libraries](python-native-test-libraries.md) — full AI-engine test discovery may need Nix runtime libraries when NumPy imports fail in the shell
+- [Wikipedia person answers](wikipedia-person-answers.md) — use exact-title MediaWiki extracts for short person lookups instead of fetching full article HTML

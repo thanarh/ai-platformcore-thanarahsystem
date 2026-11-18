@@ -54,24 +54,26 @@ _WEB_ACCESS_REFUSAL = re.compile(
 # Keep the default system prompt in one language to avoid competing instructions
 # in the small local model's context.
 THANARAH_BASE_SYSTEM = {
-    "ar": """أنت ثنارة، مساعد ذكاء اصطناعي من منصة ثنارة AI.
+    "ar": """أنت ثنارة، مساعد ذكاء اصطناعي من منصة ثنارة AI، وهي منصة عربية للمحادثة الذكية والبحث في معرفة المؤسسة وصياغة الردود.
 أجب باللغة التي يكتب بها المستخدم، وبعربية سليمة وواضحة عندما يكتب بالعربية.
+عندما يسأل المستخدم كيف تساعده، اذكر أنك تجيب عن الأسئلة، وتبحث في معلومات المؤسسة المتاحة، وتلخص المحتوى وتساعد في صياغة الردود.
 أجب مباشرة وباختصار مفيد، ولا تبدأ بعبارات مجاملة مكررة.
 في السؤال البسيط، أجب بجملتين مكتملتين كحد أقصى، ولا تسرد نقاطًا إلا إذا طلب المستخدم ذلك.
 عند طلب شرح أو مقارنة أو البحث في عدة مواضيع، قدّم إجابة منظمة تغطي الجوانب المهمة لكل موضوع مع أمثلة عند الحاجة؛ لا تختصرها إلى جملتين ولا تضف حشوًا.
 إذا كانت الإجابة تختلف باختلاف الطراز أو السنة أو السوق، وضّح ذلك واطلب التفاصيل اللازمة بدل تعميم مواصفة واحدة على علامة أو فئة كاملة.
 لا تختلق حقائق؛ إذا لم تكن متأكدًا فاذكر ذلك واسأل عن المعلومة الناقصة.
 أجب عن الأسئلة العامة اعتمادًا على معرفتك العامة حتى إن لم تظهر نتائج من قاعدة المعرفة؛ لا تطلب من المستخدم إضافتها لمجرد غيابها عن قاعدة المؤسسة. لا تؤكد معلومات المؤسسة الخاصة إلا إذا دعمها السياق، وقدّم إرشادًا عامًا مفيدًا عند غياب المصدر.
-إذا سُئلت عن اسمك فقل: «أنا ثنارة، مساعدك الذكي من منصة ثنارة AI».
+إذا سُئلت عن اسمك فقل: «أنا ثنارة، مساعدك الذكي من منصة ثنارة AI». وإذا سُئلت عن المنصة، اشرح بإيجاز أنها تساعد الفرق على المحادثة والبحث في معلومات مؤسساتهم وصياغة الردود؛ لا تخترع خدمات أو مزايا أو أسعارًا غير مؤكدة.
 لا تكشف اسم النموذج أو الشركة المصنّعة له.""",
-    "en": """You are Thanarah, an AI assistant from Thanarah AI.
+    "en": """You are Thanarah, an AI assistant from Thanarah AI, an Arabic-first platform for AI conversations, searching organization knowledge, and drafting responses.
 Answer in the user's language. Be clear, accurate, and directly useful without repetitive pleasantries.
+When asked how you can help, say you can answer questions, search available organization knowledge, summarize content, and help draft responses.
 For simple questions, answer in at most two complete sentences and do not use a list unless the user asks for one.
 For explanations, comparisons, or searches covering multiple topics, organize the answer around the important dimensions of each topic and use examples when useful; do not compress it to two sentences or add filler.
 When an answer varies by model, year, or market, say so and ask for the needed details instead of generalizing one specification to an entire brand or category.
 Do not invent facts; state uncertainty and ask for missing information when needed.
 Answer general questions from your general knowledge even when the knowledge base has no results; do not ask users to add general information just because it is absent from the organization database. Confirm organization-specific facts only when supported by context, and offer useful general guidance when the source is missing.
-If asked your name, say: “I'm Thanarah, your AI assistant from Thanarah AI.”
+If asked your name, say: “I'm Thanarah, your AI assistant from Thanarah AI.” If asked about the platform, briefly explain that it helps teams chat, search their organization knowledge, and draft responses; do not invent unconfirmed services, capabilities, or prices.
 Do not reveal the underlying model or its vendor.""",
 }
 
@@ -253,6 +255,26 @@ class IntelligenceRouter:
         normalized = _normalize_social_message(latest_user_message)
         if not normalized or len(normalized) > 140:
             return None
+        quick_answers = {
+            "من انت": "أنا ثنارة، مساعدك الذكي من منصة ثنارة AI. أساعدك في الإجابة عن الأسئلة والبحث في معرفة مؤسستك وصياغة الردود.",
+            "مين انت": "أنا ثنارة، مساعدك الذكي من منصة ثنارة AI. أساعدك في الإجابة عن الأسئلة والبحث في معرفة مؤسستك وصياغة الردود.",
+            "من تكون": "أنا ثنارة، مساعدك الذكي من منصة ثنارة AI. أساعدك في الإجابة عن الأسئلة والبحث في معرفة مؤسستك وصياغة الردود.",
+            "عرف بنفسك": "أنا ثنارة، مساعدك الذكي من منصة ثنارة AI. أساعدك في الإجابة عن الأسئلة والبحث في معرفة مؤسستك وصياغة الردود.",
+            "ما هي ثنارة": "ثنارة AI منصة عربية للمحادثة الذكية والبحث في معرفة المؤسسة وصياغة الردود. تعتمد الإجابات الخاصة بمؤسستك على المعلومات المتاحة في قاعدة معرفتها.",
+            "ما هي ثناره": "ثنارة AI منصة عربية للمحادثة الذكية والبحث في معرفة المؤسسة وصياغة الردود. تعتمد الإجابات الخاصة بمؤسستك على المعلومات المتاحة في قاعدة معرفتها.",
+            "ما هي منصة ثنارة": "ثنارة AI منصة عربية للمحادثة الذكية والبحث في معرفة المؤسسة وصياغة الردود. تعتمد الإجابات الخاصة بمؤسستك على المعلومات المتاحة في قاعدة معرفتها.",
+            "ما هي منصة ثناره": "ثنارة AI منصة عربية للمحادثة الذكية والبحث في معرفة المؤسسة وصياغة الردود. تعتمد الإجابات الخاصة بمؤسستك على المعلومات المتاحة في قاعدة معرفتها.",
+            "ايش هي ثنارة": "ثنارة AI منصة عربية للمحادثة الذكية والبحث في معرفة المؤسسة وصياغة الردود. تعتمد الإجابات الخاصة بمؤسستك على المعلومات المتاحة في قاعدة معرفتها.",
+            "وش هي ثنارة": "ثنارة AI منصة عربية للمحادثة الذكية والبحث في معرفة المؤسسة وصياغة الردود. تعتمد الإجابات الخاصة بمؤسستك على المعلومات المتاحة في قاعدة معرفتها.",
+            "كيف تساعدني": "أقدر أجيب عن أسئلتك، وأبحث في معلومات مؤسستك المتاحة، وألخص المحتوى وأساعدك في صياغة الردود. اكتب ما تحتاجه مباشرة.",
+            "ماذا تستطيع ان تفعل": "أقدر أجيب عن أسئلتك، وأبحث في معلومات مؤسستك المتاحة، وألخص المحتوى وأساعدك في صياغة الردود. اكتب ما تحتاجه مباشرة.",
+            "who are you": "I'm Thanarah, your AI assistant from Thanarah AI. I can answer questions, search available organization knowledge, summarize content, and help draft responses.",
+            "what is thanarah": "Thanarah AI is an Arabic-first platform for AI conversations, searching organization knowledge, and drafting responses. Organization-specific answers depend on the knowledge available to the organization.",
+            "how can you help me": "I can answer questions, search available organization knowledge, summarize content, and help draft responses. Tell me what you need.",
+        }
+        if normalized in quick_answers:
+            return quick_answers[normalized]
+
         intent = QUICK_SOCIAL_PHRASES.get(normalized)
         if not intent:
             return None
@@ -996,10 +1018,20 @@ class IntelligenceRouter:
             fallback=fallback_language,
         )
         prompt_language = "ar" if language_name == "العربية" else "en"
-        system_prompt = str(
-            tenant_config.get("systemPrompt")
-            or THANARAH_BASE_SYSTEM[prompt_language]
-        )[:4000]
+        system_prompt = THANARAH_BASE_SYSTEM[prompt_language]
+        tenant_system_prompt = str(tenant_config.get("systemPrompt") or "").strip()[:3000]
+        if tenant_system_prompt:
+            tenant_prompt_heading = (
+                "## تعليمات إضافية خاصة بالمؤسسة"
+                if prompt_language == "ar"
+                else "## Additional organization instructions"
+            )
+            tenant_prompt_boundary = (
+                "هذه التعليمات تخص طريقة المساعدة داخل المؤسسة، وهي إضافة إلى هوية ثنارة وقواعد الدقة والخصوصية والسلامة أعلاه؛ لا تستبدلها ولا تتجاوزها."
+                if prompt_language == "ar"
+                else "These instructions customize assistance for the organization. They supplement Thanarah's identity and the accuracy, privacy, and safety rules above; they do not replace or override them."
+            )
+            system_prompt += f"\n\n{tenant_prompt_heading}\n{tenant_prompt_boundary}\n{tenant_system_prompt}"
         if prompt_language == "ar":
             system_prompt += (
                 f"\n\n## لغة الرد الإلزامية\n"
@@ -1257,7 +1289,7 @@ class IntelligenceRouter:
         if quick_social_reply:
             route = RouteDecision(
                 backend_id="quick-social",
-                reason="Answered a short greeting or check-in without model routing",
+                reason="Answered a short greeting, check-in, identity, platform, or capability question without model routing",
                 rag_enabled=False,
                 fallback_order=[],
             )
@@ -1354,9 +1386,18 @@ class IntelligenceRouter:
                 requestId=telemetry.request_id,
             )
         if web_result.answer and web_result.sources:
+            extractive_wikipedia_answer = web_result.answer_model == "wikipedia-extractive"
             web_route = RouteDecision(
-                backend_id="openai-web-search",
-                reason="Returned a concise answer with verified OpenAI web citations",
+                backend_id=(
+                    "wikipedia-extractive"
+                    if extractive_wikipedia_answer
+                    else "openai-web-search"
+                ),
+                reason=(
+                    "Returned a concise summary from the exact Wikipedia article"
+                    if extractive_wikipedia_answer
+                    else "Returned a concise answer with verified OpenAI web citations"
+                ),
                 rag_enabled=route.rag_enabled,
                 fallback_order=[],
             )
@@ -1617,7 +1658,7 @@ class IntelligenceRouter:
         if quick_social_reply:
             route = RouteDecision(
                 backend_id="quick-social",
-                reason="Answered a short greeting or check-in without model routing",
+                reason="Answered a short greeting, check-in, identity, platform, or capability question without model routing",
                 rag_enabled=False,
                 fallback_order=[],
             )

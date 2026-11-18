@@ -72,8 +72,36 @@ class LanguagePolicyTests(unittest.TestCase):
 
         self.assertIn("أجب عن الأسئلة العامة اعتمادًا على معرفتك العامة", arabic_prompt)
         self.assertIn("أجب بجملتين مكتملتين كحد أقصى", arabic_prompt)
+        self.assertIn("تبحث في معلومات المؤسسة المتاحة", arabic_prompt)
         self.assertIn("Answer general questions from your general knowledge", english_prompt)
         self.assertIn("at most two complete sentences", english_prompt)
+        self.assertIn("search available organization knowledge", english_prompt)
+
+    def test_tenant_prompt_adds_to_instead_of_replacing_thanarah_identity(self):
+        router = IntelligenceRouter(registry=None)
+        route = RouteDecision(backend_id="thanarah-local", reason="tenant prompt compatibility")
+        arabic_request = ChatRequest(
+            messages=[ChatMessage(role="user", content="من أنت؟")],
+            tenantConfig={"systemPrompt": "أنت مساعد دعم فني لعيادتنا."},
+            runtimeContext={"language": "ar"},
+        )
+        english_request = ChatRequest(
+            messages=[ChatMessage(role="user", content="Who are you?")],
+            tenantConfig={"systemPrompt": "You are our clinic support assistant."},
+            runtimeContext={"language": "en"},
+        )
+
+        arabic_prompt = router._build_ai_request(arabic_request, route).system_prompt
+        english_prompt = router._build_ai_request(english_request, route).system_prompt
+
+        self.assertIn("أنا ثنارة، مساعدك الذكي من منصة ثنارة AI", arabic_prompt)
+        self.assertIn("منصة عربية للمحادثة الذكية", arabic_prompt)
+        self.assertIn("أنت مساعد دعم فني لعيادتنا.", arabic_prompt)
+        self.assertIn("لا تستبدلها ولا تتجاوزها", arabic_prompt)
+        self.assertIn("I'm Thanarah, your AI assistant from Thanarah AI.", english_prompt)
+        self.assertIn("Arabic-first platform for AI conversations", english_prompt)
+        self.assertIn("You are our clinic support assistant.", english_prompt)
+        self.assertIn("do not replace or override them", english_prompt)
 
     def test_default_profile_is_more_detailed_and_comparisons_override_fast(self):
         router = IntelligenceRouter(registry=None)

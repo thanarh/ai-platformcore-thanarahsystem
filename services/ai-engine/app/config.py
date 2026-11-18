@@ -167,7 +167,7 @@ class Settings(BaseSettings):
     external_ai_base_url: str = "https://api.openai.com/v1"
     external_ai_model: str = "gpt-5-nano"
     external_ai_max_tokens_field: str = "max_completion_tokens"
-    external_ai_timeout_seconds: float = Field(default=2.0, ge=1.0, le=30.0)
+    external_ai_timeout_seconds: float = Field(default=4.0, ge=1.0, le=30.0)
     external_ai_max_retries: int = 0
     external_ai_max_concurrency: int = 4
     external_ai_daily_limit: int = 200

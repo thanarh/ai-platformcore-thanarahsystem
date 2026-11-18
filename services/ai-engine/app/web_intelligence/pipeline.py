@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import re
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field, replace
@@ -30,6 +31,7 @@ from app.web_intelligence.search import (
     business_comparison_search_queries,
     business_comparison_official_domains,
     canonicalize_url,
+    direct_person_lookup_subject,
     extract_direct_urls,
     english_search_query,
     filter_and_score_results,
@@ -232,6 +234,7 @@ class WebIntelligencePipeline:
             event_callback,
         )
         direct_urls = extract_direct_urls(query)
+        direct_person_subject = direct_person_lookup_subject(query)
         await self._emit_event(
             result,
             self._event(
@@ -418,7 +421,11 @@ class WebIntelligencePipeline:
                     max_results=max_results or settings.web_max_results,
                     category=fallback_category,
                 )
-                relevant = filter_and_score_results(wikipedia_query, candidates)
+                relevant = filter_and_score_results(
+                    wikipedia_query,
+                    candidates,
+                    exact_subject=direct_person_subject,
+                )
                 if relevant and telemetry is not None:
                     telemetry.set("webSearchFallbackProvider", "wikipedia")
                 return relevant
@@ -439,6 +446,13 @@ class WebIntelligencePipeline:
             topic: str,
             topic_category: str,
         ) -> tuple[list[SearchResult], Exception | None]:
+            if direct_person_subject:
+                exact_results = await search_wikipedia_fallback(topic, topic_category)
+                return [
+                    replace(item, search_topics=(topic,))
+                    for item in exact_results
+                ], None
+
             business_queries = business_comparison_search_queries(topic)
             if business_queries:
                 # These known comparisons are filtered to first-party sources
@@ -468,7 +482,11 @@ class WebIntelligencePipeline:
                         category=topic_category,
                         time_range=time_range,
                     )
-                    return filter_and_score_results(variant_query, candidates), None
+                    return filter_and_score_results(
+                        variant_query,
+                        candidates,
+                        exact_subject=direct_person_subject,
+                    ), None
                 except Exception as exc:
                     return [], exc
 
@@ -500,7 +518,11 @@ class WebIntelligencePipeline:
                         for domain in official_domains
                     )
                 ]
-            if not relevant:
+            if direct_person_subject:
+                # For a named-person question, don't present family members
+                # or other pages that merely share the surname as evidence.
+                relevant = await search_wikipedia_fallback(topic, topic_category)
+            elif not relevant:
                 if not business_comparison_search_queries(topic):
                     relevant = await search_wikipedia_fallback(topic, topic_category)
             if same_day_requested:
@@ -776,6 +798,22 @@ class WebIntelligencePipeline:
                 self._event("fetch_started", url=item.url),
                 event_callback,
             )
+            if direct_person_subject and item.source == "wikipedia" and item.snippet.strip():
+                page = ExtractedPage(
+                    url=item.url,
+                    title=item.title,
+                    headings=(),
+                    paragraphs=(item.snippet,),
+                    content=item.snippet,
+                    domain=urlparse(item.url).hostname or "wikipedia.org",
+                )
+                await self._emit_event(
+                    result,
+                    self._event("fetch_completed", url=item.url, contentChars=len(page.content)),
+                    event_callback,
+                )
+                return item, None, page
+
             fetch_key = self._cache_key(item.url)
             fetched = self._cache_get(self._fetch_cache, fetch_key, settings.web_fetch_cache_ttl_seconds)
             fetch_cache_hit = fetched is not None
@@ -899,6 +937,25 @@ class WebIntelligencePipeline:
             remaining -= len(clipped)
         result.context = add_search_limit_note("\n".join(context_parts))
         result.sources = [item["source"] for item in candidates]
+        if direct_person_subject and candidates:
+            person_excerpt = " ".join(str(candidates[0].get("content") or "").split())
+            sentences = [
+                sentence.strip()
+                for sentence in re.split(r"(?<=[.!?؟])\s+", person_excerpt)
+                if sentence.strip()
+            ]
+            answer = " ".join(sentences[:2]) or person_excerpt
+            if len(answer) > 600:
+                clause_end = max(
+                    answer.rfind("،", 0, 600),
+                    answer.rfind(",", 0, 600),
+                    answer.rfind("؛", 0, 600),
+                    answer.rfind(";", 0, 600),
+                )
+                cut_at = clause_end if clause_end >= 250 else answer.rfind(" ", 0, 600)
+                answer = answer[:cut_at].rstrip(" ،,؛;") + "…"
+            result.answer = answer
+            result.answer_model = "wikipedia-extractive"
         await self._emit_event(
             result,
             self._event("status", state="generating", progress=85, sourceCount=len(result.sources)),

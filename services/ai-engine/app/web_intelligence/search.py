@@ -139,11 +139,20 @@ _NORMALIZED_SEARCH_STOPWORDS = {
 }
 
 _WIKIPEDIA_QUERY_FRAMING = {
-    "ما", "ماذا", "وش", "ايش", "اللي", "الذي", "التي", "حصل", "حدث", "صار", "و",
+    "ما", "ماذا", "من", "هو", "هي", "مين", "وش", "ايش", "اللي", "الذي", "التي", "حصل", "حدث", "صار", "و",
     "في", "عن", "من", "بين", "الفرق", "الاختلاف", "مقارنة", "قارن",
     "افضل", "الافضل", "احسن", "الاحسن", "اعلى", "ترتيب", "الترتيب", "تصنيف", "التصنيف",
     "what", "happened", "occurred", "is", "are", "the", "in", "during",
     "of", "between", "difference", "compare", "comparison", "best", "top", "ranking", "rankings",
+}
+_DIRECT_PERSON_LOOKUP = re.compile(
+    r"^\s*(?:من\s+(?:هو|هي)|مين\s+(?:هو|هي)|who\s+(?:is|was))\s+(.+?)\s*[؟?!.،,]*\s*$",
+    re.IGNORECASE,
+)
+_WIKIPEDIA_TOPIC_ALIASES = {
+    "اينشتين": "ألبرت أينشتاين",
+    "اينشتاين": "ألبرت أينشتاين",
+    "البرت اينشتين": "ألبرت أينشتاين",
 }
 
 
@@ -212,7 +221,7 @@ def normalize_wikipedia_query(query: str) -> str:
         normalized,
         flags=re.IGNORECASE,
     )
-    words = re.findall(r"[\w\u0600-\u06ff]+", normalized)
+    words = re.findall(r"[\w]+", normalized)
     topic_words = [
         word
         for word in words
@@ -225,7 +234,23 @@ def normalize_wikipedia_query(query: str) -> str:
         topic,
         flags=re.IGNORECASE,
     )
-    return topic or normalized
+    topic = topic or normalized
+    return _WIKIPEDIA_TOPIC_ALIASES.get(_normalize_lexical_text(topic), topic)
+
+
+def direct_person_lookup_subject(query: str) -> str | None:
+    """Return an exact article subject for a short, explicitly named-person query."""
+    match = _DIRECT_PERSON_LOOKUP.fullmatch((query or "").strip())
+    if not match:
+        return None
+    subject = normalize_wikipedia_query(match.group(1))
+    subject_terms = re.findall(
+        r"[\w]{2,}",
+        _normalize_lexical_text(subject),
+    )
+    # Restrict exact-title filtering to multiword names to avoid breaking
+    # questions about roles or ambiguous one-word names.
+    return subject if len(subject_terms) >= 2 else None
 
 
 def extract_direct_urls(query: str) -> list[str]:
@@ -716,29 +741,36 @@ class SearXNGClient:
                 f"https://{wiki_language}.wikipedia.org/w/api.php",
                 {
                     "action": "query",
-                    "list": "search",
-                    "srsearch": search_query,
-                    "srnamespace": 0,
-                    "srlimit": max(1, min(max_results or settings.web_max_results, 10)),
-                    "srprop": "snippet",
+                    "generator": "search",
+                    "gsrsearch": search_query,
+                    "gsrnamespace": 0,
+                    "gsrlimit": max(1, min(max_results or settings.web_max_results, 10)),
+                    "prop": "extracts",
+                    "exintro": 1,
+                    "explaintext": 1,
+                    "exchars": 1800,
                     "format": "json",
                     "utf8": 1,
                 },
             )
         response.raise_for_status()
         payload = response.json()
-        hits = payload.get("query", {}).get("search", []) if isinstance(payload, dict) else []
-        if not isinstance(hits, list):
+        pages = payload.get("query", {}).get("pages", {}) if isinstance(payload, dict) else {}
+        if not isinstance(pages, dict):
             raise ValueError("Wikipedia returned a malformed search response")
 
         results: list[SearchResult] = []
+        hits = sorted(
+            (item for item in pages.values() if isinstance(item, dict)),
+            key=lambda item: int(item.get("index", 999)),
+        )
         for index, item in enumerate(hits, start=1):
             if not isinstance(item, dict):
                 continue
             title = str(item.get("title") or "").strip()
             if not title:
                 continue
-            snippet = unescape(re.sub(r"<[^>]+>", " ", str(item.get("snippet") or "")))
+            snippet = unescape(re.sub(r"<[^>]+>", " ", str(item.get("extract") or "")))
             snippet = re.sub(r"\s+", " ", snippet).strip()
             article_path = quote(title.replace(" ", "_"), safe="()_,")
             results.append(
@@ -920,7 +952,7 @@ def split_search_queries(
 
 def _business_entity_names(query: str) -> list[str]:
     normalized = _normalize_lexical_text(normalize_search_query(query))
-    terms = set(re.findall(r"[\w\u0600-\u06ff]{2,}", normalized))
+    terms = set(re.findall(r"[\w]{2,}", normalized))
     names: list[str] = []
     for alias, display_name, _domain in _BUSINESS_ENTITY_ALIASES:
         if alias in terms and display_name not in names:
@@ -1059,9 +1091,18 @@ def english_search_query(query: str) -> str | None:
     return translated or None
 
 
-def filter_and_score_results(query: str, results: list[SearchResult]) -> list[SearchResult]:
+def filter_and_score_results(
+    query: str,
+    results: list[SearchResult],
+    *,
+    exact_subject: str | None = None,
+) -> list[SearchResult]:
     """Deduplicate by canonical URL, remove blocked domains, then score lexically."""
     search_query = normalize_search_query(query)
+    exact_subject = exact_subject or direct_person_lookup_subject(query)
+    exact_subject_normalized = (
+        _normalize_lexical_text(exact_subject) if exact_subject else None
+    )
     entity_names = _business_entity_names(search_query)
     business_query = _is_business_entity_query(search_query, entity_names)
     business_comparison = len(entity_names) >= 2 and _contains_comparison_marker(search_query)
@@ -1073,7 +1114,7 @@ def filter_and_score_results(query: str, results: list[SearchResult]) -> list[Se
     terms = {
         term
         for term in re.findall(
-            r"[\w\u0600-\u06ff]{2,}",
+            r"[\w]{2,}",
             _normalize_business_text(scoring_query, enabled=business_query),
         )
         if term not in _NORMALIZED_SEARCH_STOPWORDS
@@ -1098,6 +1139,19 @@ def filter_and_score_results(query: str, results: list[SearchResult]) -> list[Se
             hostname == domain or hostname.endswith(f".{domain}") for domain in blocked
         ) or search_homepage:
             continue
+        if exact_subject_normalized:
+            title = _normalize_lexical_text(result.title)
+            if not (
+                title == exact_subject_normalized
+                or title.startswith(
+                    (
+                        f"{exact_subject_normalized} (",
+                        f"{exact_subject_normalized} -",
+                        f"{exact_subject_normalized} |",
+                    )
+                )
+            ):
+                continue
         seen.add(canonical)
         haystack = _normalize_business_text(
             f"{result.title} {result.snippet} {hostname}",
@@ -1109,7 +1163,7 @@ def filter_and_score_results(query: str, results: list[SearchResult]) -> list[Se
             if any(variant in haystack for variant in _relevance_variants(term))
         )
         host_terms = set(
-            re.findall(r"[\w\u0600-\u06ff]{2,}", _normalize_lexical_text(hostname))
+            re.findall(r"[\w]{2,}", _normalize_lexical_text(hostname))
         )
         domain_entity_match = bool(entity_terms & host_terms)
         required_overlap = (

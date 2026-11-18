@@ -22,6 +22,7 @@ from app.web_intelligence.search import (
     _effective_language,
     business_comparison_official_domains,
     business_comparison_search_queries,
+    direct_person_lookup_subject,
     english_search_query,
     extract_direct_urls,
     filter_and_score_results,
@@ -29,6 +30,7 @@ from app.web_intelligence.search import (
     is_search_request_missing_topic,
     is_university_ranking_source_candidate,
     normalize_search_query,
+    normalize_wikipedia_query,
     select_diverse_results,
 )
 
@@ -256,6 +258,43 @@ class WebIntelligencePhase3Tests(unittest.IsolatedAsyncioTestCase):
         filtered = filter_and_score_results(query, [result])
 
         self.assertEqual(filtered, [result])
+
+    def test_named_person_search_keeps_the_exact_subject_and_fixes_common_einstein_typo(self):
+        from app.web_intelligence.search import SearchResult
+
+        self.assertEqual(normalize_wikipedia_query("من هو اينشتين"), "ألبرت أينشتاين")
+        self.assertEqual(
+            direct_person_lookup_subject("من هو ألبرت أينشتاين؟"),
+            "ألبرت أينشتاين",
+        )
+        correct_article = SearchResult(
+            title="ألبرت أينشتاين",
+            url="https://ar.wikipedia.org/wiki/Albert_Einstein",
+            snippet="ألبرت أينشتاين عالم فيزياء نظرية.",
+            source="wikipedia",
+            rank=1,
+        )
+        son_article = SearchResult(
+            title="هانز ألبرت أينشتاين",
+            url="https://ar.wikipedia.org/wiki/Hans_Albert_Einstein",
+            snippet="ابن عالم الفيزياء ألبرت أينشتاين.",
+            source="wikipedia",
+            rank=2,
+        )
+        daughter_article = SearchResult(
+            title="إدوارد ألبرت أينشتاين",
+            url="https://ar.wikipedia.org/wiki/Eduard_Einstein",
+            snippet="ابن ألبرت أينشتاين.",
+            source="wikipedia",
+            rank=3,
+        )
+
+        filtered = filter_and_score_results(
+            "من هو ألبرت أينشتاين؟",
+            [son_article, daughter_article, correct_article],
+        )
+
+        self.assertEqual([item.title for item in filtered], ["ألبرت أينشتاين"])
 
     def test_arabic_relevance_filter_handles_brand_typos_and_definite_articles(self):
         from app.web_intelligence.search import SearchResult
@@ -519,16 +558,19 @@ class WebIntelligencePhase3Tests(unittest.IsolatedAsyncioTestCase):
         def handler(request: httpx.Request) -> httpx.Response:
             self.assertEqual(request.url.host, "ar.wikipedia.org")
             self.assertEqual(request.url.path, "/w/api.php")
-            self.assertEqual(request.url.params["srsearch"], "الحرب العالمية الثانية")
+            self.assertEqual(request.url.params["gsrsearch"], "الحرب العالمية الثانية")
             self.assertEqual(request.headers.get("user-agent"), settings.web_fetch_user_agent)
             return httpx.Response(
                 200,
                 json={
                     "query": {
-                        "search": [{
-                            "title": "الحرب العالمية الثانية",
-                            "snippet": "تاريخ <span class=\"searchmatch\">الحرب</span>",
-                        }]
+                        "pages": {
+                            "1": {
+                                "index": 1,
+                                "title": "الحرب العالمية الثانية",
+                                "extract": "تاريخ الحرب العالمية الثانية.",
+                            }
+                        }
                     }
                 },
             )
@@ -545,7 +587,7 @@ class WebIntelligencePhase3Tests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0].source, "wikipedia")
         self.assertEqual(results[0].engines, ("wikipedia_api",))
-        self.assertEqual(results[0].snippet, "تاريخ الحرب")
+        self.assertEqual(results[0].snippet, "تاريخ الحرب العالمية الثانية.")
         self.assertIn("ar.wikipedia.org/wiki/", results[0].url)
 
     async def test_wikipedia_api_requests_are_serialized_and_rate_limited(self):
@@ -553,7 +595,7 @@ class WebIntelligencePhase3Tests(unittest.IsolatedAsyncioTestCase):
 
         def handler(_request: httpx.Request) -> httpx.Response:
             request_times.append(asyncio.get_running_loop().time())
-            return httpx.Response(200, json={"query": {"search": []}})
+            return httpx.Response(200, json={"query": {"pages": {}}})
 
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
             search_client = SearXNGClient("http://searxng.test", client=client)
@@ -746,6 +788,85 @@ class WebIntelligencePhase3Tests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(history_result.sources)
         self.assertIn("الحرب العالمية الثانية", history_result.context)
         self.assertFalse(weather_result.sources)
+
+    async def test_direct_person_question_uses_exact_wikipedia_subject_over_family_results(self):
+        from app.web_intelligence.search import SearchResult
+
+        wikipedia_queries = []
+
+        class SearchWithRelatedPeople:
+            base_url = "http://searxng.test"
+
+            async def search(self, *_args, **_kwargs):
+                return [
+                    SearchResult(
+                        title="هانز ألبرت أينشتاين",
+                        url="https://ar.wikipedia.org/wiki/Hans_Albert_Einstein",
+                        snippet="ابن عالم الفيزياء ألبرت أينشتاين.",
+                        source="wikipedia",
+                        rank=1,
+                    ),
+                    SearchResult(
+                        title="إدوارد ألبرت أينشتاين",
+                        url="https://ar.wikipedia.org/wiki/Eduard_Einstein",
+                        snippet="ابن ألبرت أينشتاين.",
+                        source="wikipedia",
+                        rank=2,
+                    ),
+                ]
+
+            async def search_wikipedia(self, query, **_kwargs):
+                wikipedia_queries.append(query)
+                return [
+                    SearchResult(
+                        title="هانز ألبرت أينشتاين",
+                        url="https://ar.wikipedia.org/wiki/Hans_Albert_Einstein",
+                        snippet="ابن عالم الفيزياء ألبرت أينشتاين.",
+                        source="wikipedia",
+                        rank=1,
+                    ),
+                    SearchResult(
+                        title="ألبرت أينشتاين",
+                        url="https://ar.wikipedia.org/wiki/Albert_Einstein",
+                        snippet="ألبرت أينشتاين عالم فيزياء نظرية ولد عام 1879.",
+                        source="wikipedia",
+                        rank=2,
+                    ),
+                ]
+
+        class FakeFetcher:
+            async def fetch(self, url):
+                return FetchedPage(
+                    url=url,
+                    content_type="text/html",
+                    content=(
+                        "<html><title>ألبرت أينشتاين</title><main>"
+                        "<p>ألبرت أينشتاين عالم فيزياء نظرية ولد عام 1879.</p>"
+                        "</main></html>"
+                    ).encode("utf-8"),
+                    retrieved_at="2026-11-18T00:00:00+00:00",
+                )
+
+        with patch.object(settings, "web_search_enabled", True):
+            result = await WebIntelligencePipeline(
+                search_client=SearchWithRelatedPeople(),
+                fetcher=FakeFetcher(),
+            ).run(
+                "من هو اينشتين",
+                tenant_id="tenant-a",
+                tenant_config={
+                    "industry": "healthcare",
+                    "webSearchEnabled": True,
+                    "openaiWebSearchEnabled": False,
+                },
+                language="ar",
+            )
+
+        self.assertEqual(wikipedia_queries, ["ألبرت أينشتاين"])
+        self.assertEqual([source["title"] for source in result.sources], ["ألبرت أينشتاين"])
+        self.assertIn("عام 1879", result.context)
+        self.assertEqual(result.answer_model, "wikipedia-extractive")
+        self.assertIn("ألبرت أينشتاين عالم فيزياء نظرية", result.answer)
 
     async def test_pipeline_rejects_unverified_university_ranking_sources(self):
         from app.web_intelligence.search import SearchResult

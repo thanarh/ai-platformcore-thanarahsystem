@@ -70,6 +70,28 @@ class QuickSocialResponseTests(unittest.IsolatedAsyncioTestCase):
             )
         )
 
+    def test_identity_platform_and_capability_questions_have_reliable_short_answers(self):
+        cases = {
+            "من أنت؟": "أنا ثنارة، مساعدك الذكي من منصة ثنارة AI.",
+            "مين انت؟": "أنا ثنارة، مساعدك الذكي من منصة ثنارة AI.",
+            "ما هي ثنارة؟": "ثنارة AI منصة عربية",
+            "كيف تساعدني؟": "أقدر أجيب عن أسئلتك",
+            "Who are you?": "I'm Thanarah, your AI assistant",
+            "What is Thanarah?": "Thanarah AI is an Arabic-first platform",
+        }
+        for question, expected in cases.items():
+            with self.subTest(question=question):
+                answer = self.router._quick_social_response(self.request(question))
+                self.assertIsNotNone(answer)
+                self.assertIn(expected, answer)
+
+    def test_combined_identity_and_follow_up_questions_still_use_model(self):
+        self.assertIsNone(
+            self.router._quick_social_response(
+                self.request("من أنت؟ وما المعلومات التي تستطيع البحث عنها؟")
+            )
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
