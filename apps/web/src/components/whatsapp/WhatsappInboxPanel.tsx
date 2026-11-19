@@ -18,6 +18,7 @@ type ThreadMessage = {
   role: string;
   content: string;
   createdAt?: string;
+  contentDecodeError?: boolean;
 };
 
 type Thread = {
@@ -60,7 +61,9 @@ export default function WhatsappInboxPanel({ connected }: { connected: boolean }
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
-  const endRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const scrollAnchorRef = useRef({ conversationId: '', lastMessageId: '' });
+  const stickToBottomRef = useRef(true);
 
   const loadInbox = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true);
@@ -109,8 +112,23 @@ export default function WhatsappInboxPanel({ connected }: { connected: boolean }
   }, [loadThread, selectedId]);
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ block: 'end' });
-  }, [thread?.messages]);
+    if (!selectedId || thread?.conversationId !== selectedId) return;
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    const lastMessageId = thread.messages[thread.messages.length - 1]?.id || '';
+    const conversationChanged = scrollAnchorRef.current.conversationId !== selectedId;
+    const newMessage = Boolean(lastMessageId && lastMessageId !== scrollAnchorRef.current.lastMessageId);
+
+    if (conversationChanged) {
+      container.scrollTop = container.scrollHeight;
+      stickToBottomRef.current = true;
+    } else if (newMessage && stickToBottomRef.current) {
+      container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+    }
+
+    scrollAnchorRef.current = { conversationId: selectedId, lastMessageId };
+  }, [selectedId, thread?.conversationId, thread?.messages]);
 
   const sendReply = async (event: FormEvent) => {
     event.preventDefault();
@@ -222,19 +240,34 @@ export default function WhatsappInboxPanel({ connected }: { connected: boolean }
                 </div>
                 {!connected && <p className="text-xs text-[#8a6835]">أعد ربط QR لإرسال رد يدوي.</p>}
               </header>
-              <div className="flex-1 space-y-3 overflow-y-auto bg-[#f4f7f2] p-4" aria-live="polite">
+              <div
+                ref={messagesContainerRef}
+                onScroll={(event) => {
+                  const element = event.currentTarget;
+                  stickToBottomRef.current =
+                    element.scrollHeight - element.scrollTop - element.clientHeight < 80;
+                }}
+                className="min-h-0 max-h-[520px] flex-1 space-y-3 overflow-y-auto bg-[#f4f7f2] p-4"
+                aria-live="polite"
+              >
                 {thread.messages.map((message) => {
                   const outgoing = message.role === 'assistant';
+                  const unreadable = message.contentDecodeError === true;
                   return (
-                    <div key={message.id} className={cn('flex', outgoing ? 'justify-start' : 'justify-end')}>
+                    <div
+                      key={message.id}
+                      className={cn('flex', unreadable ? 'justify-center' : outgoing ? 'justify-start' : 'justify-end')}
+                    >
                       <div className={cn(
                         'max-w-[88%] rounded-2xl px-3.5 py-2.5 shadow-sm',
-                        outgoing
-                          ? 'rounded-tr-sm border border-[#d9e8dc] bg-white text-[#34483a]'
-                          : 'rounded-tl-sm bg-[#d9efdd] text-[#283e31]',
+                        unreadable
+                          ? 'max-w-full border border-dashed border-[#e8d9aa] bg-[#fff8df] text-[#806b31]'
+                          : outgoing
+                            ? 'rounded-tr-sm border border-[#d9e8dc] bg-white text-[#34483a]'
+                            : 'rounded-tl-sm bg-[#d9efdd] text-[#283e31]',
                       )}>
-                        <p className="mb-1 text-[10px] font-semibold text-[#67806e]">
-                          {outgoing ? 'ثنارة / فريق المؤسسة' : 'العميل'}
+                        <p className={cn('mb-1 text-[10px] font-semibold', unreadable ? 'text-[#806b31]' : 'text-[#67806e]')}>
+                          {unreadable ? 'رسالة قديمة غير مقروءة' : outgoing ? 'ثنارة / فريق المؤسسة' : 'العميل'}
                         </p>
                         <p className="whitespace-pre-wrap break-words text-sm leading-6">{message.content}</p>
                         <p className="mt-1 text-left text-[10px] text-[#839087]" dir="ltr">
@@ -247,7 +280,6 @@ export default function WhatsappInboxPanel({ connected }: { connected: boolean }
                 {thread.messages.length === 0 && (
                   <p className="py-8 text-center text-sm text-[#718078]">لا توجد رسائل محفوظة في هذه المحادثة.</p>
                 )}
-                <div ref={endRef} />
               </div>
               {thread.latestInbound?.status === 'failed' && thread.latestInbound.failureCode && (
                 <p className="border-t border-[#f0dfca] bg-[#fff9ef] px-4 py-2 text-xs text-[#795f37]" role="status">

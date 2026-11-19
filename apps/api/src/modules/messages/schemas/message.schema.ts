@@ -23,6 +23,9 @@ export class Message {
   @Prop({ default: false })
   contentEncrypted: boolean;
 
+  /** Runtime-only decode marker; never stored in MongoDB. */
+  contentDecodeError?: boolean;
+
   @Prop({ type: String, enum: ['text', 'voice'], default: 'text' })
   inputMode: 'text' | 'voice';
 

@@ -613,7 +613,9 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
         phoneNumber,
         lastMessageAt: conversation.lastMessageAt || latest?.createdAt || conversation.updatedAt,
         messageCount: conversation.messageCount || 0,
-        preview: latest?.content || '',
+        preview: latest?.contentDecodeError
+          ? 'رسالة قديمة غير قابلة للقراءة'
+          : latest?.content || '',
       };
     }));
   }
@@ -640,6 +642,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
         id: message._id.toString(),
         role: message.role,
         content: message.content,
+        contentDecodeError: message.contentDecodeError === true,
         createdAt: message.createdAt,
       })),
       latestInbound: latestInbound ? {
