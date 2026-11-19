@@ -15,14 +15,23 @@ export class MessagesService {
 
   private decodeContent<T extends Record<string, any>>(message: T): T {
     if (message?.contentEncrypted !== true) return message;
-    return {
-      ...message,
-      content: decryptWhatsappData(
-        message.content,
-        whatsappEncryptionKey(process.env.SESSION_SECRET || ''),
-      ),
-      contentEncrypted: false,
-    };
+    try {
+      return {
+        ...message,
+        content: decryptWhatsappData(
+          message.content,
+          whatsappEncryptionKey(process.env.SESSION_SECRET || ''),
+        ),
+        contentEncrypted: false,
+      };
+    } catch {
+      return {
+        ...message,
+        content: 'تعذر فك تشفير هذه الرسالة القديمة بالمفتاح الحالي.',
+        contentEncrypted: false,
+        contentDecodeError: true,
+      };
+    }
   }
 
   async create(data: {
@@ -129,7 +138,10 @@ export class MessagesService {
       .sort({ createdAt: -1 })
       .limit(count)
       .lean();
-    return messages.reverse().map((message) => this.decodeContent(message) as unknown as MessageDocument);
+    return messages
+      .reverse()
+      .map((message) => this.decodeContent(message) as any)
+      .filter((message: any) => message.contentDecodeError !== true) as MessageDocument[];
   }
 
   async countToday(): Promise<number> {

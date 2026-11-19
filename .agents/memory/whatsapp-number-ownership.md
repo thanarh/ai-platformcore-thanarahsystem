@@ -27,3 +27,14 @@ their messages to configured administrators, while avoiding unsolicited follow-u
 **How to apply:** Treat each inbound message as permission to answer that turn
 only. Do not send later messages without a new inbound message or separate
 recorded consent; keep opt-outs and tenant boundaries authoritative.
+
+Each Baileys session must be owned by only one application runtime at a time.
+Treat `connectionReplaced` as a competing-runtime signal, not a user logout:
+preserve encrypted credentials and Signal keys unless WhatsApp reports a real
+logout or an administrator explicitly disconnects.
+
+**Why:** Development and production runtimes may share the same database, and
+Baileys will replace one socket when the same account connects elsewhere.
+
+**How to apply:** Use a database-backed expiring lease per session scope; only
+the lease owner may restore credentials, persist session changes, or disconnect.

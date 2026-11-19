@@ -233,6 +233,51 @@ test('WhatsApp transcript messages are encrypted at rest and decrypted for autho
   }
 });
 
+test('Unreadable legacy WhatsApp messages stay visible as placeholders but are excluded from AI history', async () => {
+  const previousSecret = process.env.SESSION_SECRET;
+  const oldKey = whatsappEncryptionKey('previous-whatsapp-secret-test-long-enough');
+  const encryptedWithOldKey = encryptWhatsappData('old private message', oldKey);
+  process.env.SESSION_SECRET = 'current-whatsapp-secret-test-long-enough';
+  const stored = {
+    _id: '444444444444444444444444',
+    conversationId: '666666666666666666666666',
+    role: 'user',
+    content: encryptedWithOldKey,
+    contentEncrypted: true,
+    createdAt: new Date(),
+  };
+  class FakeMessage {}
+  FakeMessage.find = () => ({
+    sort: () => ({
+      limit: () => ({
+        lean: async () => [{ ...stored }],
+      }),
+    }),
+  });
+  FakeMessage.findOne = () => ({
+    sort: () => ({
+      lean: async () => ({ ...stored }),
+    }),
+  });
+  const service = new MessagesService(
+    FakeMessage,
+    { findById: async () => ({ metadata: { channel: 'whatsapp' } }) },
+  );
+  try {
+    const inboxMessages = await service.findByConversation('666666666666666666666666', 10);
+    const recentMessages = await service.getRecentMessages('666666666666666666666666', 10);
+    const latestMessage = await service.findLatestByConversation('666666666666666666666666');
+    assert.equal(inboxMessages[0].contentDecodeError, true);
+    assert.match(inboxMessages[0].content, /تعذر فك تشفير/);
+    assert.deepEqual(recentMessages, [], 'bad historical ciphertext must not block a new AI turn');
+    assert.equal(latestMessage.contentDecodeError, true);
+    assert.notEqual(latestMessage.content, 'old private message');
+  } finally {
+    if (previousSecret === undefined) delete process.env.SESSION_SECRET;
+    else process.env.SESSION_SECRET = previousSecret;
+  }
+});
+
 test('Phone OTP, opt-out, encryption and queue contracts are present without a Cloud fallback', () => {
   const app = read('apps/api/src/app.module.ts');
   const auth = read('apps/api/src/modules/auth/auth.service.ts')
@@ -796,6 +841,95 @@ test('QR connect, open, and transient close expose the expected session states',
   assert.equal(status.state, 'reconnecting');
   assert.equal(status.available, false);
   await service.disconnect(`tenant:${tenantId}`);
+});
+
+test('Concurrent runtimes cannot replace each other and a replaced session keeps its saved credentials', async () => {
+  const key = whatsappEncryptionKey('concurrent-session-test-secret-long-enough');
+  let row = null;
+  let deletedAuthKeys = 0;
+  const sessionModel = {
+    findOneAndUpdate: (filter, update) => ({
+      select: async () => {
+        if (update.$setOnInsert) {
+          row ??= { ...update.$setOnInsert };
+          return { ...row };
+        }
+        const mayClaim = row && (
+          row.connectionOwner === filter.$or[0].connectionOwner
+          || !row.connectionOwner
+          || !row.connectionLeaseUntil
+          || new Date(row.connectionLeaseUntil).getTime() <= Date.now()
+        );
+        if (!mayClaim) return null;
+        Object.assign(row, update.$set || {});
+        return { ...row };
+      },
+    }),
+    updateOne: async (filter, update) => {
+      if (filter.connectionOwner && row.connectionOwner !== filter.connectionOwner) {
+        return { matchedCount: 0 };
+      }
+      Object.assign(row, update.$set || {});
+      for (const keyName of Object.keys(update.$unset || {})) delete row[keyName];
+      return { matchedCount: 1 };
+    },
+    findOne: () => ({ lean: async () => row && { ...row } }),
+  };
+  let firstCallbacks = {};
+  let firstConfig;
+  const firstSocket = {
+    user: { id: '966501234567:44@s.whatsapp.net' },
+    ev: { on: (name, callback) => { firstCallbacks[name] = callback; } },
+    end: () => undefined,
+  };
+  const first = new WhatsappService(
+    sessionModel,
+    { deleteMany: async () => { deletedAuthKeys += 1; } },
+    {},
+    {},
+    {},
+  );
+  first.encryptionKey = () => key;
+  first.socketFactory = config => {
+    firstConfig = config;
+    return firstSocket;
+  };
+
+  let secondConfig;
+  const secondSocket = {
+    user: { id: '966501234567:44@s.whatsapp.net' },
+    ev: { on: () => undefined },
+    end: () => undefined,
+  };
+  const second = new WhatsappService(sessionModel, { deleteMany: async () => undefined }, {}, {}, {});
+  second.encryptionKey = () => key;
+  second.socketFactory = config => {
+    secondConfig = config;
+    return secondSocket;
+  };
+
+  await first.startTenantConnection(tenantId);
+  firstConfig.auth.creds.registered = true;
+  await firstCallbacks['creds.update']({});
+  await firstCallbacks['connection.update']({ connection: 'open' });
+
+  const blocked = await second.startTenantConnection(tenantId);
+  assert.equal(blocked.state, 'connected_elsewhere');
+  assert.equal((await second.getSessionStatus(`tenant:${tenantId}`)).state, 'connected_elsewhere');
+
+  await firstCallbacks['connection.update']({
+    connection: 'close',
+    lastDisconnect: { error: { output: { statusCode: 440 } } },
+  });
+  assert.equal(row.connectionState, 'connection_replaced');
+  assert.equal(row.enabled, false);
+  assert.ok(row.encryptedCreds, 'connection replacement must preserve the encrypted credentials');
+  assert.equal(deletedAuthKeys, 0, 'connection replacement must not delete Signal keys');
+
+  await second.startTenantConnection(tenantId);
+  assert.equal(secondConfig.auth.creds.registered, true, 'the saved session should be reusable without a new QR');
+  await first.onModuleDestroy();
+  await second.onModuleDestroy();
 });
 
 test('Arabic integration guide JavaScript example is syntactically valid', () => {

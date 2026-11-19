@@ -41,46 +41,46 @@ export class AiService {
     const requestId = uuidv4();
     const startTime = Date.now();
 
-    // Verify conversation belongs to user
-    const conversation = await this.conversationsService.findById(
-      data.conversationId,
-      data.userId,
-      data.tenantId,
-    );
-
-    // Get tenant config for AI settings
-    let tenantConfig: any = {};
-    try {
-      const tenant = await this.tenantsService.findById(data.tenantId);
-      const contextProfile = await this.contextProfileService
-        .getForAi(data.tenantId, data.userId)
-        .catch(() => ({}));
-      tenantConfig = {
-        ...(tenant.aiConfig || {}),
-        ...(data.fastMode ? {
-          responseProfile: 'fast',
-          webSearchEnabled: false,
-          openaiWebSearchEnabled: false,
-          historyWindow: 4,
-          maxHistoryChars: 3000,
-        } : {}),
-        industry: tenant.industry || tenant.type || 'general',
-        medicalMode: tenant.medicalMode || {},
-        contextProfile,
-        runtimeContext: this.buildRuntimeContext(data, tenant, contextProfile),
-      };
-    } catch {}
+    // Fetch independent account and context data together to reduce the
+    // pre-response round trips, especially for WhatsApp's fast mode.
+    const [conversation, tenant, contextProfile] = await Promise.all([
+      this.conversationsService.findById(
+        data.conversationId,
+        data.userId,
+        data.tenantId,
+      ),
+      this.tenantsService.findById(data.tenantId).catch(() => null),
+      this.contextProfileService.getForAi(data.tenantId, data.userId).catch(() => ({})),
+    ]);
+    const effectiveTenant = tenant || {};
+    const tenantConfig: any = {
+      ...(effectiveTenant.aiConfig || {}),
+      ...(data.fastMode ? {
+        responseProfile: 'fast',
+        webSearchEnabled: false,
+        openaiWebSearchEnabled: false,
+        historyWindow: 4,
+        maxHistoryChars: 3000,
+      } : {}),
+      industry: effectiveTenant.industry || effectiveTenant.type || 'general',
+      medicalMode: effectiveTenant.medicalMode || {},
+      contextProfile,
+      runtimeContext: this.buildRuntimeContext(data, effectiveTenant, contextProfile),
+    };
 
     // Save user message
-    const userMessage = await this.messagesService.create({
-      tenantId: data.tenantId,
-      userId: data.userId,
-      conversationId: data.conversationId,
-      role: 'user',
-      content: data.content,
-      inputMode: data.inputMode,
-      voiceMetadata: data.voiceMetadata,
-    });
+    const [userMessage, recentMessages] = await Promise.all([
+      this.messagesService.create({
+        tenantId: data.tenantId,
+        userId: data.userId,
+        conversationId: data.conversationId,
+        role: 'user',
+        content: data.content,
+        inputMode: data.inputMode,
+        voiceMetadata: data.voiceMetadata,
+      }),
+      this.messagesService.getRecentMessages(data.conversationId, 8),
+    ]);
     void this.contextProfileService.recordInteraction(
       data.tenantId,
       data.userId,
@@ -89,21 +89,24 @@ export class AiService {
 
     // Auto-title conversation after first message
     if (conversation.messageCount === 0) {
-      await this.conversationsService.autoTitle(data.conversationId, data.content);
+      void this.conversationsService.autoTitle(data.conversationId, data.content).catch(() => {});
     }
 
-    // Get recent messages for context (8 messages = 4 turns, keeps prompt short)
-    const recentMessages = await this.messagesService.getRecentMessages(
-      data.conversationId,
-      8,
-    );
-
-    const messages = recentMessages.map((m) => ({
-      role: m.role,
-      content: m.feedback?.correction
-        ? `${m.content}\n\n[ملاحظة تصحيحية من المستخدم: ${m.feedback.correction}]`
-        : m.content,
-    }));
+    // A legacy/current-key mismatch should not prevent the new message from
+    // reaching the model. Undecryptable historical WhatsApp rows are filtered
+    // by MessagesService; append this request exactly once either way.
+    const currentMessageId = userMessage?._id?.toString();
+    const messages = [
+      ...recentMessages
+        .filter((message) => !currentMessageId || message._id?.toString() !== currentMessageId)
+        .map((message) => ({
+          role: message.role,
+          content: message.feedback?.correction
+            ? `${message.content}\n\n[ملاحظة تصحيحية من المستخدم: ${message.feedback.correction}]`
+            : message.content,
+        })),
+      { role: 'user', content: data.content },
+    ];
 
     // Build AI request payload
     const aiRequest = {
@@ -157,27 +160,28 @@ export class AiService {
         },
       });
 
-      // Update conversation stats
-      await this.conversationsService.incrementMessageCount(
-        data.conversationId,
-        (aiResponse.inputTokens || 0) + (aiResponse.outputTokens || 0),
-      );
-
-      // Record usage telemetry
-      await this.usageService.record({
-        tenantId: data.tenantId,
-        userId: data.userId,
-        conversationId: data.conversationId,
-        requestId,
-        backend: aiResponse.backend,
-        model: aiResponse.model,
-        routeDecision: aiResponse.routeDecision,
-        inputTokens: aiResponse.inputTokens || 0,
-        outputTokens: aiResponse.outputTokens || 0,
-        latencyMs,
-        status: 'success',
-        ragUsed: (aiResponse.ragSources || []).length > 0,
-      }).catch((err) => this.logger.warn('Usage record failed:', err.message));
+      // Message persistence, counts, and telemetry do not depend on each
+      // other, so write them concurrently before returning the WhatsApp reply.
+      await Promise.all([
+        this.conversationsService.incrementMessageCount(
+          data.conversationId,
+          (aiResponse.inputTokens || 0) + (aiResponse.outputTokens || 0),
+        ),
+        this.usageService.record({
+          tenantId: data.tenantId,
+          userId: data.userId,
+          conversationId: data.conversationId,
+          requestId,
+          backend: aiResponse.backend,
+          model: aiResponse.model,
+          routeDecision: aiResponse.routeDecision,
+          inputTokens: aiResponse.inputTokens || 0,
+          outputTokens: aiResponse.outputTokens || 0,
+          latencyMs,
+          status: 'success',
+          ragUsed: (aiResponse.ragSources || []).length > 0,
+        }).catch((err) => this.logger.warn('Usage record failed:', err.message)),
+      ]);
       void this.notificationsService.fireNotify({
         tenantId: data.tenantId,
         userId: data.userId,

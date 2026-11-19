@@ -161,9 +161,12 @@ export default function WhatsAppSettingsPage() {
     if (value?.state === 'reconnect_failed') return 'تعذر الاتصال؛ أعد المحاولة';
     if (value?.state === 'needs_qr') return 'يلزم ربط QR مجددًا';
     if (value?.state === 'session_key_mismatch') return 'يلزم إعادة الربط عبر QR';
+    if (value?.state === 'connected_elsewhere') return 'الجلسة تعمل في نسخة أخرى';
+    if (value?.state === 'connection_replaced') return 'استُبدل الاتصال؛ الجلسة محفوظة';
     if (value?.state === 'qr_error' || value?.state === 'storage_error') return 'تعذر إكمال الربط';
     return 'غير متصل';
   };
+  const sessionManagedElsewhere = readiness?.state === 'connected_elsewhere';
 
   return (
     <main className="min-h-[100dvh] flex-1 overflow-auto bg-[#f3f6f3] px-4 py-7 text-[#24332f] sm:px-7 lg:px-10" dir="rtl">
@@ -226,7 +229,7 @@ export default function WhatsAppSettingsPage() {
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
-                    disabled={Boolean(busy)}
+                     disabled={Boolean(busy) || sessionManagedElsewhere}
                     onClick={() => void runConnectionAction(
                       'tenant',
                       readiness.state === 'session_key_mismatch' ? 'relink' : 'connect',
@@ -237,9 +240,13 @@ export default function WhatsAppSettingsPage() {
                       ? 'جارٍ بدء الربط…'
                       : readiness.state === 'session_key_mismatch'
                         ? 'إعادة الربط وإظهار QR'
-                        : readiness.available ? 'تحديث الاتصال' : 'ربط رقم المؤسسة'}
+                       : readiness.available
+                         ? 'تحديث الاتصال'
+                         : readiness.state === 'connection_replaced'
+                           ? 'استعادة الجلسة المحفوظة'
+                           : 'ربط رقم المؤسسة'}
                   </button>
-                  {readiness.state !== 'disconnected' && (
+                  {readiness.state !== 'disconnected' && !sessionManagedElsewhere && (
                     <button
                       type="button"
                       disabled={Boolean(busy)}
@@ -253,6 +260,16 @@ export default function WhatsAppSettingsPage() {
                 {readiness.state === 'session_key_mismatch' && (
                   <p role="alert" className="mt-3 rounded-xl border border-[#e5c7bd] bg-[#fff7f3] px-3 py-2 text-xs leading-6 text-[#8b3f2e]">
                     تعذر فك تشفير الجلسة القديمة بالمفتاح الحالي. أعد ربط الرقم برمز QR؛ سيُستبدل تخزين الجلسة فقط، ولن تُحذف المحادثات أو إعدادات التوجيه.
+                  </p>
+                )}
+                {sessionManagedElsewhere && (
+                  <p role="status" className="mt-3 rounded-xl border border-[#e8d9aa] bg-[#fff8df] px-3 py-2 text-xs leading-6 text-[#806b31]">
+                    رقم WhatsApp يعمل في نسخة أخرى من التطبيق. تركنا الجلسة كما هي ولم ننشئ اتصالًا ثانيًا حتى لا ينقطع الرقم.
+                  </p>
+                )}
+                {readiness.state === 'connection_replaced' && (
+                  <p role="status" className="mt-3 rounded-xl border border-[#e8d9aa] bg-[#fff8df] px-3 py-2 text-xs leading-6 text-[#806b31]">
+                    استُبدل اتصال هذا الخادم، لكن بيانات الجلسة لم تُحذف. اضغط «استعادة الجلسة المحفوظة» لمحاولة الاتصال مجددًا؛ قد يطلب WhatsApp رمز QR إذا ألغى الربط من أجهزته المرتبطة.
                   </p>
                 )}
                 {readiness.qrDataUrl && (

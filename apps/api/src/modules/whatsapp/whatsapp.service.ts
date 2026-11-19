@@ -26,7 +26,7 @@ import {
 } from '@whiskeysockets/baileys';
 import { Model, Types } from 'mongoose';
 import * as QRCode from 'qrcode';
-import { createHash, createHmac } from 'crypto';
+import { createHash, createHmac, randomUUID } from 'crypto';
 import { WhatsappAuthKey, WhatsappAuthKeyDocument } from './schemas/whatsapp-auth-key.schema';
 import { WhatsappDelivery, WhatsappDeliveryDocument } from './schemas/whatsapp-delivery.schema';
 import { WhatsappSession, WhatsappSessionDocument } from './schemas/whatsapp-session.schema';
@@ -80,6 +80,8 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   private readonly reconnectExhausted = new Set<string>();
   private readonly credentialWrites = new Map<string, Promise<void>>();
   private readonly socketFactory = makeWASocket;
+  private readonly instanceId = randomUUID();
+  private readonly connectionLeaseMs = 60_000;
 
   constructor(
     @InjectModel(WhatsappSession.name) private readonly sessionModel: Model<WhatsappSessionDocument>,
@@ -104,11 +106,15 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     for (const timer of this.reconnectTimers.values()) clearTimeout(timer);
     this.reconnectTimers.clear();
     await Promise.allSettled([...this.credentialWrites.values()]);
-    const sockets = [...this.sockets.values()];
+    const sockets = [...this.sockets.entries()];
     this.sockets.clear();
-    for (const socket of sockets) {
+    await Promise.all(sockets.map(async ([scopeKey, socket]) => {
       socket.end(new Error('Application shutting down'));
-    }
+      await this.sessionModel.updateOne(
+        { scopeKey, connectionOwner: this.instanceId },
+        { $unset: { connectionOwner: 1, connectionLeaseUntil: 1 } },
+      ).catch(() => undefined);
+    }));
   }
 
   private encryptionKey() {
@@ -190,15 +196,40 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       .select('+encryptedCreds');
   }
 
+  private async claimConnectionLease(scopeKey: string) {
+    const now = new Date();
+    return this.sessionModel.findOneAndUpdate(
+      {
+        scopeKey,
+        $or: [
+          { connectionOwner: this.instanceId },
+          { connectionOwner: null },
+          { connectionOwner: { $exists: false } },
+          { connectionLeaseUntil: { $lte: now } },
+          { connectionLeaseUntil: null },
+          { connectionLeaseUntil: { $exists: false } },
+        ],
+      },
+      {
+        $set: {
+          connectionOwner: this.instanceId,
+          connectionLeaseUntil: new Date(now.getTime() + this.connectionLeaseMs),
+        },
+      },
+      { new: true },
+    ).select('+encryptedCreds');
+  }
+
   private persistCredentials(scopeKey: string, socket: WASocket, credentials: unknown): Promise<void> {
     const snapshot = JSON.stringify(credentials, BufferJSON.replacer);
     const previous = this.credentialWrites.get(scopeKey) || Promise.resolve();
     const write = previous.catch(() => undefined).then(async () => {
       if (this.sockets.get(scopeKey) !== socket) return;
-      await this.sessionModel.updateOne(
-        { scopeKey },
+      const saved = await this.sessionModel.updateOne(
+        { scopeKey, connectionOwner: this.instanceId },
         { $set: { encryptedCreds: encryptWhatsappData(snapshot, this.encryptionKey()) } },
       );
+      if (saved?.matchedCount === 0) throw new Error('WhatsApp session lease was lost');
     });
     this.credentialWrites.set(scopeKey, write);
     return write.finally(() => {
@@ -227,7 +258,9 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     try {
     this.encryptionKey();
 
-    const session = await this.ensureSession(scopeKey, scope, tenantId);
+    await this.ensureSession(scopeKey, scope, tenantId);
+    const session = await this.claimConnectionLease(scopeKey);
+    if (!session) return { state: 'connected_elsewhere', scopeKey };
     let creds;
     try {
       creds = session?.encryptedCreds
@@ -235,8 +268,11 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
         : initAuthCreds();
     } catch {
       await this.sessionModel.updateOne(
-        { scopeKey },
-        { $set: { enabled: false, connectionState: 'session_key_mismatch' } },
+        { scopeKey, connectionOwner: this.instanceId },
+        {
+          $set: { enabled: false, connectionState: 'session_key_mismatch' },
+          $unset: { connectionOwner: 1, connectionLeaseUntil: 1 },
+        },
       );
       return {
         state: 'session_key_mismatch',
@@ -244,7 +280,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       };
     }
     await this.sessionModel.updateOne(
-      { scopeKey },
+      { scopeKey, connectionOwner: this.instanceId },
       { $set: { enabled: true, connectionState: 'connecting' } },
     );
     this.qrCodes.delete(scopeKey);
@@ -322,7 +358,10 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       return this.persistCredentials(scopeKey, socket, auth.creds).catch(async () => {
         socket.end(new Error('Session persistence unavailable'));
         await this.sessionModel
-          .updateOne({ scopeKey }, { $set: { connectionState: 'storage_error' } })
+          .updateOne(
+            { scopeKey, connectionOwner: this.instanceId },
+            { $set: { connectionState: 'storage_error' } },
+          )
           .catch(() => undefined);
       });
     });
@@ -341,9 +380,15 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
             dataUrl,
             expiresAt: new Date(Date.now() + 45_000),
           });
-          await this.sessionModel.updateOne({ scopeKey }, { $set: { connectionState: 'qr_pending' } });
+          await this.sessionModel.updateOne(
+            { scopeKey, connectionOwner: this.instanceId },
+            { $set: { connectionState: 'qr_pending' } },
+          );
         } catch {
-          await this.sessionModel.updateOne({ scopeKey }, { $set: { connectionState: 'qr_error' } });
+          await this.sessionModel.updateOne(
+            { scopeKey, connectionOwner: this.instanceId },
+            { $set: { connectionState: 'qr_error' } },
+          );
         }
       }
 
@@ -359,8 +404,16 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
         const now = new Date();
         this.connectedAt.set(scopeKey, now);
         await this.sessionModel.updateOne(
-          { scopeKey },
-          { $set: { connectionState: 'connected', phoneNumber, lastConnectedAt: now, enabled: true } },
+          { scopeKey, connectionOwner: this.instanceId },
+          {
+            $set: {
+              connectionState: 'connected',
+              phoneNumber,
+              lastConnectedAt: now,
+              enabled: true,
+              connectionLeaseUntil: new Date(now.getTime() + this.connectionLeaseMs),
+            },
+          },
         );
       }
 
@@ -369,22 +422,32 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
         this.sockets.delete(scopeKey);
         this.qrCodes.delete(scopeKey);
         const statusCode = (update.lastDisconnect?.error as any)?.output?.statusCode;
-        const loggedOut = [
-          DisconnectReason.loggedOut, DisconnectReason.badSession,
-          DisconnectReason.connectionReplaced, DisconnectReason.forbidden,
+        const requiresQr = [
+          DisconnectReason.loggedOut,
+          DisconnectReason.badSession,
+          DisconnectReason.forbidden,
         ].includes(statusCode);
-        await this.sessionModel.updateOne(
-          { scopeKey },
+        const connectionReplaced = statusCode === DisconnectReason.connectionReplaced;
+        const sessionWrite = await this.sessionModel.updateOne(
+          { scopeKey, connectionOwner: this.instanceId },
           {
             $set: {
-              enabled: !loggedOut,
-              connectionState: loggedOut ? 'needs_qr' : 'reconnecting',
-              ...(loggedOut ? { encryptedCreds: null, phoneNumber: null } : {}),
+              enabled: !requiresQr && !connectionReplaced,
+              connectionState: requiresQr
+                ? 'needs_qr'
+                : connectionReplaced
+                  ? 'connection_replaced'
+                  : 'reconnecting',
+              ...(requiresQr ? { encryptedCreds: null, phoneNumber: null } : {}),
             },
+            ...(requiresQr || connectionReplaced
+              ? { $unset: { connectionOwner: 1, connectionLeaseUntil: 1 } }
+              : {}),
           },
         );
-        if (loggedOut) await this.authKeyModel.deleteMany({ scopeKey });
-        if (loggedOut) {
+        if (sessionWrite?.matchedCount === 0) return;
+        if (requiresQr) await this.authKeyModel.deleteMany({ scopeKey });
+        if (requiresQr || connectionReplaced) {
           this.reconnectAttempts.delete(scopeKey);
           this.reconnectExhausted.delete(scopeKey);
         }
@@ -392,7 +455,10 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       }
       } catch {
         await this.sessionModel
-          .updateOne({ scopeKey }, { $set: { connectionState: 'storage_error' } })
+          .updateOne(
+            { scopeKey, connectionOwner: this.instanceId },
+            { $set: { connectionState: 'storage_error' } },
+          )
           .catch(() => undefined);
       }
     });
@@ -447,7 +513,17 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     const qr = this.qrCodes.get(scopeKey);
     const qrDataUrl = qr && qr.expiresAt.getTime() > Date.now() ? qr.dataUrl : undefined;
     if (qr && !qrDataUrl) this.qrCodes.delete(scopeKey);
-    const state = session?.connectionState === 'qr_pending' && !qrDataUrl
+    const connectionLeaseUntil = session?.connectionLeaseUntil
+      ? new Date(session.connectionLeaseUntil).getTime()
+      : 0;
+    const connectedElsewhere = Boolean(
+      session?.connectionOwner
+      && session.connectionOwner !== this.instanceId
+      && connectionLeaseUntil > Date.now(),
+    );
+    const state = connectedElsewhere
+      ? 'connected_elsewhere'
+      : session?.connectionState === 'qr_pending' && !qrDataUrl
       ? 'qr_expired'
       : session?.connectionState || 'disconnected';
     return {
@@ -458,7 +534,11 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       lastConnectedAt: session?.lastConnectedAt || null,
       reason: state === 'session_key_mismatch'
         ? 'The saved WhatsApp session cannot be decrypted with the current SESSION_SECRET.'
-        : undefined,
+        : state === 'connected_elsewhere'
+          ? 'This WhatsApp session is active in another application runtime.'
+          : state === 'connection_replaced'
+            ? 'WhatsApp replaced this runtime connection; saved session data was preserved.'
+            : undefined,
       qrDataUrl: qrDataUrl || null,
       qrExpiresAt: qrDataUrl ? qr?.expiresAt : null,
       capabilities: {
@@ -481,6 +561,11 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
 
   private async relinkWithQr(scopeKey: string, scope: 'platform' | 'tenant', tenantId?: string) {
     if (this.starting.has(scopeKey)) throw new ConflictException('Connection is starting. Try again shortly.');
+    await this.ensureSession(scopeKey, scope, tenantId);
+    const lease = await this.claimConnectionLease(scopeKey);
+    if (!lease) {
+      throw new ConflictException('جلسة WhatsApp تعمل في نسخة أخرى؛ أوقفها هناك قبل إعادة الربط.');
+    }
     const reconnectTimer = this.reconnectTimers.get(scopeKey);
     if (reconnectTimer) clearTimeout(reconnectTimer);
     this.reconnectTimers.delete(scopeKey);
@@ -495,7 +580,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     await Promise.all([
       this.authKeyModel.deleteMany({ scopeKey }),
       this.sessionModel.updateOne(
-        { scopeKey },
+        { scopeKey, connectionOwner: this.instanceId },
         {
           $set: {
             enabled: false,
@@ -610,6 +695,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
 
   async disconnect(scopeKey: string) {
     if (this.starting.has(scopeKey)) throw new ConflictException('Connection is starting. Try again shortly.');
+    await this.claimIfSessionExists(scopeKey);
     const reconnectTimer = this.reconnectTimers.get(scopeKey);
     if (reconnectTimer) clearTimeout(reconnectTimer);
     this.reconnectTimers.delete(scopeKey);
@@ -628,7 +714,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     }
     await Promise.all([
       this.sessionModel.updateOne(
-        { scopeKey },
+        { scopeKey, connectionOwner: this.instanceId },
         {
           $set: {
             enabled: false,
@@ -637,6 +723,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
             phoneNumber: null,
             lastConnectedAt: null,
           },
+          $unset: { connectionOwner: 1, connectionLeaseUntil: 1 },
         },
       ),
       this.authKeyModel.deleteMany({ scopeKey }),
@@ -701,6 +788,38 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     }, delayMs);
     timer.unref?.();
     this.reconnectTimers.set(scopeKey, timer);
+  }
+
+  @Interval(15_000)
+  private async renewConnectionLeases() {
+    if (this.shuttingDown || !this.sockets.size) return;
+    const leaseUntil = new Date(Date.now() + this.connectionLeaseMs);
+    await Promise.all([...this.sockets.entries()].map(async ([scopeKey, socket]) => {
+      try {
+        const result = await this.sessionModel.updateOne(
+          { scopeKey, connectionOwner: this.instanceId },
+          { $set: { connectionLeaseUntil: leaseUntil } },
+        );
+        if (result?.matchedCount === 0 && this.sockets.get(scopeKey) === socket) {
+          this.sockets.delete(scopeKey);
+          this.qrCodes.delete(scopeKey);
+          socket.end(new Error('WhatsApp session ownership lost'));
+        }
+      } catch {
+        this.logger.warn('WhatsApp session lease renewal failed');
+      }
+    }));
+  }
+
+  private async claimIfSessionExists(scopeKey: string) {
+    if (typeof this.sessionModel.findOne !== 'function') return false;
+    const session = await this.sessionModel.findOne({ scopeKey }).lean();
+    if (!session) return false;
+    const lease = await this.claimConnectionLease(scopeKey);
+    if (!lease) {
+      throw new ConflictException('جلسة WhatsApp تعمل في نسخة أخرى من التطبيق؛ لم نحذف بياناتها.');
+    }
+    return true;
   }
 
   private async handleInboundMessage(scopeKey: string, socket: WASocket, message: any) {
