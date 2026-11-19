@@ -44,8 +44,9 @@ _ENGLISH_QUESTION_PREFIX = re.compile(
 
 def _question_language(text: str) -> str | None:
     """Prefer the language of a user's question over pasted answer text."""
-    for paragraph in re.split(r"(?:\r?\n\s*){2,}", text):
-        candidate = paragraph.strip().lstrip(">\"'“”‘’ ")
+    fragments = re.split(r"(?:\r?\n)+|(?<=[.!?؟。])\s+", text)
+    for fragment in fragments:
+        candidate = fragment.strip().lstrip(">\"'“”‘’ ")
         if _ARABIC_QUESTION_PREFIX.match(candidate):
             return "ar"
         if _ENGLISH_QUESTION_PREFIX.match(candidate):

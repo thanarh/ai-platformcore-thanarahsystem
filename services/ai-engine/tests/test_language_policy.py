@@ -19,11 +19,13 @@ class LanguagePolicyTests(unittest.TestCase):
             "成人与儿童的区别：身体发育不同。"
             "\n\nما الفرق بين الطفل والإنسان البالغ؟"
         )
+        same_paragraph_request = "成人与儿童的区别：身体发育不同。 ما الفرق بين الطفل والإنسان البالغ؟"
         english_request = (
             "ما الفرق بين الطفل والإنسان البالغ؟"
             "\n\n成人与儿童的区别：身体发育不同。"
         )
         self.assertEqual(detect_language(arabic_request), "ar")
+        self.assertEqual(detect_language(same_paragraph_request), "ar")
         self.assertEqual(detect_language(english_request), "ar")
 
     def test_explicit_output_language_request_wins(self):

@@ -3,7 +3,7 @@ export const dynamic = 'force-dynamic';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { useEmbeddedRouter } from '@/lib/embedded-navigation';
-import { Send, Square, Copy, ExternalLink, Globe2, Menu, ThumbsUp, ThumbsDown, Pin, Sparkles, Mic, Type, Wand2, Paperclip, FileText, X, ListTodo, Loader2, Volume2 } from 'lucide-react';
+import { Send, Square, Copy, Globe2, Menu, ThumbsUp, ThumbsDown, Pin, Sparkles, Mic, Type, Wand2, Paperclip, FileText, X, ListTodo, Loader2, Volume2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useChatStore, Message } from '@/store/chat';
@@ -12,6 +12,7 @@ import { aiApi, filesApi, messagesApi } from '@/lib/api';
 import { streamChat, cn, isRTL } from '@/lib/utils';
 import { ThanarahIcon } from '@/components/ThanarahLogo';
 import TaskAssistantPanel, { AssistantTask } from '@/components/TaskAssistantPanel';
+import SourceChips from '@/components/SourceChips';
 
 type VoiceState = 'IDLE' | 'LISTENING' | 'TRANSCRIBING' | 'THINKING' | 'GENERATING' | 'SPEAKING' | 'STOPPED' | 'ERROR';
 type ChatAttachment = {
@@ -681,9 +682,6 @@ export default function ChatPage() {
              {(() => {
                const latest = executionEvents[executionEvents.length - 1] || {};
                const taskType = String(latest.type || latest.skillId || '').toLowerCase();
-                const searchEvent = [...executionEvents].reverse().find((event) => (
-                  event.event === 'search_started' && typeof event.query === 'string'
-                ));
                 const sources = [...new Map(
                   executionEvents
                     .filter((event) => event.event === 'source_found' && event.source?.url)
@@ -699,14 +697,6 @@ export default function ChatPage() {
                     .filter((event) => event.event === 'fetch_started')
                     .map((event) => String(event.url)),
                 );
-                const safeUrl = (value: unknown) => {
-                  try {
-                    const url = new URL(String(value));
-                    return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : '';
-                  } catch {
-                    return '';
-                  }
-                };
                 const domainForUrl = (value: unknown) => {
                   try {
                     return new URL(String(value)).hostname;
@@ -766,39 +756,19 @@ export default function ChatPage() {
                         <div className="h-full rounded-full bg-thanarah-500 transition-all" style={{ width: `${progress}%` }} />
                       </div>
                    </div>
-                    {searchEvent?.query && (
-                      <div className="w-full pr-5 text-[11px] text-gray-500 font-arabic">
-                        أبحث عن: <bdi className="font-medium text-gray-700">{searchEvent.query}</bdi>
-                      </div>
-                    )}
                     {sources.length > 0 && (
-                      <div className="flex w-full flex-wrap gap-1.5 pr-5">
-                        {sources.map((source) => {
-                          const url = safeUrl(source.url);
-                          const domain = String(source.domain || domainForUrl(source.url) || 'مصدر ويب');
-                          const isComplete = completedUrls.has(String(source.url));
-                          const isFetching = startedUrls.has(String(source.url)) && !isComplete;
-                          const sourceLabel = String(source.title || domain);
-                          return (
-                            <a
-                              key={String(source.url)}
-                              href={url || undefined}
-                              target={url ? '_blank' : undefined}
-                              rel={url ? 'noopener noreferrer' : undefined}
-                              className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-gray-200 bg-white px-2 py-1 text-[10px] text-gray-600 hover:border-thanarah-300 hover:text-thanarah-700"
-                              title={`${sourceLabel} — ${domain}`}
-                            >
-                              <span className="max-w-36 truncate font-medium">{sourceLabel}</span>
-                              <span className="text-gray-400">{domain}</span>
-                              <span className={cn(
-                                'whitespace-nowrap',
-                                isComplete ? 'text-green-600' : isFetching ? 'text-thanarah-600' : 'text-gray-400',
-                              )}>
-                                {isComplete ? 'تم التحقق' : isFetching ? 'يفتح الآن' : 'من النتائج'}
-                              </span>
-                            </a>
-                          );
-                        })}
+                      <div className="w-full pr-5">
+                        <SourceChips
+                          label="مصادر البحث"
+                          sources={sources.map((source) => ({
+                            ...source,
+                            fetchState: completedUrls.has(String(source.url))
+                              ? 'complete'
+                              : startedUrls.has(String(source.url))
+                                ? 'loading'
+                                : 'found',
+                          }))}
+                        />
                       </div>
                     )}
                   </>
@@ -1174,22 +1144,10 @@ function MessageBubble({ message, onCopy, onPin, onFeedback, feedback }: { messa
                       <Globe2 className="h-3.5 w-3.5 text-thanarah-600" />
                       مصادر الويب
                     </div>
-                    <div className="grid gap-1.5">
-                      {message.aiMetadata?.ragSources?.map((source: any, sourceIndex: number) => (
-                        <a
-                          key={`${source.id || source.url || 'source'}-${sourceIndex}`}
-                          href={source.url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="flex items-center gap-2 rounded-lg border border-gray-100 bg-gray-50 px-2.5 py-2 text-[10px] text-gray-600 transition hover:border-thanarah-200 hover:bg-thanarah-50"
-                        >
-                          <span className="min-w-0 flex-1 truncate font-arabic">
-                            [{source.id || `source-${sourceIndex + 1}`}] {source.title || source.domain || source.url}
-                          </span>
-                          <ExternalLink className="h-3 w-3 flex-shrink-0 text-gray-400" />
-                        </a>
-                      ))}
-                    </div>
+                    <SourceChips
+                      label="مصادر الويب"
+                      sources={message.aiMetadata?.ragSources || []}
+                    />
                   </div>
                 )}
                 {message.isStreaming && (
