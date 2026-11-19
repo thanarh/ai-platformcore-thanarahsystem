@@ -608,8 +608,12 @@ test('Expired QR status is explicit and does not claim the session is connected'
 
 test('Automatic WhatsApp reconnect stops after its bounded attempts', async () => {
   let stateUpdate;
+  let leaseReleased = false;
   const service = new WhatsappService({
-    updateOne: async (_filter, update) => { stateUpdate = update.$set.connectionState; },
+    updateOne: async (_filter, update) => {
+      stateUpdate = update.$set.connectionState;
+      leaseReleased = update.$unset?.connectionOwner === 1;
+    },
   });
   const scopeKey = `tenant:${tenantId}`;
   service.reconnectAttempts.set(scopeKey, 6);
@@ -617,7 +621,20 @@ test('Automatic WhatsApp reconnect stops after its bounded attempts', async () =
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(service.reconnectExhausted.has(scopeKey), true);
   assert.equal(stateUpdate, 'reconnect_failed');
+  assert.equal(leaseReleased, true);
   assert.equal(service.reconnectTimers.has(scopeKey), false);
+});
+
+test('Failed WhatsApp readiness exposes the last disconnect code without raw socket data', async () => {
+  const service = new WhatsappService({
+    findOne: () => ({
+      lean: async () => ({ connectionState: 'reconnect_failed', lastDisconnectCode: 408 }),
+    }),
+  }, {}, {}, {}, {});
+  const status = await service.getSessionStatus(`tenant:${tenantId}`);
+  assert.equal(status.state, 'reconnect_failed');
+  assert.equal(status.reason, 'انتهت محاولات الاتصال؛ رمز إغلاق WhatsApp الأخير: 408.');
+  assert.equal(status.available, false);
 });
 
 test('Manual disconnect cancels a pending reconnect', async () => {

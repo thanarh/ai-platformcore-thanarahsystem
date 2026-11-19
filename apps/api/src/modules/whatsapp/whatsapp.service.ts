@@ -413,6 +413,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
               enabled: true,
               connectionLeaseUntil: new Date(now.getTime() + this.connectionLeaseMs),
             },
+            $unset: { lastDisconnectCode: 1 },
           },
         );
       }
@@ -438,6 +439,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
                 : connectionReplaced
                   ? 'connection_replaced'
                   : 'reconnecting',
+              ...(Number.isInteger(statusCode) ? { lastDisconnectCode: statusCode } : {}),
               ...(requiresQr ? { encryptedCreds: null, phoneNumber: null } : {}),
             },
             ...(requiresQr || connectionReplaced
@@ -538,6 +540,10 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
           ? 'This WhatsApp session is active in another application runtime.'
           : state === 'connection_replaced'
             ? 'WhatsApp replaced this runtime connection; saved session data was preserved.'
+            : state === 'reconnect_failed'
+              ? Number.isInteger(session?.lastDisconnectCode)
+                ? `انتهت محاولات الاتصال؛ رمز إغلاق WhatsApp الأخير: ${session.lastDisconnectCode}.`
+                : 'انتهت محاولات الاتصال التلقائية. أعد المحاولة أو أعد الربط عبر QR.'
             : undefined,
       qrDataUrl: qrDataUrl || null,
       qrExpiresAt: qrDataUrl ? qr?.expiresAt : null,
@@ -775,8 +781,11 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     if (attempt > 6) {
       this.reconnectExhausted.add(scopeKey);
       void this.sessionModel.updateOne(
-        { scopeKey },
-        { $set: { connectionState: 'reconnect_failed' } },
+        { scopeKey, connectionOwner: this.instanceId },
+        {
+          $set: { connectionState: 'reconnect_failed' },
+          $unset: { connectionOwner: 1, connectionLeaseUntil: 1 },
+        },
       ).catch(() => undefined);
       return;
     }

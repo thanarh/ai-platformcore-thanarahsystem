@@ -35,6 +35,9 @@ export class WhatsappSession {
   @Prop()
   connectionLeaseUntil?: Date;
 
+  @Prop()
+  lastDisconnectCode?: number;
+
   @Prop({ type: [String], default: [] })
   forwardingPhones?: string[];
 

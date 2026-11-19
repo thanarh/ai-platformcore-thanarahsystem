@@ -242,10 +242,22 @@ export default function WhatsAppSettingsPage() {
                         ? 'إعادة الربط وإظهار QR'
                        : readiness.available
                          ? 'تحديث الاتصال'
+                         : readiness.state === 'reconnect_failed'
+                           ? 'إعادة محاولة الاتصال'
                          : readiness.state === 'connection_replaced'
                            ? 'استعادة الجلسة المحفوظة'
                            : 'ربط رقم المؤسسة'}
                   </button>
+                  {readiness.state === 'reconnect_failed' && (
+                    <button
+                      type="button"
+                      disabled={Boolean(busy)}
+                      onClick={() => void runConnectionAction('tenant', 'relink')}
+                      className="rounded-xl border border-[#d8dfd8] px-4 py-2.5 text-xs font-bold text-[#65756b] disabled:opacity-50"
+                    >
+                      {busy === 'tenant:relink' ? 'جارٍ إنشاء QR…' : 'إعادة الربط عبر QR'}
+                    </button>
+                  )}
                   {readiness.state !== 'disconnected' && !sessionManagedElsewhere && (
                     <button
                       type="button"
