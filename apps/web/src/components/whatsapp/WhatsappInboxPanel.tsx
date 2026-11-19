@@ -46,6 +46,8 @@ function failureMessage(code?: string | null) {
       return 'تعذّر على المساعد إعداد إجابة؛ أرسل النظام إشعار استلام للعميل.';
     case 'WHATSAPP_AUTO_REPLY_FAILED':
       return 'تعذّر تأكيد إرسال الرد عبر WhatsApp. تحقق من اتصال الرقم.';
+    case 'WHATSAPP_INBOUND_PROCESSING_FAILED':
+      return 'تعذّرت معالجة الرسالة الواردة؛ سجّل النظام سببًا آمنًا في قاعدة البيانات.';
     case 'WHATSAPP_INBOX_SAVE_FAILED':
       return 'تعذّر حفظ المحادثة. تحقق من اتصال قاعدة البيانات.';
     default:

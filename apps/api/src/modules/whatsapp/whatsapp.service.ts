@@ -497,7 +497,9 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     socket.ev.on('messages.upsert', ({ messages, type }) => {
       if (type !== 'notify') return;
       for (const message of messages) {
-        void this.handleInboundMessage(scopeKey, socket, message).catch(() => undefined);
+        void this.handleInboundMessage(scopeKey, socket, message).catch((error) =>
+          this.recordUnexpectedInboundFailure(scopeKey, message, error),
+        );
       }
     });
 
@@ -832,6 +834,61 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       throw new ConflictException('جلسة WhatsApp تعمل في نسخة أخرى من التطبيق؛ لم نحذف بياناتها.');
     }
     return true;
+  }
+
+  private async recordUnexpectedInboundFailure(scopeKey: string, message: any, error: any) {
+    const providerMessageId = message?.key?.id;
+    if (typeof providerMessageId !== 'string' || !providerMessageId) return;
+
+    const tenantId = scopeKey.startsWith('tenant:') ? scopeKey.slice('tenant:'.length) : null;
+    const tenantObjectId = tenantId && Types.ObjectId.isValid(tenantId)
+      ? new Types.ObjectId(tenantId)
+      : null;
+    const remoteJid = [message?.key?.remoteJid, message?.key?.remoteJidAlt]
+      .find((jid) => typeof jid === 'string' && jid.endsWith('@s.whatsapp.net'));
+    const phone = typeof remoteJid === 'string'
+      ? remoteJid.split('@')[0].split(':')[0].replace(/\D/g, '')
+      : '';
+    const contactHash = phone
+      ? createHash('sha256').update(`${scopeKey}:${phone}`).digest('hex')
+      : undefined;
+    let hasText = false;
+    try {
+      hasText = Boolean(this.extractInboundText(message));
+    } catch {
+      // Store the error category without logging or copying the message body.
+    }
+    const failureCode = 'WHATSAPP_INBOUND_PROCESSING_FAILED';
+    const rawCode = error?.code;
+    const safeCode = typeof rawCode === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(rawCode)
+      ? rawCode
+      : error?.name === 'Error' ? 'UNEXPECTED_ERROR' : 'PROCESSING_ERROR';
+    const scopeLabel = tenantObjectId ? 'tenant' : 'platform';
+
+    try {
+      await this.inboundModel.updateOne(
+        { scopeKey, providerMessageId, status: { $in: ['received', 'processing'] } },
+        { $set: { status: 'failed', failureCode } },
+      );
+      await this.inboundModel.updateOne(
+        { scopeKey, providerMessageId },
+        {
+          $setOnInsert: {
+            ...(tenantObjectId ? { tenantId: tenantObjectId } : {}),
+            scopeKey,
+            providerMessageId,
+            ...(contactHash ? { contactHash } : {}),
+            messageKind: hasText ? 'text' : 'media',
+            status: 'failed',
+            failureCode,
+          },
+        },
+        { upsert: true },
+      );
+      this.logger.warn(`WhatsApp inbound processing failed (${scopeLabel}; ${safeCode})`);
+    } catch {
+      this.logger.warn(`WhatsApp inbound failure could not be saved (${scopeLabel})`);
+    }
   }
 
   private async handleInboundMessage(scopeKey: string, socket: WASocket, message: any) {

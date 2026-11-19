@@ -400,6 +400,30 @@ test('Incoming WhatsApp text uses a tenant-scoped conversation and replies once'
   assert.equal(rows[0].status, 'replied');
 });
 
+test('Unexpected WhatsApp inbound failures are persisted without message bodies', async () => {
+  const writes = [];
+  const warnings = [];
+  const service = new WhatsappService(
+    {}, {}, {}, {}, {}, {},
+    { updateOne: async (...args) => { writes.push(args); } },
+    {}, {}, {}, {},
+  );
+  service.logger = { warn: message => warnings.push(message) };
+  const message = {
+    key: { id: 'incoming-failed-001', remoteJid: '966501234567@s.whatsapp.net' },
+    message: { conversation: 'private customer text' },
+  };
+  const error = Object.assign(new Error('private customer text'), { code: 'E_DB' });
+
+  await service.recordUnexpectedInboundFailure(`tenant:${tenantId}`, message, error);
+
+  assert.equal(writes.length, 2);
+  assert.equal(writes[1][1].$setOnInsert.failureCode, 'WHATSAPP_INBOUND_PROCESSING_FAILED');
+  assert.equal(writes[1][1].$setOnInsert.status, 'failed');
+  assert.doesNotMatch(JSON.stringify(writes), /private customer text/);
+  assert.deepEqual(warnings, ['WhatsApp inbound processing failed (tenant; E_DB)']);
+});
+
 test('Tenant inbound messages are saved to the WhatsApp inbox when AI replies are off', async () => {
   const rows = [];
   const messages = [];

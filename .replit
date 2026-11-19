@@ -23,6 +23,8 @@ NEXT_PUBLIC_API_URL = ""
 NODE_ENV = "development"
 NEXT_API_URL = "http://localhost:3001"
 LOCAL_AI_MODEL = "qwen2.5:1.5b"
+EXTERNAL_AI_ENABLED = "true"
+EXTERNAL_AI_TIMEOUT_SECONDS = "3.0"
 
 [workflows]
 runButton = "Project"
