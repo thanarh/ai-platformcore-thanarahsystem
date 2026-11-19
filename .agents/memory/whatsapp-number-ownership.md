@@ -28,6 +28,22 @@ their messages to configured administrators, while avoiding unsolicited follow-u
 only. Do not send later messages without a new inbound message or separate
 recorded consent; keep opt-outs and tenant boundaries authoritative.
 
+For the platform's Thanarah sales assistant, an inbound pricing/package question
+or clear expression of interest may be marked as a lead and forwarded to the
+configured administrators. Continue forwarding that contact's inbound follow-up
+messages for up to seven days so the requested facility and contact details stay
+with the lead. This is an inquiry only, not a booking, subscription, or payment.
+Never invent final package features or prices; the product reference does not
+approve them.
+
+**Why:** The user chose a contact/quote request for interested WhatsApp
+customers rather than immediate booking or purchase; final package pricing and
+feature lists are not approved.
+
+**How to apply:** Store lead flags and encrypted inbound messages in the
+existing MongoDB records, notify only configured administrators, respect STOP,
+and never initiate a later customer message without a new inbound turn.
+
 Each Baileys session must be owned by only one application runtime at a time.
 Treat `connectionReplaced` as a competing-runtime signal, not a user logout:
 preserve encrypted credentials and Signal keys unless WhatsApp reports a real
@@ -38,3 +54,15 @@ Baileys will replace one socket when the same account connects elsewhere.
 
 **How to apply:** Use a database-backed expiring lease per session scope; only
 the lease owner may restore credentials, persist session changes, or disconnect.
+
+Process inbound messages sequentially per WhatsApp contact while allowing
+different contacts to run concurrently. Keep message contents, lead markers,
+and processing failures in Mongo; the short-lived per-contact execution queue
+is runtime coordination, not the durable source of truth.
+
+**Why:** The user reported failures when sending multiple WhatsApp messages at
+once and requires durable message state in the existing database.
+
+**How to apply:** Route every `messages.upsert` through the per-scope/contact
+queue before AI or forwarding, preserve the database idempotency check, and
+test both same-contact ordering and parallel handling for separate contacts.

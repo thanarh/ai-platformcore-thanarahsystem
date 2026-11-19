@@ -17,7 +17,7 @@
 - [Phase 8.1 benchmark validity](phase81-benchmarking.md) — separate SearXNG outages and cold model reloads from causal warm-path performance claims
 - [Chat prompt auto-submit idempotency](chat-auto-submit-idempotency.md) — route-triggered prompts must wait for history and dedupe across Strict Mode to avoid duplicate inference on cold starts
 - [GitHub push isolation](github-push-isolation.md) — publish the minimum related commit set from fresh origin/main; keep unrelated local commits out
-- [WhatsApp number ownership](whatsapp-number-ownership.md) — Baileys QR, isolated tenant numbers, inbound replies/forwarding, and a separate platform OTP number
+- [WhatsApp number ownership](whatsapp-number-ownership.md) — Baileys QR, isolated numbers, lead handling, ordered inbound messages, and a separate OTP sender
 - [Phone and embedded product scope](phone-and-embedded-product-scope.md) — verify mobile before account fields; embed the full tenant product with independent institutional identities
 - [Next.js browser assertions](nextjs-browser-assertions.md) — scope form-error assertions; the framework adds its own accessibility alert
 - [Python native test libraries](python-native-test-libraries.md) — full AI-engine test discovery may need Nix runtime libraries when NumPy imports fail in the shell

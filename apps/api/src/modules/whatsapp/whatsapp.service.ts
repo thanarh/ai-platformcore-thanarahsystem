@@ -79,6 +79,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   private readonly reconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly reconnectExhausted = new Set<string>();
   private readonly credentialWrites = new Map<string, Promise<void>>();
+  private readonly inboundQueues = new Map<string, Promise<void>>();
   private readonly socketFactory = makeWASocket;
   private readonly instanceId = randomUUID();
   private readonly connectionLeaseMs = 60_000;
@@ -497,9 +498,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     socket.ev.on('messages.upsert', ({ messages, type }) => {
       if (type !== 'notify') return;
       for (const message of messages) {
-        void this.handleInboundMessage(scopeKey, socket, message).catch((error) =>
-          this.recordUnexpectedInboundFailure(scopeKey, message, error),
-        );
+        void this.enqueueInboundMessage(scopeKey, socket, message);
       }
     });
 
@@ -836,6 +835,31 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     return true;
   }
 
+  private enqueueInboundMessage(scopeKey: string, socket: WASocket, message: any): Promise<void> {
+    const remoteJid = [message?.key?.remoteJid, message?.key?.remoteJidAlt]
+      .find((jid) => typeof jid === 'string' && jid.includes('@'));
+    const identity = remoteJid || message?.key?.id || 'unknown';
+    const queueKey = `${scopeKey}:${identity}`;
+    const previous = this.inboundQueues.get(queueKey) || Promise.resolve();
+    const queued = previous.catch(() => undefined).then(async () => {
+      try {
+        await this.handleInboundMessage(scopeKey, socket, message);
+      } catch (error) {
+        await this.recordUnexpectedInboundFailure(scopeKey, message, error);
+      }
+    });
+    this.inboundQueues.set(queueKey, queued);
+    void queued.then(
+      () => {
+        if (this.inboundQueues.get(queueKey) === queued) this.inboundQueues.delete(queueKey);
+      },
+      () => {
+        if (this.inboundQueues.get(queueKey) === queued) this.inboundQueues.delete(queueKey);
+      },
+    );
+    return queued;
+  }
+
   private async recordUnexpectedInboundFailure(scopeKey: string, message: any, error: any) {
     const providerMessageId = message?.key?.id;
     if (typeof providerMessageId !== 'string' || !providerMessageId) return;
@@ -939,7 +963,21 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     if (isPlatform && !settings.forwardIncomingEnabled && !settings.autoReplyEnabled) return;
 
     const contactHash = createHash('sha256').update(`${scopeKey}:${phone}`).digest('hex');
-    const leadDetected = Boolean(isPlatform && text && isThanarahLead(text));
+    const directLead = Boolean(isPlatform && text && isThanarahLead(text));
+    let recentLead = false;
+    if (isPlatform && text && !directLead) {
+      const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      const previousLead = await this.inboundModel.findOne({
+        scopeKey,
+        contactHash,
+        providerMessageId: { $ne: providerMessageId },
+        leadDetected: true,
+        status: { $in: ['processing', 'replied'] },
+        createdAt: { $gte: cutoff },
+      }).sort({ createdAt: -1 }).lean();
+      recentLead = Boolean(previousLead);
+    }
+    const leadDetected = directLead || recentLead;
     const canReply = settings.autoReplyEnabled && Boolean(text);
 
     try {
@@ -959,7 +997,8 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     }
 
     const inboundFilter = { scopeKey, providerMessageId };
-    const forwardPromise = settings.forwardIncomingEnabled && settings.forwardingPhones.length
+    const shouldForward = settings.forwardIncomingEnabled || leadDetected;
+    const forwardPromise = shouldForward && settings.forwardingPhones.length
       ? this.forwardInboundToAdmins(socket, settings.forwardingPhones, phone, message, leadDetected)
         .then(async (forwardFailureCount) => {
           await this.inboundModel.updateOne(inboundFilter, {

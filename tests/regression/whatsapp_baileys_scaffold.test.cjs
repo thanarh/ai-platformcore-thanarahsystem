@@ -16,9 +16,21 @@ const {
   encryptWhatsappData,
   whatsappEncryptionKey,
 } = require('../../apps/api/dist/modules/whatsapp/whatsapp.crypto');
-const { quickThanarahReply } = require('../../apps/api/dist/modules/whatsapp/thanarah-profile');
+const { isThanarahLead, quickThanarahReply } =
+  require('../../apps/api/dist/modules/whatsapp/thanarah-profile');
 
 const tenantId = '222222222222222222222222';
+
+test('Dashboard logout revokes the web token without requesting WhatsApp disconnect', async () => {
+  const updates = [];
+  const authService = new AuthService(
+    { updateRefreshToken: async (...args) => { updates.push(args); } },
+    {}, {}, {}, {}, {},
+  );
+
+  assert.deepEqual(await authService.logout(tenantId), { success: true });
+  assert.deepEqual(updates, [[tenantId, null]]);
+});
 
 test('Admin platform and tenant session actions use separate scopes', async () => {
   const calls = [];
@@ -424,6 +436,44 @@ test('Unexpected WhatsApp inbound failures are persisted without message bodies'
   assert.deepEqual(warnings, ['WhatsApp inbound processing failed (tenant; E_DB)']);
 });
 
+test('WhatsApp inbound messages are serialized per sender and parallel across senders', async () => {
+  const service = new WhatsappService(
+    {}, {}, {}, {}, {}, {},
+    { updateOne: async () => undefined },
+    {}, {}, {}, {},
+  );
+  const events = [];
+  let active = 0;
+  let maxActive = 0;
+  service.handleInboundMessage = async (_scopeKey, _socket, message) => {
+    active += 1;
+    maxActive = Math.max(maxActive, active);
+    events.push(`start:${message.key.id}`);
+    await new Promise(resolve => setTimeout(resolve, 8));
+    events.push(`end:${message.key.id}`);
+    active -= 1;
+  };
+
+  const socket = {};
+  const message = (id, phone) => ({
+    key: { id, remoteJid: `${phone}@s.whatsapp.net` },
+  });
+  await Promise.all([
+    service.enqueueInboundMessage('platform', socket, message('same-1', '966501234567')),
+    service.enqueueInboundMessage('platform', socket, message('same-2', '966501234567')),
+  ]);
+  assert.deepEqual(events, ['start:same-1', 'end:same-1', 'start:same-2', 'end:same-2']);
+  assert.equal(maxActive, 1);
+
+  events.length = 0;
+  maxActive = 0;
+  await Promise.all([
+    service.enqueueInboundMessage('platform', socket, message('other-1', '966501234567')),
+    service.enqueueInboundMessage('platform', socket, message('other-2', '966509876543')),
+  ]);
+  assert.equal(maxActive, 2, 'different customers should not block one another');
+});
+
 test('Tenant inbound messages are saved to the WhatsApp inbox when AI replies are off', async () => {
   const rows = [];
   const messages = [];
@@ -514,7 +564,7 @@ test('Platform WhatsApp answers company questions and flags interested contacts 
       select: () => ({
         lean: async () => ({
           forwardingPhones: ['+966501111111'],
-          forwardIncomingEnabled: true,
+          forwardIncomingEnabled: false,
           autoReplyEnabled: true,
           autoReplyConfigured: true,
         }),
@@ -523,6 +573,17 @@ test('Platform WhatsApp answers company questions and flags interested contacts 
   };
   const inboundModel = {
     create: async row => { rows.push({ ...row }); },
+    findOne: query => ({
+      sort: () => ({
+        lean: async () => rows.find(row =>
+          row.scopeKey === query.scopeKey
+          && row.contactHash === query.contactHash
+          && row.providerMessageId !== query.providerMessageId?.$ne
+          && row.leadDetected === true
+          && ['processing', 'replied'].includes(row.status),
+        ) || null,
+      }),
+    }),
     find: () => ({
       select: () => ({
         sort: () => ({
@@ -530,9 +591,9 @@ test('Platform WhatsApp answers company questions and flags interested contacts 
         }),
       }),
     }),
-    updateOne: async (_filter, update) => {
-      const row = rows[0];
-      Object.assign(row, update.$set || {});
+    updateOne: async (filter, update) => {
+      const row = rows.find(item => item.providerMessageId === filter.providerMessageId);
+      if (row) Object.assign(row, update.$set || {});
     },
   };
   const socket = {
@@ -569,11 +630,23 @@ test('Platform WhatsApp answers company questions and flags interested contacts 
   assert.match(sent[2][1].text, /يسعدنا اهتمامك بثنارة/);
   assert.equal(fallbackAiCalls, 0, 'common Thanarah questions use the immediate verified answer');
   assert.match(quickThanarahReply('مين انتم؟'), /ثنارة شركة تقنية/);
+  assert.match(quickThanarahReply('ما هي باقاتكم؟'), /Lite وPro وCustomize/);
+  assert.match(quickThanarahReply('ماذا تقدمون؟'), /Smart Clinic.*Thanarah AI/s);
+  assert.equal(isThanarahLead('أريد بدء طلب عرض لعيادتي'), true);
+  assert.equal(isThanarahLead('كم أسعار الباقات؟'), true);
   assert.equal(rows[0].status, 'replied');
   assert.equal(rows[0].forwardFailureCount, 0);
   assert.ok(rows[0].forwardedAt);
   assert.ok(rows[0].encryptedContent);
   assert.ok(rows[0].encryptedReply);
+
+  await service.handleInboundMessage('platform', socket, {
+    key: { id: 'platform-inbound-02', remoteJid: '966501234567@s.whatsapp.net' },
+    message: { conversation: 'اسم المنشأة عيادات النور، المدينة الرياض، التواصل بعد الظهر' },
+  });
+  assert.equal(rows[1].leadDetected, true, 'details sent after an interest message remain attached to the lead');
+  assert.match(sent[3][1].text, /عميل مهتم بخدمات ثنارة/);
+  assert.match(sent[4][1].forward.message.conversation, /اسم المنشأة/);
 });
 
 test('Platform forwards non-text media without sending it to the AI engine', async () => {
