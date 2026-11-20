@@ -8,6 +8,7 @@ import { useAuthStore } from '@/store/auth';
 import { cn } from '@/lib/utils';
 import WhatsappAutomationSettings from '@/components/whatsapp/WhatsappAutomationSettings';
 import WhatsappInboxPanel from '@/components/whatsapp/WhatsappInboxPanel';
+import WhatsappReplySimulator from '@/components/whatsapp/WhatsappReplySimulator';
 
 type Readiness = {
   available: boolean;
@@ -386,6 +387,7 @@ export default function WhatsAppSettingsPage() {
             <p className="mt-3 text-xs text-[#65756b]">الحالة: {statusLabel(platformReadiness)}</p>
           </section>
           <WhatsappAutomationSettings scope="platform" title="رقم ثنارة المركزي" />
+          <WhatsappReplySimulator />
           </>
         )}
 

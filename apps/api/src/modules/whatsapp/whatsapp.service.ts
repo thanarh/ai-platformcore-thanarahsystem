@@ -65,6 +65,20 @@ export type WhatsappBotSettings = {
   autoReplyEnabled: boolean;
 };
 
+export type WhatsappSimulationMessage = {
+  role: 'user' | 'assistant';
+  content: string;
+};
+
+export type WhatsappSimulationInput = {
+  message: string;
+  history?: WhatsappSimulationMessage[];
+  simulateFailure?: boolean;
+};
+
+const PLATFORM_AI_FALLBACK_REPLY =
+  'ما قدرت أجهز إجابة دقيقة الآن. جرّب صياغة سؤالك بطريقة أخرى، أو اكتب «أريد تواصل» لطلب متابعة من فريق ثنارة.';
+
 @Injectable()
 export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(WhatsappService.name);
@@ -179,6 +193,79 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       },
     );
     return { forwardingPhones, forwardIncomingEnabled: input.forwardIncomingEnabled, autoReplyEnabled: input.autoReplyEnabled };
+  }
+
+  async simulatePlatformReply(input: WhatsappSimulationInput) {
+    const startedAt = Date.now();
+    const message = typeof input?.message === 'string' ? input.message.trim() : '';
+    if (!message || message.length > 1200) {
+      throw new BadRequestException('اكتب رسالة اختبار من 1 إلى 1200 حرف');
+    }
+
+    const rawHistory = input.history ?? [];
+    if (!Array.isArray(rawHistory) || rawHistory.length > 6) {
+      throw new BadRequestException('سجل الاختبار يقبل حتى 6 رسائل سابقة');
+    }
+    const history = rawHistory.map((item) => {
+      if (!item || !['user', 'assistant'].includes(item.role)
+        || typeof item.content !== 'string' || !item.content.trim()
+        || item.content.length > 1200) {
+        throw new BadRequestException('رسائل سجل الاختبار غير صالحة');
+      }
+      return { role: item.role, content: item.content.trim() } as WhatsappSimulationMessage;
+    });
+
+    let reply = '';
+    let status: 'replied' | 'failed' = 'replied';
+    let source: 'quick_reply' | 'ai' | 'simulated_failure' | 'fallback' = 'quick_reply';
+    let failureCode: string | null = null;
+
+    if (input.simulateFailure === true) {
+      reply = PLATFORM_AI_FALLBACK_REPLY;
+      status = 'failed';
+      source = 'simulated_failure';
+      failureCode = 'SIMULATED_AI_FAILURE';
+    } else {
+      reply = quickThanarahReply(message) || '';
+      if (!reply) {
+        source = 'ai';
+        try {
+          const answer = await this.aiService.chatStateless({
+            conversationId: `whatsapp-test:${randomUUID()}`,
+            userId: `platform-admin-test:${randomUUID()}`,
+            tenantId: 'thanarah-platform-whatsapp',
+            messages: [...history, { role: 'user', content: message }],
+            systemPrompt: THANARAH_WHATSAPP_SYSTEM_PROMPT,
+          });
+          reply = typeof answer?.content === 'string' ? answer.content.trim() : '';
+          if (!reply) {
+            failureCode = 'EMPTY_AI_RESPONSE';
+          }
+        } catch (error) {
+          failureCode = this.safeErrorLabel(error);
+        }
+        if (!reply) {
+          reply = PLATFORM_AI_FALLBACK_REPLY;
+          status = 'failed';
+          source = 'fallback';
+        }
+      }
+    }
+
+    if (history.length === 0) {
+      reply = `تنويه: أنا مساعد آلي وقد يطلع فريق ثنارة على رسالتك للمتابعة.\n${reply}`;
+    }
+
+    return {
+      status,
+      source,
+      reply,
+      failureCode,
+      latencyMs: Date.now() - startedAt,
+      simulated: true,
+      sentToWhatsApp: false,
+      savedToConversation: false,
+    };
   }
 
   private async ensureSession(scopeKey: string, scope: 'platform' | 'tenant', tenantId?: string) {
@@ -1113,7 +1200,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
 
       if (!answerText) {
         answerText = isPlatform
-          ? 'ما قدرت أجهز إجابة دقيقة الآن. جرّب صياغة سؤالك بطريقة أخرى، أو اكتب «أريد تواصل» لطلب متابعة من فريق ثنارة.'
+          ? PLATFORM_AI_FALLBACK_REPLY
           : 'وصلت رسالتك، لكن تعذّر إنشاء رد آلي الآن. جرّب مرة أخرى بعد قليل.';
         aiFailed = true;
       }

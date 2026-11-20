@@ -7,7 +7,12 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { Role, Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ApiKeysService } from '../api-keys/api-keys.service';
-import { WhatsappBotSettings, WhatsappMessageInput, WhatsappService } from './whatsapp.service';
+import {
+  WhatsappBotSettings,
+  WhatsappMessageInput,
+  WhatsappService,
+  WhatsappSimulationInput,
+} from './whatsapp.service';
 import { WhatsappRateLimitFilter } from './whatsapp-rate-limit.filter';
 
 @Controller('admin/whatsapp')
@@ -32,6 +37,13 @@ export class WhatsappController {
   @Header('Cache-Control', 'no-store')
   getPlatformSettings() {
     return this.whatsappService.getBotSettings('platform');
+  }
+
+  @Post('platform/simulate')
+  @HttpCode(HttpStatus.OK)
+  @Header('Cache-Control', 'no-store')
+  simulatePlatformReply(@Body() body: WhatsappSimulationInput) {
+    return this.whatsappService.simulatePlatformReply(body);
   }
 
   @Put('platform/settings')

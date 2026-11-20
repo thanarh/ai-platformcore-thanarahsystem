@@ -39,11 +39,17 @@ test('Admin platform and tenant session actions use separate scopes', async () =
     startPlatformConnection: async () => ({ state: 'connecting', scope: 'platform' }),
     startTenantConnection: async id => ({ state: 'connecting', scope: id }),
     disconnect: async key => ({ success: true, key }),
+    simulatePlatformReply: async input => ({ simulated: true, sentToWhatsApp: false, input }),
   };
   const admin = new WhatsappController(service);
   const tenant = new TenantWhatsappController(service, {});
   assert.equal((await admin.getPlatformStatus()).key, 'platform');
   assert.deepEqual(await admin.connectPlatform(), { state: 'connecting', scope: 'platform' });
+  assert.deepEqual(await admin.simulatePlatformReply({ message: 'من هيا ثناره' }), {
+    simulated: true,
+    sentToWhatsApp: false,
+    input: { message: 'من هيا ثناره' },
+  });
   assert.deepEqual(await tenant.connectTenant({ tenantId }), { state: 'connecting', scope: tenantId });
   assert.deepEqual(await tenant.disconnectTenant({ tenantId }), { success: true, key: `tenant:${tenantId}` });
 });
@@ -669,6 +675,72 @@ test('Platform WhatsApp answers company questions and flags interested contacts 
   assert.equal(rows[1].leadDetected, true, 'details sent after an interest message remain attached to the lead');
   assert.match(sent[3][1].text, /عميل مهتم بخدمات ثنارة/);
   assert.match(sent[4][1].forward.message.conversation, /اسم المنشأة/);
+});
+
+test('Platform WhatsApp test session simulates replies without saving or sending', async () => {
+  const aiCalls = [];
+  const service = new WhatsappService(
+    {}, {}, {}, {}, {}, {}, {},
+    {
+      chatStateless: async input => {
+        aiCalls.push(input);
+        return { content: 'نعم، يمكن لفريقنا شرح خيارات الربط المتاحة.' };
+      },
+    },
+    {}, {}, {},
+  );
+
+  const quick = await service.simulatePlatformReply({ message: 'من هيا ثناره؟' });
+  assert.equal(quick.source, 'quick_reply');
+  assert.equal(quick.status, 'replied');
+  assert.equal(quick.sentToWhatsApp, false);
+  assert.equal(quick.savedToConversation, false);
+  assert.match(quick.reply, /أنا مساعد آلي/);
+  assert.equal(aiCalls.length, 0, 'common questions should not use an AI call');
+
+  const aiReply = await service.simulatePlatformReply({
+    message: 'هل يمكن تخصيص النظام لعيادة متعددة الفروع؟',
+    history: [{ role: 'user', content: 'لدينا عيادة كبيرة' }],
+  });
+  assert.equal(aiReply.source, 'ai');
+  assert.equal(aiReply.status, 'replied');
+  assert.equal(aiReply.sentToWhatsApp, false);
+  assert.equal(aiReply.savedToConversation, false);
+  assert.deepEqual(aiCalls[0].messages, [
+    { role: 'user', content: 'لدينا عيادة كبيرة' },
+    { role: 'user', content: 'هل يمكن تخصيص النظام لعيادة متعددة الفروع؟' },
+  ]);
+
+  const beforeFailure = aiCalls.length;
+  const failed = await service.simulatePlatformReply({
+    message: 'اختبار تعطل الذكاء',
+    simulateFailure: true,
+  });
+  assert.equal(failed.source, 'simulated_failure');
+  assert.equal(failed.status, 'failed');
+  assert.equal(failed.failureCode, 'SIMULATED_AI_FAILURE');
+  assert.equal(aiCalls.length, beforeFailure, 'simulated failures must not call the AI provider');
+  assert.equal(failed.sentToWhatsApp, false);
+  assert.equal(failed.savedToConversation, false);
+
+  const unavailableAI = new WhatsappService(
+    {}, {}, {}, {}, {}, {}, {},
+    { chatStateless: async () => { throw Object.assign(new Error('private prompt'), { code: 'E_TIMEOUT' }); } },
+    {}, {}, {},
+  );
+  const fallback = await unavailableAI.simulatePlatformReply({
+    message: 'هل يمكن تخصيص النظام لعيادة متعددة الفروع؟',
+  });
+  assert.equal(fallback.source, 'fallback');
+  assert.equal(fallback.status, 'failed');
+  assert.equal(fallback.failureCode, 'E_TIMEOUT');
+  assert.doesNotMatch(JSON.stringify(fallback), /private prompt/);
+  assert.equal(fallback.sentToWhatsApp, false);
+  assert.equal(fallback.savedToConversation, false);
+
+  await assert.rejects(
+    () => service.simulatePlatformReply({ message: ' '.repeat(3) }),
+  );
 });
 
 test('Undecryptable old WhatsApp history does not repeat the first-contact disclaimer', async () => {
