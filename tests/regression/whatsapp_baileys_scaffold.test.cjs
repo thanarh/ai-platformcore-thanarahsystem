@@ -115,18 +115,22 @@ test('WhatsApp routing configuration normalizes recipients and validates the for
   );
 });
 
-test('Tenant auto-replies are enabled by default until an administrator saves a choice', async () => {
+test('Platform and tenant auto-replies default to enabled until explicitly configured', async () => {
+  let savedSettings = { autoReplyEnabled: false, autoReplyConfigured: false };
   const service = new WhatsappService({
     findOne: () => ({
       select: () => ({
-        lean: async () => ({ autoReplyEnabled: false, autoReplyConfigured: false }),
+        lean: async () => savedSettings,
       }),
     }),
   });
   const tenantSettings = await service.getBotSettings(`tenant:${tenantId}`);
   const platformSettings = await service.getBotSettings('platform');
   assert.equal(tenantSettings.autoReplyEnabled, true);
-  assert.equal(platformSettings.autoReplyEnabled, false);
+  assert.equal(platformSettings.autoReplyEnabled, true);
+
+  savedSettings = { autoReplyEnabled: false, autoReplyConfigured: true };
+  assert.equal((await service.getBotSettings('platform')).autoReplyEnabled, false);
 });
 
 test('API keys reach only messaging, status, and consent routes allowed by scope', async () => {
@@ -572,7 +576,14 @@ test('Platform WhatsApp answers company questions and flags interested contacts 
     }),
   };
   const inboundModel = {
-    create: async row => { rows.push({ ...row }); },
+    create: async row => {
+      if (rows.some(item => item.providerMessageId === row.providerMessageId)) {
+        const error = new Error('duplicate inbound');
+        error.code = 11000;
+        throw error;
+      }
+      rows.push({ ...row });
+    },
     findOne: query => ({
       sort: () => ({
         lean: async () => rows.find(row =>
@@ -630,6 +641,10 @@ test('Platform WhatsApp answers company questions and flags interested contacts 
   assert.match(sent[2][1].text, /يسعدنا اهتمامك بثنارة/);
   assert.equal(fallbackAiCalls, 0, 'common Thanarah questions use the immediate verified answer');
   assert.match(quickThanarahReply('مين انتم؟'), /ثنارة شركة تقنية/);
+  assert.match(quickThanarahReply('من هيا ثناره'), /ثنارة شركة تقنية/);
+  assert.match(quickThanarahReply('كيفك'), /الحمد لله/);
+  assert.match(quickThanarahReply('اخبارك'), /جاهزية/);
+  assert.match(quickThanarahReply('علومك'), /جاهزية/);
   assert.match(quickThanarahReply('ما هي باقاتكم؟'), /Lite وPro وCustomize/);
   assert.match(quickThanarahReply('ماذا تقدمون؟'), /Smart Clinic.*Thanarah AI/s);
   assert.equal(isThanarahLead('أريد بدء طلب عرض لعيادتي'), true);
@@ -641,12 +656,47 @@ test('Platform WhatsApp answers company questions and flags interested contacts 
   assert.ok(rows[0].encryptedReply);
 
   await service.handleInboundMessage('platform', socket, {
+    key: { id: 'platform-inbound-01', remoteJid: '966501234567@s.whatsapp.net' },
+    message: { conversation: 'أنا مهتم بخدمات ثنارة' },
+  });
+  assert.equal(sent.length, 3, 'replayed provider events must not send the reply twice');
+  assert.equal(rows.length, 1, 'the same provider message must be stored once');
+
+  await service.handleInboundMessage('platform', socket, {
     key: { id: 'platform-inbound-02', remoteJid: '966501234567@s.whatsapp.net' },
     message: { conversation: 'اسم المنشأة عيادات النور، المدينة الرياض، التواصل بعد الظهر' },
   });
   assert.equal(rows[1].leadDetected, true, 'details sent after an interest message remain attached to the lead');
   assert.match(sent[3][1].text, /عميل مهتم بخدمات ثنارة/);
   assert.match(sent[4][1].forward.message.conversation, /اسم المنشأة/);
+});
+
+test('Undecryptable old WhatsApp history does not repeat the first-contact disclaimer', async () => {
+  const oldKey = Buffer.alloc(32, 4);
+  const currentKey = Buffer.alloc(32, 3);
+  const service = new WhatsappService(
+    {}, {}, {}, {}, {}, {},
+    {
+      find: () => ({
+        select: () => ({
+          sort: () => ({
+            limit: () => ({
+              lean: async () => [{
+                encryptedContent: encryptWhatsappData('old question', oldKey),
+                encryptedReply: encryptWhatsappData('old answer', oldKey),
+              }],
+            }),
+          }),
+        }),
+      }),
+    },
+    {}, {}, {}, {},
+  );
+  service.encryptionKey = () => currentKey;
+
+  const history = await service.getPlatformHistory('platform', 'contact-hash', 'current-message');
+  assert.equal(history.hasPrevious, true);
+  assert.deepEqual(history.messages, []);
 });
 
 test('Platform forwards non-text media without sending it to the AI engine', async () => {
@@ -1057,4 +1107,17 @@ test('Arabic integration guide JavaScript example is syntactically valid', () =>
     });
     assert.equal(checked.status, 0, checked.stderr);
   }
+});
+
+test('Render Blueprint preserves WhatsApp sessions and bounds OpenAI spending', () => {
+  const renderConfig = read('render.yaml');
+  const deploymentGuide = read('DEPLOY-NOW.md');
+  assert.match(renderConfig, /- key: SESSION_SECRET\s+sync: false/);
+  assert.match(renderConfig, /- key: EXTERNAL_AI_ENABLED\s+value: true/);
+  assert.match(renderConfig, /- key: EXTERNAL_AI_MODEL\s+value: gpt-5-nano/);
+  assert.match(renderConfig, /- key: EXTERNAL_AI_DAILY_BUDGET_USD\s+value: 0\.19/);
+  assert.match(renderConfig, /- key: EXTERNAL_AI_API_KEY\s+sync: false/);
+  assert.match(deploymentGuide, /SESSION_SECRET/);
+  assert.match(deploymentGuide, /لا تولّد قيمة جديدة/);
+  assert.match(deploymentGuide, /0\.25 دولار يوميًا/);
 });

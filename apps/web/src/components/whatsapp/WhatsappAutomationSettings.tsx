@@ -86,7 +86,7 @@ export default function WhatsappAutomationSettings({
         <p className="text-[11px] font-bold tracking-[.16em] text-[#6d8b79]">التوجيه والرد الآلي</p>
         <h2 className="mt-2 text-lg font-bold">{title}</h2>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-[#65756b]">
-          الرد الآلي على رسائل المؤسسة مفعّل افتراضيًا، ويمكنك إيقافه. أضف أرقام فريقك وفعّل التوجيه إذا أردت وصول نسخة من الرسائل إليهم. رسائل المجموعات لا تُحوّل.
+          الرد الآلي على الرسائل الواردة مفعّل افتراضيًا، ويمكنك إيقافه. أضف أرقام فريقك وفعّل التوجيه إذا أردت وصول نسخة من الرسائل إليهم. رسائل المجموعات لا تُحوّل.
         </p>
       </div>
 

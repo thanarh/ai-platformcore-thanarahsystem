@@ -14,12 +14,15 @@
 
 ```env
 MONGODB_URI=<رابط MongoDB الجديد بعد تغيير كلمة المرور>
+SESSION_SECRET=<نفس القيمة الثابتة المستخدمة عند ربط جلسة WhatsApp>
 JWT_SECRET=<قيمة عشوائية طويلة>
 JWT_REFRESH_SECRET=<قيمة عشوائية طويلة ومختلفة>
 ENCRYPTION_KEY=<قيمة عشوائية طويلة ومختلفة>
 ```
 
-6. إذا كانت الخدمة منشأة يدوياً، أضف أو حدّث متغيرات التشغيل التالية؛ تعديل `render.yaml` لا يغيّر خدمة يدوية موجودة تلقائياً:
+`SESSION_SECRET` يجب أن يطابق القيمة التي شُفّرت بها جلسة WhatsApp الحالية. لا تولّد قيمة جديدة لها ولا ترسلها في المحادثة؛ أضفها مباشرةً في إعدادات Environment Variables في Render. إذا لم تعد تملك القيمة نفسها، ستحتاج إلى ربط الرقم مجددًا عبر QR بعد إعداد مفتاح ثابت.
+
+6. إذا كانت الخدمة منشأة يدوياً، أضف أو حدّث `SESSION_SECRET` بالقيمة نفسها أعلاه، إضافةً إلى متغيرات التشغيل التالية؛ تعديل `render.yaml` لا يغيّر خدمة يدوية موجودة تلقائياً:
 
 ```env
 LOCAL_AI_MODE=enabled
@@ -39,6 +42,15 @@ WEB_CONCURRENCY=1
 FREE_PROVIDER_ONLY=true
 FREE_PROVIDERS_ENABLED=false
 ALLOW_EXTERNAL_PROVIDERS=false
+EXTERNAL_AI_ENABLED=true
+EXTERNAL_AI_API_KEY=<أضفه كسر في Render، ولا تضعه في GitHub>
+EXTERNAL_AI_MODEL=gpt-5-nano
+EXTERNAL_AI_MAX_TOKENS_FIELD=max_completion_tokens
+EXTERNAL_AI_TIMEOUT_SECONDS=8
+EXTERNAL_AI_MAX_RETRIES=0
+EXTERNAL_AI_DAILY_BUDGET_USD=0.19
+EXTERNAL_AI_INPUT_PRICE_PER_MILLION=0.5
+EXTERNAL_AI_OUTPUT_PRICE_PER_MILLION=2
 ```
 
 7. نفّذ **Clear build cache & deploy** بعد سحب أحدث commit. عند أول تشغيل يُنزّل الخادم ملف النموذج (نحو 4.4 GiB) ثم يحمّله إلى الذاكرة قبل إعلان الجاهزية، لذلك قد يستغرق النشر الأول عدة دقائق. النجاح يظهر في السجل هكذا:
@@ -48,6 +60,8 @@ ALLOW_EXTERNAL_PROVIDERS=false
 [START] Thanarah advanced generation is ready
 [START] All Thanarah services are ready
 ```
+
+أضف `EXTERNAL_AI_API_KEY` في Render كسرّ من لوحة الخدمة، ولا تضعه في GitHub أو المحادثة. يستخدم Blueprint `gpt-5-nano` بحد يومي قدره **0.19 دولار** لتوليد الإجابات؛ مع احتياطي البحث المعتمد **0.06 دولار** يبقى السقف الإجمالي **0.25 دولار يوميًا**. مفتاح Replit لا ينتقل تلقائيًا إلى Render.
 
 8. اختبر:
 

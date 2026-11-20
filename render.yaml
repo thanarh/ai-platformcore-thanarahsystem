@@ -83,31 +83,33 @@ services:
       - key: RESPONSE_CACHE_SEMANTIC_MIN_SCORE
         value: 0.92
       - key: EXTERNAL_AI_ENABLED
-        value: false
+        value: true
       - key: EXTERNAL_AI_API_KEY
         sync: false
       - key: EXTERNAL_AI_BASE_URL
         value: https://api.openai.com/v1
       - key: EXTERNAL_AI_MODEL
-        value: ""
+        value: gpt-5-nano
       - key: EXTERNAL_AI_MAX_TOKENS_FIELD
-        value: max_tokens
+        value: max_completion_tokens
+      - key: EXTERNAL_AI_TIMEOUT_SECONDS
+        value: 8
       - key: EXTERNAL_AI_MAX_RETRIES
-        value: 2
+        value: 0
       - key: EXTERNAL_AI_MAX_CONCURRENCY
-        value: 16
+        value: 4
       - key: EXTERNAL_AI_DAILY_LIMIT
-        value: 50000
+        value: 200
       - key: EXTERNAL_AI_RPM_LIMIT
-        value: 300
+        value: 20
       - key: EXTERNAL_AI_DAILY_BUDGET_USD
-        value: 10
+        value: 0.19
       - key: EXTERNAL_AI_INPUT_PRICE_PER_MILLION
-        value: 0
+        value: 0.5
       - key: EXTERNAL_AI_OUTPUT_PRICE_PER_MILLION
-        value: 0
+        value: 2
       - key: EXTERNAL_AI_MAX_TOKENS_FAST
-        value: 256
+        value: 192
       - key: EXTERNAL_AI_MAX_TOKENS_BALANCED
         value: 768
       - key: EXTERNAL_AI_MAX_TOKENS_DEEP
@@ -119,6 +121,9 @@ services:
       - key: ALLOW_EXTERNAL_PROVIDERS
         value: false
       - key: MONGODB_URI
+        sync: false
+      # Must match the stable secret used to encrypt the existing WhatsApp session.
+      - key: SESSION_SECRET
         sync: false
       - key: JWT_SECRET
         generateValue: true

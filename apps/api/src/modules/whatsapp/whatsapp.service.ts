@@ -142,7 +142,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       forwardIncomingEnabled: session?.forwardIncomingEnabled === true,
       autoReplyEnabled: session?.autoReplyConfigured === true
         ? session.autoReplyEnabled === true
-        : scopeKey !== 'platform',
+        : true,
     };
   }
 
@@ -1056,8 +1056,8 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       let firstContact = false;
       let aiFailed = false;
       if (isPlatform) {
-        const previousMessages = await this.getPlatformHistory(scopeKey, contactHash, providerMessageId);
-        firstContact = previousMessages.length === 0;
+        const previousHistory = await this.getPlatformHistory(scopeKey, contactHash, providerMessageId);
+        firstContact = !previousHistory.hasPrevious;
         answerText = quickThanarahReply(text) || '';
         if (!answerText) {
           try {
@@ -1065,13 +1065,20 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
               conversationId: `whatsapp:${contactHash}`,
               userId: contactHash,
               tenantId: 'thanarah-platform-whatsapp',
-              messages: [...previousMessages, { role: 'user', content: text }],
+              messages: [...previousHistory.messages, { role: 'user', content: text }],
               systemPrompt: THANARAH_WHATSAPP_SYSTEM_PROMPT,
             });
             answerText = answer.content.trim();
-          } catch {
+            if (!answerText) {
+              aiFailed = true;
+              this.logger.warn('WhatsApp AI returned an empty answer (platform; EMPTY_AI_RESPONSE)');
+            }
+          } catch (error) {
             answerText = '';
             aiFailed = true;
+            this.logger.warn(
+              `WhatsApp AI generation failed (platform; ${this.safeErrorLabel(error)})`,
+            );
           }
         }
       } else {
@@ -1092,15 +1099,21 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
           });
           aiFailed = answer?.error === true;
           answerText = aiFailed ? '' : (answer?.content || '').trim();
-        } catch {
+          if (aiFailed || !answerText) {
+            this.logger.warn('WhatsApp AI generation failed (tenant; AI_RESPONSE_FAILED)');
+          }
+        } catch (error) {
           answerText = '';
           aiFailed = true;
+          this.logger.warn(
+            `WhatsApp AI generation failed (tenant; ${this.safeErrorLabel(error)})`,
+          );
         }
       }
 
       if (!answerText) {
         answerText = isPlatform
-          ? 'وصلت رسالتك إلى فريق ثنارة، وسيتابع معك قريبًا.'
+          ? 'ما قدرت أجهز إجابة دقيقة الآن. جرّب صياغة سؤالك بطريقة أخرى، أو اكتب «أريد تواصل» لطلب متابعة من فريق ثنارة.'
           : 'وصلت رسالتك، لكن تعذّر إنشاء رد آلي الآن. جرّب مرة أخرى بعد قليل.';
         aiFailed = true;
       }
@@ -1194,7 +1207,25 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
         // Ignore one corrupted/old conversation item; never expose stored ciphertext.
       }
     }
-    return history;
+    return { messages: history, hasPrevious: rows.length > 0 };
+  }
+
+  private safeErrorLabel(error: unknown): string {
+    const candidate = error as {
+      code?: unknown;
+      name?: unknown;
+      response?: { status?: unknown };
+    } | null;
+    if (typeof candidate?.code === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(candidate.code)) {
+      return candidate.code;
+    }
+    if (Number.isInteger(candidate?.response?.status)) {
+      return `HTTP_${candidate?.response?.status}`;
+    }
+    if (typeof candidate?.name === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(candidate.name)) {
+      return candidate.name;
+    }
+    return 'AI_REQUEST_FAILED';
   }
 
   private async forwardInboundToAdmins(

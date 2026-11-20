@@ -150,11 +150,11 @@ export default function WhatsappInboxPanel({ connected }: { connected: boolean }
   };
 
   const statusText = thread?.latestInbound?.status === 'failed'
-    ? 'آخر رد آلي تعذّر'
+    ? 'حالة اللوحة: تعذّر إنشاء الرد الآلي'
     : thread?.latestInbound?.status === 'processing'
-      ? 'الذكاء الاصطناعي يجهّز الرد'
+      ? 'حالة اللوحة فقط: الذكاء الاصطناعي يجهّز الرد'
       : thread?.latestInbound?.status === 'replied'
-        ? 'تم إرسال آخر رد آلي'
+        ? 'حالة اللوحة: أُرسل آخر رد آلي للعميل'
         : '';
 
   return (

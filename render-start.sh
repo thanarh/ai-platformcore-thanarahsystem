@@ -15,6 +15,15 @@ export WEB_CONCURRENCY=1
 export PYTHONUNBUFFERED=1
 export PYTHONPATH="${ROOT_DIR}/.pythonlibs:${ROOT_DIR}/.pythonlibs/lib/python3.12/site-packages:${ROOT_DIR}/services/ai-engine:${PYTHONPATH:-}"
 
+warn_whatsapp_secret() {
+  echo "[START] WARNING: SESSION_SECRET is missing or too short; WhatsApp cannot restore its encrypted session. Set the same stable value used when the QR session was linked." >&2
+}
+if [[ -z "${SESSION_SECRET:-}" ]]; then
+  warn_whatsapp_secret
+elif (( ${#SESSION_SECRET} < 32 )); then
+  warn_whatsapp_secret
+fi
+
 memory_limit_gb() {
   local bytes=""
   if [[ -r /sys/fs/cgroup/memory.max ]]; then
